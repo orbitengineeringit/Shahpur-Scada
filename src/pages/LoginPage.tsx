@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Lock, User, AlertCircle, Sun, Moon } from 'lucide-react';
 import orbitLogo from '@/assets/orbit-logo-optimized.png';
-import loginBg from '@/assets/sign-in-bg.jpg';
+import loginBg from '@/assets/sign-in-bg.png';
 import { useLogoPreload } from '@/hooks/useLogoPreload';
 
 const LoginPage = () => {
