@@ -54,9 +54,11 @@ const INTERVAL_LABEL: Record<ExportInterval, string> = {
   '1d': 'Every 1 day',
 };
 
-// Sensors not installed at Shahpur plant (e.g. WTP only has 2 HT Pumps: WTP-Pump1 & WTP-Pump2)
+// Sensors not installed at Shahpur plant (WTP only has 2 HT Pumps; Shahpur only has 2 OHTs — legacy OHT-3/4 from Mohgaon excluded)
 const UNINSTALLED_TAG_IDS = [
   'WTP-Pump3', 'WTP-Pump4', 'WTP-PT3', 'WTP-PT4', 'WTP-CombinedPT1', 'WTP-CombinedPT2', 'WTP-KW', 'INT-KW',
+  'OHT3-PT', 'OHT3-PT1', 'OHT3-PT2', 'OHT3-LT', 'OHT3-Flow', 'OHT3-Flow-IN', 'OHT3-Flow-OUT', 'OHT3-Totalizer', 'OHT3-DecrTotalizer', 'OHT3-FCV', 'OHT3-EFM1-1', 'OHT3-EFM2-1', 'OHT3-EFM2-2',
+  'OHT4-PT', 'OHT4-PT1', 'OHT4-PT2', 'OHT4-LT', 'OHT4-Flow', 'OHT4-Flow-IN', 'OHT4-Flow-OUT', 'OHT4-Totalizer', 'OHT4-DecrTotalizer', 'OHT4-FCV',
 ];
 const UNINSTALLED_TAGS_FILTER = `("${UNINSTALLED_TAG_IDS.join('","')}")`;
 

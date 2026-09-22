@@ -170,7 +170,7 @@ function mqttKeyMatches(sensorMqttKey: string, incomingKey: string): boolean {
   return false;
 }
 
-// Section ordering for INTAKE → WTP → OHT1 → OHT2 → OHT3 → OHT4
+// Section ordering for INTAKE → WTP → OHT1 → OHT2
 function getSectionSortKey(section: Section, sensorId: string): number {
   if (section === "intake") return 0;
   if (section === "wtp") return 1;

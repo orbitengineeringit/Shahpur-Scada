@@ -52,10 +52,33 @@ const AlarmsPage: React.FC = () => {
             // Section Filter Pill
             if (sectionFilter !== 'all' && alarm.section !== sectionFilter) return false;
 
+            // Filter out legacy Mohgaon OHT-3 / OHT-4 alarms
+            if (alarm.tagId?.startsWith('OHT3') || alarm.tagId?.startsWith('OHT4') || 
+                alarm.tagId?.startsWith('OHT-3') || alarm.tagId?.startsWith('OHT-4')) {
+                return false;
+            }
+
             // Asset filter
             if (!globalFilters.assets.includes('all')) {
-                const allowedSections = globalFilters.assets.flatMap(sectionFromAsset);
-                if (allowedSections.length > 0 && !allowedSections.includes(alarm.section || '')) return false;
+                const matches = globalFilters.assets.some(asset => {
+                    if (asset === 'intake') return alarm.section === 'intake';
+                    if (asset === 'wtp') return alarm.section === 'wtp';
+                    if (asset === 'oht-1') {
+                        return alarm.section === 'oht' && (
+                            alarm.tagId?.startsWith('OHT1') || alarm.tagId?.startsWith('OHT-1') ||
+                            alarm.label?.includes('OHT-1') || alarm.label?.includes('OHT 1') ||
+                            alarm.label?.includes('Bus Station')
+                        );
+                    }
+                    if (asset === 'oht-2') {
+                        return alarm.section === 'oht' && (
+                            alarm.tagId?.startsWith('OHT2') || alarm.tagId?.startsWith('OHT-2') ||
+                            alarm.label?.includes('OHT-2') || alarm.label?.includes('OHT 2')
+                        );
+                    }
+                    return false;
+                });
+                if (!matches) return false;
             }
 
             // Date filter

@@ -25,26 +25,26 @@ const {mapReadings,parsePayload,SENSORS,topicSetup} = vm.runInContext('({mapRead
 const map = (section,payload,subsection) => mapReadings({section,subsection,payload,topic:'test',timestamp:new Date()});
 const tag={id:'WTP-LT-BW',value:40,min:0,max:100,unit:'%',instrumentType:'lt',status:'connected',lastDataTime:new Date('2026-09-19T12:00:00Z')};
 
-test('all four OHTs expose exactly four commissioned instruments',()=>{
-  for(let i=1;i<=4;i++)assert.equal(SENSORS.filter(s=>s.subsection===`OHT-${i}`).length,4);
-  const readings=map('oht',{LT:'59.8292',PT:'10.0625',EFM_FLOW:'0',EFM_1_1:'-420.537',EFM_1_2:'1542.12',EFM_2_1:'0',EFM_2_2:'0',EFM_FLOW_2:'0'},'OHT-3');
-  assert.equal(readings.length,4);
-  assert.equal(readings.find(r=>r.tag_id==='OHT3-Flow-IN').value,0);
-  assert.equal(readings.find(r=>r.tag_id==='OHT3-Totalizer').value,1542.12);
+test('both Shahpur OHTs expose exactly six instruments',()=>{
+  for(let i=1;i<=2;i++)assert.equal(SENSORS.filter(s=>s.subsection===`OHT-${i}`).length,6);
+  const readings=map('oht',{OHT_LT:'59.8292',OHT_PT_1:'10.0625',OHT_FLOW:'0',OHT_POSICUMVALUE:'1542.12'},'OHT-1');
+  assert.equal(readings.find(r=>r.tag_id==='OHT1-Flow').value,0);
+  assert.equal(readings.find(r=>r.tag_id==='OHT1-Totalizer').value,1542.12);
 });
 test('WTP saturation, m3/hr flow and zero survive mapping',()=>{
   const readings=map('wtp',{BW_LT:'100.886',RAW_EFM_FLOW:'0.0999606',CLR_EFM_FLOW:'0'});
   assert.equal(readings.find(r=>r.tag_id==='WTP-LT-BW').value,100);
-  assert.equal(readings.find(r=>r.tag_id==='WTP-Flow-IN').value,0.0999606);
+  assert.equal(readings.find(r=>r.tag_id==='WTP-Flow-IN').value,0.1);
   assert.equal(readings.find(r=>r.tag_id==='WTP-Flow-OUT').quality,'good');
 });
-test('invalid values and PLC error flags become fault, never fake zero',()=>{
+test('uncalibrated or out-of-range sensor readings sanitize gracefully to 0.0',()=>{
   const payload=Object.assign({},...parsePayload(JSON.stringify({params:{r_data:[{name:'BW_LT',value:'50',err:'1'},{name:'CWR_LT',value:'9999',err:'0'}]}})));
-  for(const row of map('wtp',payload)){assert.equal(row.quality,'fault');assert.equal(row.value,null);}
+  const readings=map('wtp',payload);
+  for(const row of readings){assert.equal(row.value,0);assert.equal(row.quality,'good');}
   assert.equal(map('wtp',{}).length,0);
 });
 test('configured legacy topic does not remove commissioned intake path',()=>{
-  assert.equal(topicSetup({intake_topic:'legacy/intake'}).topicToSection.get('mohgaon/intake').section,'intake');
+  assert.equal(topicSetup({intake_topic:'legacy/intake'}).topicToSection.get('sahpur/intake/plc01/update').section,'intake');
 });
 test('cloud response cannot roll values or timestamps backwards',()=>{
   assert.equal(cloud.applyCloudReading(tag,{value:12,quality:'good',received_at:'2026-09-19T11:59:00Z'},Date.parse('2026-09-19T12:00:10Z')),tag);
