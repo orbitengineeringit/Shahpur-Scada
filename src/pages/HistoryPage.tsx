@@ -54,26 +54,21 @@ const INTERVAL_LABEL: Record<ExportInterval, string> = {
   '1d': 'Every 1 day',
 };
 
-// Sensors not installed at Mohgaon plant (e.g. Mohgaon WTP only has 2 HT Pumps: WTP-Pump1 & WTP-Pump2)
+// Sensors not installed at Shahpur plant (e.g. WTP only has 2 HT Pumps: WTP-Pump1 & WTP-Pump2)
 const UNINSTALLED_TAG_IDS = [
   'WTP-Pump3', 'WTP-Pump4', 'WTP-PT3', 'WTP-PT4', 'WTP-CombinedPT1', 'WTP-CombinedPT2', 'WTP-KW', 'INT-KW',
-  'OHT1-Flow-OUT', 'OHT1-FCV', 'OHT2-Flow-OUT', 'OHT2-FCV',
-  'OHT3-Flow-OUT', 'OHT3-FCV', 'OHT3-EFM1-1', 'OHT3-EFM2-1', 'OHT3-EFM2-2',
-  'OHT4-Flow-OUT', 'OHT4-FCV',
 ];
 const UNINSTALLED_TAGS_FILTER = `("${UNINSTALLED_TAG_IDS.join('","')}")`;
 
-/** Derive a sub-section label like OHT-1 / OHT-2 / OHT-3 from a tag_id (e.g. "OHT1-LT"). */
+/** Derive a sub-section label like OHT-1 / OHT-2 from a tag_id (e.g. "OHT1-LT"). */
 const getDisplaySection = (section: string, tagId: string): string => {
   const sec = section.toLowerCase();
   if (sec === 'oht') {
     const m = tagId.match(/^OHT[-_\s]*([0-9]+)/i);
     if (m) {
       const num = m[1];
-      if (num === '1') return 'OHT - 1 Ward No 04 - 300KL';
-      if (num === '2') return 'OHT - 2 Ward No 06 500KL';
-      if (num === '3') return 'OHT - 3 Ward No 06 200KL';
-      if (num === '4') return 'OHT - 4 Ward No 10 200KL';
+      if (num === '1') return 'OHT - 1 (Bus Station OHT)';
+      if (num === '2') return 'OHT - 2 (Awaiting Commissioning)';
       return `OHT-${num}`;
     }
     return 'OHT';

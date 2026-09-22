@@ -10,7 +10,7 @@ import CombinedPtGauge from '@/components/instruments/CombinedPtGauge';
 import SortableCardGrid, { SortableItem } from '@/components/SortableCardGrid';
 import SortableSectionList from '@/components/SortableSectionList';
 import IntakeProcessSimulation from '@/components/IntakeProcessSimulation';
-import { INTAKE_SENSORS } from '@/config/mohgaonSensors';
+import { INTAKE_SENSORS } from '@/config/shahpurSensors';
 import { TrendingUp, Wifi, WifiOff, BarChart2, LayoutGrid, Activity } from 'lucide-react';
 import { AlarmBellButton } from '@/components/AlarmBellButton';
 import IntakeIcon from '@/components/icons/IntakeIcon';
@@ -85,7 +85,7 @@ const CombinedPtCard: React.FC<{
             </div>
           )}
           <div className="flex items-center gap-1 mt-1">
-            <div className="w-1.5 h-1.5 rounded-full bg-success pulse-live shrink-0" />
+            <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
             <span className="text-[9px] sm:text-[10px] text-muted-foreground font-mono truncate">{new Date().toLocaleTimeString()}</span>
           </div>
         </div>
@@ -116,31 +116,36 @@ const IntakePage: React.FC = () => {
 
   const ptSensors = INTAKE_SENSORS.filter(s => s.instrumentType === 'pt' && !s.notInstalled);
   const ltSensor = INTAKE_SENSORS.find(s => s.instrumentType === 'lt' && !s.notInstalled);
-  const flowSensor = INTAKE_SENSORS.find(s => s.instrumentType === 'flow' && !s.notInstalled);
-  const totalizerSensor = INTAKE_SENSORS.find(s => s.instrumentType === 'totalizer' && !s.notInstalled);
+  const flowSensors = INTAKE_SENSORS.filter(s => s.instrumentType === 'flow' && !s.notInstalled);
+  const totalizerSensors = INTAKE_SENSORS.filter(s => s.instrumentType === 'totalizer' && !s.notInstalled);
   const pumpSensors = INTAKE_SENSORS.filter(s => s.instrumentType === 'pump' && !s.notInstalled);
 
   const pump1Tag = findTag('INT-Pump1');
   const pump2Tag = findTag('INT-Pump2');
   const pt1Tag = findTag('INT-PT1');
   const pt2Tag = findTag('INT-PT2');
+  const headerPtTag = findTag('INT-HeaderPT');
   const combinedPtTag = findTag('INT-CombinedPT');
   const pt1Val = pt1Tag?.value ?? 0;
   const pt2Val = pt2Tag?.value ?? 0;
+  const headerPtVal = headerPtTag?.value ?? 0;
   const combinedPtVal = combinedPtTag?.value ?? 0;
 
   const pump1Running = (pt1Tag?.status === 'connected' && pt1Val > 1.5) || (pump1Tag?.status === 'connected' && pump1Tag?.value === 1);
   const pump2Running = (pt2Tag?.status === 'connected' && pt2Val > 1.5) || (pump2Tag?.status === 'connected' && pump2Tag?.value === 1);
 
   const combinedPtValue = useMemo(() => {
+    if (headerPtTag && headerPtTag.status === 'connected' && headerPtVal > 0) {
+      return headerPtVal;
+    }
     if (combinedPtTag && combinedPtTag.status === 'connected' && combinedPtVal > 0) {
       return combinedPtVal;
     }
     if (pump1Running && pump2Running) return (pt1Val + pt2Val) / 2;
     if (pump1Running) return pt1Val;
     if (pump2Running) return pt2Val;
-    return combinedPtVal;
-  }, [combinedPtTag, combinedPtVal, pump1Running, pump2Running, pt1Val, pt2Val]);
+    return headerPtVal || combinedPtVal;
+  }, [headerPtTag, headerPtVal, combinedPtTag, combinedPtVal, pump1Running, pump2Running, pt1Val, pt2Val]);
 
   const sensorMap = useMemo(() => {
     const map: Record<string, typeof INTAKE_SENSORS[0]> = {};
@@ -148,9 +153,13 @@ const IntakePage: React.FC = () => {
     return map;
   }, []);
 
-  const ptIds = useMemo(() => [...ptSensors.map(s => s.id), 'INT-CombinedPT'], []);
-  const midIds = useMemo(() => [ltSensor?.id, flowSensor?.id].filter(Boolean) as string[], []);
-  const pumpIds = useMemo(() => pumpSensors.map(s => s.id), []);
+  const ptIds = useMemo(() => [...ptSensors.map(s => s.id), 'INT-CombinedPT'], [ptSensors]);
+  const mainIds = useMemo(() => [
+    ltSensor?.id,
+    ...flowSensors.map(s => s.id),
+    ...totalizerSensors.map(s => s.id)
+  ].filter(Boolean) as string[], [ltSensor, flowSensors, totalizerSensors]);
+  const pumpIds = useMemo(() => pumpSensors.map(s => s.id), [pumpSensors]);
 
   let idx = 0;
 
@@ -160,15 +169,13 @@ const IntakePage: React.FC = () => {
       content: (
         <div className="mb-8">
           <h3 className="text-lg font-semibold text-foreground mb-4 opacity-0 animate-fade-in flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-primary pulse-live" />
+            <div className="w-2 h-2 rounded-full bg-primary" />
             Main Process (Level & Flow)
           </h3>
-          <SortableCardGrid groupKey="intake-main" sensorIds={[...midIds, totalizerSensor?.id].filter(Boolean) as string[]} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6 w-full">
+          <SortableCardGrid groupKey="intake-main" sensorIds={mainIds} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6 w-full">
             {(orderedIds) => orderedIds.map((id) => {
-              let sensor, tag;
-              if (id === totalizerSensor?.id) { sensor = totalizerSensor; tag = findTag(id); }
-              else { sensor = sensorMap[id]; tag = findTag(id); }
-
+              const sensor = sensorMap[id];
+              const tag = findTag(id);
               if (!sensor || !tag) return null;
               return (
                 <SortableItem key={id} id={id}>
@@ -185,7 +192,7 @@ const IntakePage: React.FC = () => {
       content: (
         <div className="mb-8">
           <h3 className="text-lg font-semibold text-foreground mb-4 opacity-0 animate-fade-in flex items-center gap-2" style={{ animationDelay: '100ms' }}>
-            <div className="w-2 h-2 rounded-full bg-warning pulse-live" />
+            <div className="w-2 h-2 rounded-full bg-warning" />
             VT Pumps
           </h3>
           <SortableCardGrid groupKey="intake-pumps" sensorIds={pumpIds} className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-4xl mx-auto">
@@ -208,7 +215,7 @@ const IntakePage: React.FC = () => {
       content: (
         <div className="mb-8">
           <h3 className="text-lg font-semibold text-foreground mb-4 opacity-0 animate-fade-in flex items-center gap-2" style={{ animationDelay: '150ms' }}>
-            <div className="w-2 h-2 rounded-full bg-destructive pulse-live" />
+            <div className="w-2 h-2 rounded-full bg-destructive" />
             Pump Pressures
           </h3>
           <SortableCardGrid groupKey="intake-pt" sensorIds={ptIds} className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-6xl mx-auto">

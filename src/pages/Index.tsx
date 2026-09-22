@@ -273,7 +273,7 @@ const Index = () => {
             </circle>
 
             {/* Number indicator */}
-            <text x="75" y="10" fontSize="12" fill="#10b981" fontWeight="900" filter="url(#glowSuccess)">x3</text>
+            <text x="75" y="10" fontSize="12" fill="#10b981" fontWeight="900" filter="url(#glowSuccess)">x2</text>
           </g>
         </svg>
       ),
@@ -296,29 +296,28 @@ const Index = () => {
             {/* Left Side: Main Title & SCADA Branding */}
             <div className="lg:col-span-7 text-left space-y-4">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 dark:bg-blue-500/20 border border-blue-500/20 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 font-extrabold text-[10px] sm:text-xs uppercase tracking-widest">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                Under AMRUT 2.0
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                Package-61 · MPUDCL
               </div>
               
               <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-slate-800 dark:text-white leading-tight tracking-tight">
-                Augmentation of Water Supply Scheme
+                Improvement of Water Supply Scheme
               </h2>
               
               <div className="inline-block px-4 py-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200/50 dark:border-slate-700/50 text-slate-700 dark:text-slate-200 font-bold text-sm sm:text-base md:text-lg shadow-sm">
-                Mohgaon Nagar Parishad, Distt. <span className="bg-gradient-to-r from-blue-500 to-indigo-500 dark:from-cyan-400 dark:to-blue-400 bg-clip-text text-transparent font-black">Chhindwara</span>
+                Shahpur, Distt. <span className="bg-gradient-to-r from-blue-500 to-indigo-500 dark:from-cyan-400 dark:to-blue-400 bg-clip-text text-transparent font-black">Sagar</span>
               </div>
               
               <div className="flex items-center gap-3 pt-2">
                 <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 dark:from-cyan-400 dark:via-blue-400 dark:to-indigo-400 bg-clip-text text-transparent select-none">
                   SCADA
                 </h1>
-                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/20 text-emerald-500 text-[10px] font-extrabold uppercase tracking-wider animate-pulse">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/20 text-emerald-500 text-[10px] font-extrabold uppercase tracking-wider">
                   Live System
                 </span>
               </div>
               <p className="text-xs text-muted-foreground/80 font-medium">
-                PLC, SCADA & Instruments — Real-time Monitoring & Control System
+                PLC, SCADA & Instruments — Real-time Telemetry & Process Monitoring
               </p>
             </div>
 
@@ -331,8 +330,8 @@ const Index = () => {
                   <Building2 className="w-4 h-4 text-blue-500" />
                 </div>
                 <div className="mt-2">
-                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">Chief Municipal Officer</p>
-                  <p className="text-[10px] font-semibold text-muted-foreground/80 mt-0.5">NP Mohgaon (Chhindwara)</p>
+                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">MPUDCL</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground/80 mt-0.5">Madhya Pradesh Urban Dev. Co.</p>
                 </div>
               </div>
 
@@ -343,7 +342,7 @@ const Index = () => {
                   <Droplet className="w-4 h-4 text-indigo-500" />
                 </div>
                 <div className="mt-2">
-                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">1.8 MLD</p>
+                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">1.75 MLD</p>
                   <p className="text-[10px] font-semibold text-muted-foreground/80 mt-0.5">Million Litres / Day</p>
                 </div>
               </div>
@@ -351,29 +350,24 @@ const Index = () => {
               {/* Card 3: Contract Agency */}
               <div className="p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-900/30 border border-slate-200/50 dark:border-slate-800/50 flex flex-col justify-between min-h-[96px] shadow-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-extrabold text-muted-foreground uppercase tracking-wider">Contract Agency</span>
+                  <span className="text-[9px] font-extrabold text-muted-foreground uppercase tracking-wider">Contractor</span>
                   <UserCheck className="w-4 h-4 text-violet-500" />
                 </div>
                 <div className="mt-2">
-                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">M/s Dilip Patidar</p>
-                  <p className="text-[10px] font-semibold text-muted-foreground/80 mt-0.5">Contractor</p>
+                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">M/s. CMPV Engineering</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground/80 mt-0.5">Pvt. Ltd.</p>
                 </div>
               </div>
 
-              {/* Card 4: Live Sensors */}
+              {/* Card 4: System Integrator */}
               <div className="p-4 rounded-2xl bg-slate-50/50 dark:bg-slate-900/30 border border-slate-200/50 dark:border-slate-800/50 flex flex-col justify-between min-h-[96px] shadow-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-extrabold text-muted-foreground uppercase tracking-wider">Sensors</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-[9px] font-extrabold text-emerald-500">ACTIVE</span>
-                  </div>
+                  <span className="text-[9px] font-extrabold text-muted-foreground uppercase tracking-wider">System Integrator</span>
+                  <Cpu className="w-4 h-4 text-cyan-500" />
                 </div>
                 <div className="mt-2">
-                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">
-                    {totalActive} / {totalSensors} Tags Online
-                  </p>
-                  <p className="text-[10px] font-semibold text-muted-foreground/80 mt-0.5">Real-time Datastreams</p>
+                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">Orbit Engineering</p>
+                  <p className="text-[10px] font-semibold text-muted-foreground/80 mt-0.5">Solutions</p>
                 </div>
               </div>
             </div>
@@ -408,21 +402,14 @@ const Index = () => {
 
                   <div className="mt-auto">
                     <div className="flex items-center justify-between mb-4 border-t border-slate-100 dark:border-white/10 pt-5">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.5)] pulse-live" />
-                        <span className="text-sm text-slate-700 dark:text-foreground font-semibold">{installedTags(card.tags).length} Total Sensors</span>
-                      </div>
+                      <span className="text-xs font-medium text-muted-foreground">Last Telemetry</span>
                       <span className="text-[10px] font-mono text-slate-500 dark:text-muted-foreground bg-slate-100 dark:bg-black/30 px-2 py-1.5 rounded-md border border-slate-200 dark:border-white/5">
                         {lastUpdate.getTime() > 0 ? lastUpdate.toLocaleTimeString() : '--:--:--'}
                       </span>
                     </div>
 
                     <div className="flex items-center justify-between bg-slate-50 dark:bg-black/20 p-3 rounded-xl border border-slate-200/80 dark:border-white/5">
-                      <div className="flex items-center gap-2">
-                        <span className="px-3 py-1.5 rounded-lg text-xs font-mono bg-emerald-50 dark:bg-success/20 text-emerald-700 dark:text-success font-bold tracking-wide border border-emerald-200 dark:border-success/30">
-                          {activeCount} Active
-                        </span>
-                      </div>
+                      <span className="text-xs font-bold text-foreground">View Station Dashboard</span>
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center bg-${card.color}/10 dark:bg-${card.color}/20 group-hover:bg-${card.color} group-hover:text-primary-foreground transition-all duration-300 group-hover:shadow-lg ${card.shadowColor}`}>
                         <ArrowRight className={`w-5 h-5 text-${card.color} group-hover:text-white transition-colors`} />
                       </div>
@@ -444,9 +431,9 @@ const Index = () => {
 
         <div className="mt-10 sm:mt-14 grid grid-cols-3 gap-2 sm:gap-4 max-w-3xl mx-auto">
           {[
-            { label: 'Total Sensors', value: totalSensors, color: 'primary', icon: '📡' },
-            { label: 'Active', value: totalActive, color: 'success', icon: '✅' },
-            { label: 'Sections', value: 5, color: 'accent', icon: '🏭' },
+            { label: 'Design Capacity', value: '1.75 MLD', color: 'primary', icon: '💧' },
+            { label: 'Monitored Stations', value: '3 Units', color: 'success', icon: '🏭' },
+            { label: 'Contract Package', value: 'Pkg-61', color: 'accent', icon: '🏛️' },
           ].map((stat, i) => (
             <div key={stat.label}
               className="premium-card stat-shine rounded-xl p-3 sm:p-5 text-center opacity-0 animate-fade-in"

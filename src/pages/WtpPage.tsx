@@ -5,7 +5,7 @@ import StatusBar from '@/components/StatusBar';
 import InstrumentCard from '@/components/InstrumentCard';
 import SortableCardGrid, { SortableItem } from '@/components/SortableCardGrid';
 import SortableSectionList from '@/components/SortableSectionList';
-import { WTP_SENSORS } from '@/config/mohgaonSensors';
+import { WTP_SENSORS } from '@/config/shahpurSensors';
 import { BarChart2, LayoutGrid, Activity } from 'lucide-react';
 import WtpIcon from '@/components/icons/WtpIcon';
 import CombinedPtGauge from '@/components/instruments/CombinedPtGauge';
@@ -82,7 +82,7 @@ const WtpCombinedPtCard: React.FC<{
         </div>
         <div className="shrink-0 mt-auto">
           <div className="flex items-center gap-1 mt-1">
-            <div className="w-1.5 h-1.5 rounded-full bg-success pulse-live shrink-0" />
+            <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
             <span className="text-[9px] sm:text-[10px] text-muted-foreground font-mono truncate">{new Date().toLocaleTimeString()}</span>
           </div>
         </div>
@@ -140,7 +140,7 @@ const WtpPage: React.FC = () => {
       content: (
         <div className="mb-8">
           <h3 className="text-lg font-semibold text-foreground mb-4 opacity-0 animate-fade-in flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-primary pulse-live" />
+            <div className="w-2 h-2 rounded-full bg-primary" />
             Levels, Flow & Metering
           </h3>
           <SortableCardGrid groupKey="wtp-primary" sensorIds={[...ltIds, ...flowIds, totalizerSensor?.id].filter(Boolean) as string[]} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6 w-full">
@@ -165,7 +165,7 @@ const WtpPage: React.FC = () => {
         content: (
           <div className="mb-8">
             <h3 className="text-lg font-semibold text-foreground mb-4 opacity-0 animate-fade-in flex items-center gap-2" style={{ animationDelay: '100ms' }}>
-              <div className="w-2 h-2 rounded-full bg-accent pulse-live" />
+              <div className="w-2 h-2 rounded-full bg-accent" />
               Water Quality — Inlet
             </h3>
             <SortableCardGrid groupKey="wtp-inlet" sensorIds={inletAnalyzerIds} className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-4xl">
@@ -191,7 +191,7 @@ const WtpPage: React.FC = () => {
         content: (
           <div className="mb-8">
             <h3 className="text-lg font-semibold text-foreground mb-4 opacity-0 animate-fade-in flex items-center gap-2" style={{ animationDelay: '150ms' }}>
-              <div className="w-2 h-2 rounded-full bg-accent pulse-live" />
+              <div className="w-2 h-2 rounded-full bg-accent" />
               Water Quality — Outlet
             </h3>
             <SortableCardGrid groupKey="wtp-outlet" sensorIds={outletAnalyzerIds} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 max-w-6xl">
@@ -216,7 +216,7 @@ const WtpPage: React.FC = () => {
       content: (
         <div className="mb-8">
           <h3 className="text-lg font-semibold text-foreground mb-4 opacity-0 animate-fade-in flex items-center gap-2" style={{ animationDelay: '150ms' }}>
-            <div className="w-2 h-2 rounded-full bg-warning pulse-live" />
+            <div className="w-2 h-2 rounded-full bg-warning" />
             HT Pumps, Pressure & Combined PT
           </h3>
           {/* Row 1: Active Pumps with their individual PTs */}
@@ -236,8 +236,8 @@ const WtpPage: React.FC = () => {
                     <div className="relative">
                       <InstrumentCard tag={ptTag} sensor={ptSensor} section="wtp" index={idx++} />
                       {/* Pump status overlay badge on PT card */}
-                      <div className={`absolute bottom-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold tracking-wider border ${isPumpOn ? 'bg-success/15 text-success border-success/30' : 'bg-destructive/10 text-destructive border-destructive/25 animate-pulse'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isPumpOn ? 'bg-success pulse-live' : 'bg-destructive'}`} />
+                      <div className={`absolute bottom-2 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold tracking-wider border ${isPumpOn ? 'bg-success/15 text-success border-success/30' : 'bg-destructive/10 text-destructive border-destructive/25'}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isPumpOn ? 'bg-success' : 'bg-destructive'}`} />
                         {isPumpOn ? 'PUMP ON' : 'PUMP OFF'}
                       </div>
                     </div>
@@ -289,7 +289,7 @@ const WtpPage: React.FC = () => {
       id: 'wtp-sec-raw-water',
       content: (
         <div className="mb-8">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-primary pulse-live" />Raw Water / Inlet</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-primary" />Raw Water / Inlet</h3>
           <SortableCardGrid groupKey="wtp-raw-water" sensorIds={rawWaterIds} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6 w-full">
             {(orderedIds) => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
           </SortableCardGrid>
@@ -300,7 +300,7 @@ const WtpPage: React.FC = () => {
       id: 'wtp-sec-backwash',
       content: (
         <div className="mb-8">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-accent pulse-live" />Backwash</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-accent" />Backwash</h3>
           <SortableCardGrid groupKey="wtp-backwash" sensorIds={backwashIds} className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-4xl">
             {(orderedIds) => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
           </SortableCardGrid>
@@ -311,7 +311,7 @@ const WtpPage: React.FC = () => {
       id: 'wtp-sec-clear-water',
       content: (
         <div className="mb-8">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-success pulse-live" />Clear Water</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-success" />Clear Water</h3>
           <SortableCardGrid groupKey="wtp-clear-water" sensorIds={clearWaterIds} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 w-full">
             {(orderedIds) => orderedIds.map(id => (
               <SortableItem key={id} id={id}>
@@ -328,7 +328,7 @@ const WtpPage: React.FC = () => {
       id: 'wtp-sec-outlet',
       content: (
         <div className="mb-8">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-warning pulse-live" />Outlet</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-warning" />Outlet</h3>
           <SortableCardGrid groupKey="wtp-outlet-process" sensorIds={outletIds} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 w-full">
             {(orderedIds) => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
           </SortableCardGrid>
@@ -347,7 +347,7 @@ const WtpPage: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-foreground truncate">Water Treatment Plant (WTP)</h2>
-              <p className="text-xs sm:text-sm text-muted-foreground">{WTP_SENSORS.length} instruments monitoring</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">{WTP_SENSORS.length} instruments • Awaiting Field Commissioning</p>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:shrink-0">

@@ -13,15 +13,11 @@ import { BarChart3, Droplets, Gauge, Activity, TrendingUp, Waves } from 'lucide-
 const TANK_COLORS = [
   'hsl(199, 89%, 48%)',  // OHT-1 primary
   'hsl(38, 92%, 50%)',   // OHT-2 accent
-  'hsl(142, 71%, 45%)',  // OHT-3 success
-  'hsl(271, 91%, 65%)',  // OHT-4 purple
 ];
 
 const TANK_BG_COLORS = [
   'hsl(199, 89%, 48%, 0.12)',
   'hsl(38, 92%, 50%, 0.12)',
-  'hsl(142, 71%, 45%, 0.12)',
-  'hsl(271, 91%, 65%, 0.12)',
 ];
 
 interface TankData {
@@ -41,7 +37,7 @@ const TankLevelBars: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
         return (
           <div key={i} className="flex-1 flex flex-col items-center gap-1.5 group relative">
             <span className="text-[10px] font-mono font-bold text-foreground tabular-nums opacity-0 group-hover:opacity-100 transition-opacity">
-              {tank.level.toFixed(1)}
+              {tank.level.toFixed(1)}%
             </span>
             <div className="w-full flex-1 relative rounded-t-md overflow-hidden bg-muted/30">
               <div
@@ -65,7 +61,7 @@ const TankLevelBars: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
               {tank.label}
             </span>
             <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground text-[10px] px-2.5 py-1.5 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-20 border border-border backdrop-blur-sm transition-opacity duration-200">
-              {tank.level.toFixed(2)} m
+              {tank.level.toFixed(1)} %
             </div>
           </div>
         );
@@ -137,17 +133,13 @@ const OhtAnalyticsCard: React.FC = memo(() => {
   const { ohtTags } = useScada();
 
   const tankData: TankData[] = useMemo(() => {
-    const activePrefixes = Array.from(new Set(
-      ohtTags.filter(t => t.isActive).map(t => t.id.split('-')[0])
-    )).filter(p => p.startsWith('OHT'));
-
-    return activePrefixes.map(prefix => {
-      const num = prefix.replace('OHT', '');
+    return [1, 2].map(num => {
+      const prefix = `OHT${num}`;
       const findVal = (key: string) => ohtTags.find(t => t.id === `${prefix}-${key}`)?.value ?? 0;
       return {
-        label: `#${num}`,
+        label: num === 1 ? 'Bus Station' : 'OHT-2',
         level: findVal('LT'),
-        flow: findVal('Flow-IN'),
+        flow: findVal('Flow') || findVal('Flow-IN'),
         pressure: findVal('PT'),
       };
     });
@@ -155,7 +147,6 @@ const OhtAnalyticsCard: React.FC = memo(() => {
 
   const totalFlow = tankData.reduce((s, t) => s + t.flow, 0);
   const avgLevel = tankData.length > 0 ? tankData.reduce((s, t) => s + t.level, 0) / tankData.length : 0;
-  const activeTanks = tankData.filter(t => t.flow > 0 || t.level > 0).length;
 
   return (
     <Card className="opacity-0 animate-fade-in relative overflow-hidden border-success/20" style={{ animationDelay: '350ms' }}>
@@ -168,17 +159,16 @@ const OhtAnalyticsCard: React.FC = memo(() => {
           </div>
           <span className="truncate font-bold">OHT Network Analytics</span>
           <span className="text-xs font-semibold text-muted-foreground ml-auto px-3 py-1 rounded-full bg-muted/80 ring-1 ring-border/50 shrink-0">
-            4 TANKS
+            2 TANKS
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-6">
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             {[
-              { label: 'Active Tanks', value: `${activeTanks}/4`, icon: Activity, color: 'success', active: activeTanks > 0 },
               { label: 'Total Flow', value: `${totalFlow.toFixed(1)}`, unit: 'm³/hr', icon: Waves, color: 'primary', active: totalFlow > 0 },
-              { label: 'Avg Level', value: `${avgLevel.toFixed(1)}`, unit: 'm', icon: Gauge, color: 'accent', active: avgLevel > 0 },
+              { label: 'Avg Level', value: `${avgLevel.toFixed(1)}`, unit: '%', icon: Gauge, color: 'accent', active: avgLevel > 0 },
             ].map((kpi, i) => (
               <div key={i} className={`rounded-2xl p-4 text-center relative overflow-hidden border-2 transition-colors ${
                 kpi.active 

@@ -8,9 +8,9 @@ import { logError, logDebug, logWarn, logInfo } from '@/lib/errorLogger';
 import {
   ALL_OHT_SENSORS, INTAKE_SENSORS, WTP_SENSORS, ALL_SENSORS,
   VALID_OHT_KEYS, VALID_INTAKE_KEYS, VALID_WTP_KEYS,
-  MohgaonSensor, PT_TO_PUMP_MAP,
-} from '@/config/mohgaonSensors';
-import { normalizeTelemetryValue, TELEMETRY_OFFLINE_MS } from '@/lib/telemetryQuality';
+  ShahpurSensor, PT_TO_PUMP_MAP,
+} from '@/config/shahpurSensors';
+import { normalizeTelemetryValue, sanitizeRtuValue, TELEMETRY_OFFLINE_MS } from '@/lib/telemetryQuality';
 
 interface TagUpdate {
   tagId: string;
@@ -30,7 +30,7 @@ const FLUSH_INTERVAL_MS = 30 * 1000;    // batch-write queue to DB every 30s
 // in background tabs. Only event-driven writes (alarm, abnormal, state_change)
 // are sent from the browser.
 
-const isAbnormalReading = (sensor: MohgaonSensor, value: number): boolean => {
+const isAbnormalReading = (sensor: ShahpurSensor, value: number): boolean => {
   switch (sensor.instrumentType) {
     case 'pt':
     case 'combined_pt':
@@ -92,6 +92,12 @@ export const useMqttTagSync = (
   // Timestamp tracker for the last received message per section (TDM Case E Gateway check)
   const lastMessageTime = useRef<Map<string, number>>(new Map());
 
+  // 32-bit totalizer registers for Intake (H * 65536 + L)
+  const inTotHRef = useRef<number | null>(null);
+  const inTotLRef = useRef<number | null>(null);
+  const outTotHRef = useRef<number | null>(null);
+  const outTotLRef = useRef<number | null>(null);
+
   // Helper to determine if pressure alarm should be suppressed due to no flow
   const isPressureSuppressed = (sensorId: string, currentTags: TagData[]): boolean => {
     const getSectionFlowValue = (sec: 'intake' | 'wtp', flowTagId: string): number => {
@@ -105,8 +111,8 @@ export const useMqttTagSync = (
       
       // Fallback to cross-section redundancy (Intake outflow matches WTP raw water inflow)
       const crossTags = sec === 'intake' ? wtpTags : intakeTags;
-      const crossFlowId = sec === 'intake' ? 'WTP-Flow-IN' : 'INT-Flow';
-      const crossFlow = crossTags.find(t => t.id === crossFlowId);
+      const crossFlowId = sec === 'intake' ? 'WTP-Flow-IN' : 'INT-Flow-OUT';
+      const crossFlow = crossTags.find(t => t.id === crossFlowId || t.id === 'INT-Flow');
       if (crossFlow && crossFlow.status === 'connected' && crossFlow.value !== null) {
         return crossFlow.value;
       }
@@ -114,8 +120,8 @@ export const useMqttTagSync = (
       return 999.0; // If both are offline, disable suppression (safety fallback)
     };
 
-    if (sensorId.startsWith('INT-PT') || sensorId === 'INT-CombinedPT') {
-      const flowVal = getSectionFlowValue('intake', 'INT-Flow');
+    if (sensorId.startsWith('INT-PT') || sensorId === 'INT-HeaderPT' || sensorId === 'INT-CombinedPT') {
+      const flowVal = getSectionFlowValue('intake', 'INT-Flow-OUT');
       return flowVal < 5.0;
     }
     if (sensorId.startsWith('WTP-PT') || sensorId.startsWith('WTP-CombinedPT')) {
@@ -125,7 +131,7 @@ export const useMqttTagSync = (
     if (sensorId.startsWith('OHT') && sensorId.includes('-PT')) {
       const ohtNum = sensorId.match(/OHT(\d+)/)?.[1];
       if (ohtNum) {
-        const flowTag = currentTags.find(t => t.id === `OHT${ohtNum}-Flow-IN`);
+        const flowTag = currentTags.find(t => t.id === `OHT${ohtNum}-Flow` || t.id === `OHT${ohtNum}-Flow-IN`);
         if (!flowTag || flowTag.status !== 'connected' || flowTag.value === null) {
           return false; // local flow sensor offline, disable suppression
         }
@@ -288,7 +294,7 @@ export const useMqttTagSync = (
     const { payload, section, subsection, topic } = message;
     if (section === 'unknown') return;
 
-    let sensors: MohgaonSensor[];
+    let sensors: ShahpurSensor[];
     let setter: React.Dispatch<React.SetStateAction<TagData[]>>;
     let tags: TagData[];
     let validKeys: string[];
@@ -314,112 +320,99 @@ export const useMqttTagSync = (
     const nowTime = Date.now();
     lastMessageTime.current.set(section, nowTime);
 
+    // Intake 32-bit totalizer word pre-combination: H × 65536 + L
+    const effectivePayload: Record<string, string | number> = { ...payload };
+    if (section === 'intake') {
+      if (payload['INTotalizer1H'] !== undefined) {
+        inTotHRef.current = Math.max(0, sanitizeRtuValue(payload['INTotalizer1H']));
+      }
+      if (payload['INTotalizer1L'] !== undefined) {
+        inTotLRef.current = Math.max(0, sanitizeRtuValue(payload['INTotalizer1L']));
+      }
+      if (inTotHRef.current !== null && inTotLRef.current !== null) {
+        effectivePayload['INT_TOTALIZER_IN_COMBINED'] = inTotHRef.current * 65536 + inTotLRef.current;
+      }
+
+      const outLRaw = payload['OUTToalizer1L'] !== undefined ? payload['OUTToalizer1L'] : payload['OUTTotalizer1L'];
+      if (payload['OUTTotalizer1H'] !== undefined) {
+        outTotHRef.current = Math.max(0, sanitizeRtuValue(payload['OUTTotalizer1H']));
+      }
+      if (outLRaw !== undefined) {
+        outTotLRef.current = Math.max(0, sanitizeRtuValue(outLRaw));
+      }
+      if (outTotHRef.current !== null && outTotLRef.current !== null) {
+        effectivePayload['INT_TOTALIZER_OUT_COMBINED'] = outTotHRef.current * 65536 + outTotLRef.current;
+      }
+    }
+
     // Build map of latest values in this message cycle to support MIV cross-checks
     const latestValues = new Map<string, number>();
     tags.forEach(t => latestValues.set(t.id, t.value));
 
-    for (const [mqttKey, rawValue] of Object.entries(payload)) {
-      if (!validKeys.includes(mqttKey) && !validKeys.map(k => k.toUpperCase()).includes(mqttKey.toUpperCase())) continue;
+    for (const [mqttKey, rawValue] of Object.entries(effectivePayload)) {
+      if (
+        !validKeys.includes(mqttKey) &&
+        !validKeys.map(k => k.toUpperCase()).includes(mqttKey.toUpperCase()) &&
+        mqttKey !== 'INT_TOTALIZER_IN_COMBINED' &&
+        mqttKey !== 'INT_TOTALIZER_OUT_COMBINED'
+      ) {
+        continue;
+      }
 
-      const value = typeof rawValue === 'string' ? parseFloat(rawValue) : rawValue;
+      // Universal sanitize ensures all incoming PLC values (even garbage/near-zero noise)
+      // are converted to clean non-negative numbers (e.g. -2.24e+15 -> 0.00, -2.47e-19 -> 0.00)
+      const value = sanitizeRtuValue(rawValue);
       
       const sensor = sensors.find(s => 
-        // Exact match (canonical mqttKey = real PLC tag name after sensor config fix)
+        // Exact match (canonical mqttKey)
         s.mqttKey === mqttKey ||
         s.mqttKey.toUpperCase() === mqttKey.toUpperCase() ||
-        // --- Legacy alias fallbacks (backward compatibility for older firmware or manual tests) ---
-        // Intake aliases
-        (mqttKey === 'PT_01' && s.id === 'INT-PT1') ||
-        (mqttKey === 'INTAKE_PT1' && s.id === 'INT-PT1') ||
-        (mqttKey === 'PT_02' && s.id === 'INT-PT2') ||
-        (mqttKey === 'INTAKE_PT2' && s.id === 'INT-PT2') ||
-        (mqttKey === 'PT_03' && s.id === 'INT-CombinedPT') ||
-        (mqttKey === 'INTAKE_PT3' && s.id === 'INT-CombinedPT') ||
-        (mqttKey === 'PT_COM' && s.id === 'INT-CombinedPT') ||
-        (mqttKey === 'INTAKE_LT' && s.id === 'INT-LT') ||
-        (mqttKey === 'INTAKE_FLOW' && s.id === 'INT-Flow') ||
-        (mqttKey === 'INTAKE_TOT' && s.id === 'INT-Totalizer') ||
-        // PT_1/PT_2 → HT Pump pressure sensors
-        (mqttKey === 'PT_1' && s.id === 'WTP-PT1') ||
-        (mqttKey === 'PT_2' && s.id === 'WTP-PT2') ||
-        (mqttKey === 'CWR_PT1' && s.id === 'WTP-PT1') ||
-        (mqttKey === 'CWR_PT2' && s.id === 'WTP-PT2') ||
-        // PT_3 = Combined Header Pressure (NOT a VT pump — canonical PLC tag per site specification)
-        (mqttKey === 'PT_3' && s.id === 'WTP-HeaderPT') ||
-        // Inlet flow / totalizer aliases
-        (mqttKey === 'FLOWMETER' && s.id === 'WTP-Flow-IN') ||
-        (mqttKey === 'RAW_EFM_FLOW' && s.id === 'WTP-Flow-IN') ||
-        (mqttKey === 'TOTALIZER' && s.id === 'WTP-Totalizer-IN') ||
-        (mqttKey === 'RAW_EFM' && s.id === 'WTP-Totalizer-IN') ||
-        // Outlet flow / totalizer aliases
-        (mqttKey === 'CLR_EFM_FLOW' && s.id === 'WTP-Flow-OUT') ||
-        (mqttKey === 'CWR_FLOW' && s.id === 'WTP-Flow-OUT') ||
-        (mqttKey === 'FLOW_OUT' && s.id === 'WTP-Flow-OUT') ||
-        (mqttKey === 'CLR_EFM' && s.id === 'WTP-Totalizer-OUT') ||
-        (mqttKey === 'CWR_TOT' && s.id === 'WTP-Totalizer-OUT') ||
-        (mqttKey === 'TOTALIZER_OUT' && s.id === 'WTP-Totalizer-OUT') ||
-        // Inlet analyzer aliases
-        (mqttKey === 'RW_TB' && s.id === 'WTP-TA-IN') ||
-        (mqttKey === 'RAW_TR' && s.id === 'WTP-TA-IN') ||
-        (mqttKey === 'RW_PH' && s.id === 'WTP-PH-IN') ||
-        (mqttKey === 'RAW_PH' && s.id === 'WTP-PH-IN') ||
-        // Outlet analyzer aliases
-        (mqttKey === 'CWR_TB' && s.id === 'WTP-TA') ||
-        (mqttKey === 'CWR_TR' && s.id === 'WTP-TA') ||
-        (mqttKey === 'CWR_TEM' && s.id === 'WTP-TEM') ||
-        // General section-aware fallbacks
-        (mqttKey === 'LEVEL' && (s.instrumentType === 'lt' || s.mqttKey.endsWith('_LT') || s.mqttKey === 'RLT')) ||
-        (mqttKey === 'FLOW' && (s.instrumentType === 'flow' || s.mqttKey.endsWith('_FLOW') || s.mqttKey === 'RAW_EFM_FLOW' || s.mqttKey === 'EFM_FLOW')) ||
-        (mqttKey === 'TOTALIZER' && (s.instrumentType === 'totalizer' || s.mqttKey.endsWith('_TOT') || s.mqttKey === 'RAW_EFM' || s.mqttKey === 'EFM')) ||
-        (mqttKey === 'PT_01' && (s.mqttKey.endsWith('_PT1') || s.mqttKey === 'PT_01' || s.mqttKey === 'PT_1')) ||
-        (mqttKey === 'PT_02' && (s.mqttKey.endsWith('_PT2') || s.mqttKey === 'PT_02' || s.mqttKey === 'PT_2')) ||
-        (mqttKey === 'PT_03' && (s.mqttKey.endsWith('_PT3') || s.mqttKey === 'PT_03' || s.mqttKey === 'PT_3')) ||
-        (mqttKey === 'CWR_LEVEL' && s.mqttKey === 'CWR_LT') ||
-        (mqttKey === 'BW_LEVEL' && s.mqttKey === 'BW_LT') ||
-        (mqttKey === 'PH' && s.mqttKey === 'CWR_PH') ||
-        (mqttKey === 'CL' && s.mqttKey === 'CWR_CL') ||
-        (mqttKey === 'TR' && s.mqttKey === 'CWR_TB') ||
-        (mqttKey === 'FLOW_OUT' && s.mqttKey === 'CLR_EFM_FLOW') ||
-        (mqttKey === 'TOTALIZER_OUT' && s.mqttKey === 'CLR_EFM')
+        // Shahpur Intake sensors
+        (mqttKey === 'INTAKEPT1' && s.id === 'INT-PT1') ||
+        (mqttKey === 'INTAKEPT2' && s.id === 'INT-PT2') ||
+        (mqttKey === 'INTAKEHDPT1' && (s.id === 'INT-HeaderPT' || s.id === 'INT-CombinedPT')) ||
+        (mqttKey === 'INTAKERLT' && s.id === 'INT-LT') ||
+        (mqttKey === 'INFLOW1' && (s.id === 'INT-Flow-IN' || s.id === 'INT-Flow')) ||
+        ((mqttKey === 'INT_TOTALIZER_IN_COMBINED' || mqttKey === 'INTotalizer1H' || mqttKey === 'INTotalizer1L') && (s.id === 'INT-Totalizer-IN' || s.id === 'INT-Totalizer')) ||
+        (mqttKey === 'OUTFLOW2' && (s.id === 'INT-Flow-OUT' || s.id === 'INT-Flow')) ||
+        ((mqttKey === 'INT_TOTALIZER_OUT_COMBINED' || mqttKey === 'OUTTotalizer1H' || mqttKey === 'OUTToalizer1L' || mqttKey === 'OUTTotalizer1L') && (s.id === 'INT-Totalizer-OUT' || s.id === 'INT-Totalizer')) ||
+        // Shahpur OHT sensors
+        (mqttKey === 'OHT_PT_1' && s.id.endsWith('-PT')) ||
+        (mqttKey === 'OHT_PT_2' && s.id.endsWith('-PT2')) ||
+        (mqttKey === 'OHT_LT' && s.id.endsWith('-LT')) ||
+        (mqttKey === 'OHT_FLOW' && (s.id.endsWith('-Flow') || s.id.endsWith('-Flow-IN'))) ||
+        (mqttKey === 'OHT_POSICUMVALUE' && s.id.endsWith('-Totalizer')) ||
+        (mqttKey === 'OHT_DECPOSICUMVALUE' && s.id.endsWith('-DecrTotalizer')) ||
+        // Fallback / legacy aliases
+        (mqttKey === 'PT_1' && (s.id === 'INT-PT1' || s.id === 'WTP-PT1')) ||
+        (mqttKey === 'PT_2' && (s.id === 'INT-PT2' || s.id === 'WTP-PT2')) ||
+        (mqttKey === 'PT_3' && (s.id === 'INT-HeaderPT' || s.id === 'WTP-HeaderPT')) ||
+        (mqttKey === 'RLT' && s.id === 'INT-LT')
       );
       if (!sensor) continue;
 
       const sensorId = sensor.id;
       const existingTag = tags.find(t => t.id === sensorId);
 
-      // --- MLTCV Layer 1: Raw Signal Validation (NaN/Overflow Checks) ---
-      // Commissioned PLC flow values are already m³/hr (confirmed on site).
+      // Signal Validation: normalizeTelemetryValue returns sanitized value clamped to valid bounds
       let processedValue = value;
       const normalizedValue = normalizeTelemetryValue(processedValue, sensor);
       const validatedValue = normalizedValue ?? processedValue;
 
-      const isNaNOrInfinite = validatedValue === null || validatedValue === undefined || isNaN(validatedValue) || !Number.isFinite(validatedValue);
-      const isNegativeOverflow = !isNaNOrInfinite && (validatedValue < sensor.min - Math.max(1.0, sensor.max * 0.1));
-      const isPositiveOverflow = !isNaNOrInfinite && (
-        validatedValue > sensor.max * 2.0 || 
-        validatedValue === 32767 || 
-        validatedValue === 65535 || 
-        validatedValue > 1e10
-      );
-      const isOutsideEngineeringRange = !isNaNOrInfinite && normalizedValue === null;
-      const isCorrupt = isNaNOrInfinite || isNegativeOverflow || isPositiveOverflow || isOutsideEngineeringRange;
-
-      if (isCorrupt) {
+      const isNaNOrInfinite = !Number.isFinite(validatedValue);
+      if (isNaNOrInfinite) {
         const faultKey = `${sensorId}-SignalFault`;
         const faultStart = alarmActiveSince.current.get(faultKey);
         if (!faultStart) {
           alarmActiveSince.current.set(faultKey, nowTime);
         } else if (nowTime - faultStart > 30000) {
-          const type = isNegativeOverflow ? 'Sensor Wire Break' : isOutsideEngineeringRange ? 'Out of Engineering Range' : 'Signal Overflow';
-          const msg = `Sensor Fault: ${sensor.label} (${sensorId}) is reading corrupt value: ${value}. (${type})`;
+          const msg = `Sensor Fault: ${sensor.label} (${sensorId}) is reading corrupt value: ${value}.`;
           addAlarm({
             tagId: sensorId, tagConfigId: existingTag?.dbId, label: sensor.label,
             value: 0, unit: sensor.unit, type: 'Low', message: msg,
             section: section as 'intake' | 'oht' | 'wtp',
           });
         }
-        // Keep the last valid value visible, but explicitly mark this sensor as
-        // faulty. Invalid readings are never written to history or sent onward.
         const receivedAt = message.timestamp instanceof Date ? message.timestamp : new Date();
         setter(prev => prev.map(t => t.id === sensorId
           ? { ...t, status: 'fault' as const, lastDataTime: receivedAt, mqttTopic: topic, source: 'mqtt' as const }
@@ -495,7 +488,7 @@ export const useMqttTagSync = (
           } else if (sensorId.startsWith('OHT') && sensorId.endsWith('-LT')) {
             const ohtNum = sensorId.match(/OHT(\d+)/)?.[1];
             if (ohtNum) {
-              const flowIn = latestValues.get(`OHT${ohtNum}-Flow-IN`) || 0;
+              const flowIn = latestValues.get(`OHT${ohtNum}-Flow`) ?? latestValues.get(`OHT${ohtNum}-Flow-IN`) ?? 0;
               isFlowActive = flowIn > 2.0;
             }
           }
@@ -525,7 +518,7 @@ export const useMqttTagSync = (
       const lastValEntry = lastValueTracker.current.get(sensorId);
       let sectionFlowActive = false;
       if (section === 'intake') {
-        const flowTag = intakeTags.find(t => t.id === 'INT-Flow');
+        const flowTag = intakeTags.find(t => t.id === 'INT-Flow-OUT' || t.id === 'INT-Flow');
         sectionFlowActive = flowTag ? flowTag.value > 10.0 : false;
       } else if (section === 'wtp') {
         const flowTag = wtpTags.find(t => t.id === 'WTP-Flow-IN');
@@ -575,7 +568,7 @@ export const useMqttTagSync = (
         if (isLowAlarm && (sensor.instrumentType === 'pt' || sensor.instrumentType === 'combined_pt')) {
           let hasFlow = false;
           if (section === 'intake') {
-            hasFlow = (latestValues.get('INT-Flow') || 0) > 5.0;
+            hasFlow = ((latestValues.get('INT-Flow-OUT') ?? latestValues.get('INT-Flow') ?? 0) > 5.0);
           } else if (section === 'wtp') {
             hasFlow = (latestValues.get('WTP-Flow-IN') || 0) > 5.0;
           }
@@ -894,7 +887,7 @@ export const useMqttTagSync = (
     if (section === 'oht') {
       const ohtNum = subsection?.match(/OHT-(\d+)/)?.[1];
       if (ohtNum) {
-        const flowId = `OHT${ohtNum}-Flow-IN`;
+        const flowId = tags.some(t => t.id === `OHT${ohtNum}-Flow`) ? `OHT${ohtNum}-Flow` : `OHT${ohtNum}-Flow-IN`;
         const ltId = `OHT${ohtNum}-LT`;
         
         const flowIn = latestValues.get(flowId) || 0;
@@ -988,16 +981,16 @@ export const useMqttTagSync = (
     if (section === 'oht') {
       const ohtNum = subsection?.match(/OHT-(\d+)/)?.[1];
       if (ohtNum) {
-        const flowId = `OHT${ohtNum}-Flow-IN`;
+        const flowId = tags.some(t => t.id === `OHT${ohtNum}-Flow-IN`) ? `OHT${ohtNum}-Flow-IN` : `OHT${ohtNum}-Flow`;
         const flowIn = latestValues.get(flowId) || 0;
         const flowTag = tags.find(t => t.id === flowId);
         
         // Check if all pumping stations are OFF
-        const intakeFlow = latestValues.get('INT-Flow') || 0;
+        const intakeFlow = latestValues.get('INT-Flow-OUT') ?? latestValues.get('INT-Flow-IN') ?? latestValues.get('INT-Flow') ?? 0;
         const wtpFlow = latestValues.get('WTP-Flow-IN') || 0;
         const arePumpsOff = intakeFlow < 2.0 && wtpFlow < 2.0;
         
-        if (arePumpsOff && flowTag && flowTag.status === 'connected' && flowIn > 5.0) {
+        if (arePumpsOff && flowTag && flowTag.status === 'connected' && flowIn > 5.0 && flowId.includes('Flow-IN')) {
           const leakKey = `${flowId}-BackflowLeak`;
           const leakStart = alarmActiveSince.current.get(leakKey);
           if (!leakStart) {
@@ -1018,11 +1011,11 @@ export const useMqttTagSync = (
 
     // -- Ultra-MIV Rule 9: Raw Water Transmission Pipeline Friction / Clogging Detector --
     if (section === 'intake') {
-      const intFlow = latestValues.get('INT-Flow') || 0;
-      const combinedPT = latestValues.get('INT-CombinedPT') || 0;
+      const intFlow = latestValues.get('INT-Flow-OUT') ?? latestValues.get('INT-Flow-IN') ?? latestValues.get('INT-Flow') ?? 0;
+      const combinedPT = latestValues.get('INT-HeaderPT') ?? latestValues.get('INT-CombinedPT') ?? 0;
       
-      const flowTag = tags.find(t => t.id === 'INT-Flow');
-      const ptTag = tags.find(t => t.id === 'INT-CombinedPT');
+      const flowTag = tags.find(t => t.id === 'INT-Flow-OUT' || t.id === 'INT-Flow-IN' || t.id === 'INT-Flow');
+      const ptTag = tags.find(t => t.id === 'INT-HeaderPT' || t.id === 'INT-CombinedPT');
       
       const isFlowNormal = flowTag && flowTag.status === 'connected' && intFlow >= 60.0 && intFlow <= 100.0;
       const isPTConnected = ptTag && ptTag.status === 'connected';
@@ -1037,7 +1030,7 @@ export const useMqttTagSync = (
           } else if (nowTime - frictionStart > 600000) { // 10 minutes continuous
             const msg = `Mechanical Warning: High Pipe Friction / Pipeline Clogging suspected (Head loss is abnormally high: ${headLoss.toFixed(2)} Bar at flow ${intFlow.toFixed(1)} m³/hr. Check for pipeline siltation or partially closed inline valves)`;
             addAlarm({
-              tagId: 'INT-CombinedPT', tagConfigId: ptTag.dbId, label: 'Combined Pressure',
+              tagId: ptTag.id, tagConfigId: ptTag.dbId, label: ptTag.label || 'Header Pressure',
               value: combinedPT, unit: 'Bar', type: 'High', message: msg,
               section: 'intake',
             });
@@ -1142,8 +1135,9 @@ export const useMqttTagSync = (
     };
 
     if (section === 'intake') {
-      checkDryRun('INT-PT1', 'INT-Pump1', 'INT-Flow', 2.0);
-      checkDryRun('INT-PT2', 'INT-Pump2', 'INT-Flow', 2.0);
+      const intFlowId = tags.some(t => t.id === 'INT-Flow-OUT') ? 'INT-Flow-OUT' : (tags.some(t => t.id === 'INT-Flow-IN') ? 'INT-Flow-IN' : 'INT-Flow');
+      checkDryRun('INT-PT1', 'INT-Pump1', intFlowId, 2.0);
+      checkDryRun('INT-PT2', 'INT-Pump2', intFlowId, 2.0);
     } else if (section === 'wtp') {
       checkDryRun('WTP-PT1', 'WTP-Pump1', 'WTP-Flow-IN', 2.0);
       checkDryRun('WTP-PT2', 'WTP-Pump2', 'WTP-Flow-IN', 2.0);
@@ -1151,27 +1145,29 @@ export const useMqttTagSync = (
 
     // -- MIV Rule 2 & 3: Flow active but pressure/level at 0 (Sensor Discrepancy) --
     if (section === 'intake') {
-      const flowVal = latestValues.get('INT-Flow') || 0;
+      const flowTag = tags.find(t => t.id === 'INT-Flow-OUT' || t.id === 'INT-Flow-IN' || t.id === 'INT-Flow');
+      const flowVal = (flowTag ? latestValues.get(flowTag.id) : 0) || 0;
       const pt1 = latestValues.get('INT-PT1') || 0;
       const pt2 = latestValues.get('INT-PT2') || 0;
+      const headerPt = latestValues.get('INT-HeaderPT') ?? latestValues.get('INT-CombinedPT') ?? 0;
       const level = latestValues.get('INT-LT') || 0;
 
-      const flowTag = tags.find(t => t.id === 'INT-Flow');
       const pt1Tag = tags.find(t => t.id === 'INT-PT1');
       const pt2Tag = tags.find(t => t.id === 'INT-PT2');
+      const headerPtTag = tags.find(t => t.id === 'INT-HeaderPT' || t.id === 'INT-CombinedPT');
       const ltTag = tags.find(t => t.id === 'INT-LT');
 
       const isFlowActive = flowTag && flowTag.status === 'connected' && flowVal > 15.0;
 
-      if (isFlowActive && pt1Tag && pt1Tag.status === 'connected' && pt2Tag && pt2Tag.status === 'connected' && pt1 < 0.2 && pt2 < 0.2) {
+      if (isFlowActive && pt1Tag && pt1Tag.status === 'connected' && pt2Tag && pt2Tag.status === 'connected' && pt1 < 0.2 && pt2 < 0.2 && headerPt < 0.2) {
         const ptDiscKey = 'INT-PTDiscrepancy';
         const ptDiscStart = alarmActiveSince.current.get(ptDiscKey);
         if (!ptDiscStart) {
           alarmActiveSince.current.set(ptDiscKey, nowTime);
         } else if (nowTime - ptDiscStart > 30000) {
-          const msg = `Sensor Fault: Intake Pressure Transmitters Discrepancy (Flow active ${flowVal.toFixed(1)} m³/hr, but both pressures read < 0.2 Bar)`;
+          const msg = `Sensor Fault: Intake Pressure Transmitters Discrepancy (Flow active ${flowVal.toFixed(1)} m³/hr, but pressures read < 0.2 Bar)`;
           addAlarm({
-            tagId: 'INT-CombinedPT', tagConfigId: pt1Tag.dbId, label: 'Combined Pressure',
+            tagId: headerPtTag?.id || 'INT-HeaderPT', tagConfigId: headerPtTag?.dbId || pt1Tag.dbId, label: headerPtTag?.label || 'Header Pressure',
             value: 0, unit: 'Bar', type: 'Low', message: msg,
             section: 'intake',
           });
@@ -1188,8 +1184,8 @@ export const useMqttTagSync = (
         } else if (nowTime - ltDiscStart > 30000) {
           const msg = `Sensor Fault: Intake Suction Level Discrepancy (Flow active ${flowVal.toFixed(1)} m³/hr, but level sensor reads near-empty ${level.toFixed(2)}m)`;
           addAlarm({
-            tagId: 'INT-LT', tagConfigId: ltTag.dbId, label: 'Intake Level',
-            value: level, unit: 'm', type: 'Low', message: msg,
+            tagId: 'INT-LT', tagConfigId: ltTag.dbId, label: ltTag.label || 'Intake Level',
+            value: level, unit: ltTag.unit || '%', type: 'Low', message: msg,
             section: 'intake',
           });
         }

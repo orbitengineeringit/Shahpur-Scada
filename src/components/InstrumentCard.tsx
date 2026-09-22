@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, memo, useCallback, useMemo } from 'react';
 import { useScada, TagData } from '@/contexts/ScadaContext';
-import { MohgaonSensor } from '@/config/mohgaonSensors';
+import { ShahpurSensor } from '@/config/shahpurSensors';
 import PtGauge from './instruments/PtGauge';
 import LevelBar from './instruments/LevelBar';
 import FlowIndicator from './instruments/FlowIndicator';
@@ -18,10 +18,9 @@ import TemperatureDisplay from './instruments/TemperatureDisplay';
 import AlarmSettingsModal, { AlarmSettings } from './AlarmSettingsModal';
 import SensorTrendModal from './SensorTrendModal';
 import { Button } from '@/components/ui/button';
-import { TrendingUp, Wifi, WifiOff, CircleSlash, TriangleAlert } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
 import { AlarmBellButton } from './AlarmBellButton';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { useTagConnection } from '@/hooks/useTagConnection';
 
 interface InstrumentCardProps {
   tag: TagData;
@@ -45,10 +44,6 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
       return () => clearTimeout(timer);
     }
   }, [tag.value]);
-
-  // Single shared connection rule (see useTagConnection).
-  // 'connected' | 'inactive' | 'no-data'
-  const connection = useTagConnection(tag);
 
   const handleAlarmSave = useCallback((settings: AlarmSettings) => {
     updateTagAlarmSettings(section, tag.id, settings);
@@ -170,87 +165,20 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
 
   const isPump = sensor.instrumentType === 'pump';
 
-  const getHealthBadge = () => {
-    if (connection === 'fault') {
-      return <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-md tracking-wider bg-orange-500/15 text-orange-500 border border-orange-500/30">FAULT</span>;
-    }
-    if (connection === 'stale') {
-      return <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-md tracking-wider bg-warning/15 text-warning border border-warning/30">DELAY</span>;
-    }
-    if (connection === 'no-data') {
-      return <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-md tracking-wider bg-destructive/15 text-destructive border border-destructive/30 animate-pulse">OFF</span>;
-    }
-
-    // For communicating pumps: binary ON / OFF driven by PT readings.
-    if (isPump) {
-      const isRunning = tag.value > 0.5;
-      return (
-        <span className={`text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-md tracking-wider ${
-          isRunning 
-            ? 'bg-success/15 text-success border border-success/30' 
-            : 'bg-destructive/15 text-destructive border border-destructive/30'
-        }`}>
-          {isRunning ? 'ON' : 'OFF'}
-        </span>
-      );
-    }
-
-    // 3-state badge for analog sensors: ON, ZERO, OFF
-    let label: string;
-    let className: string;
-    if (connection === 'connected') {
-      label = 'ON';
-      className = 'bg-success/15 text-success border border-success/30';
-    } else if (connection === 'inactive') {
-      label = 'ZERO';
-      className = 'bg-sky-500/15 text-sky-500 border border-sky-500/30';
-    } else return null;
-    return (
-      <span className={`text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded-md tracking-wider ${className}`}>
-        {label}
-      </span>
-    );
-  };
-
-  const ConnIcon: React.FC<{ className?: string }> = ({ className }) => {
-    if (connection === 'fault') return <TriangleAlert className={`${className} text-orange-500 animate-pulse`} />;
-    if (connection === 'stale') return <CircleSlash className={`${className} text-warning animate-pulse`} />;
-    if (connection === 'no-data') return <WifiOff className={`${className} text-destructive animate-pulse`} />;
-    if (isPump) {
-      const isRunning = tag.value > 0.5;
-      return (
-        <div className={`w-2 h-2 rounded-full shrink-0 ${isRunning ? 'bg-success pulse-live' : 'bg-destructive/70'}`} />
-      );
-    }
-    if (connection === 'connected') return <Wifi className={`${className} text-success`} />;
-    if (connection === 'inactive') return <CircleSlash className={`${className} text-sky-500`} />;
-    return <WifiOff className={`${className} text-destructive animate-pulse`} />;
-  };
-
   if (isDigital) {
-    const isPumpRunning = isPump && tag.value > 0.5;
     return (
       <div
-        className={`premium-card rounded-xl p-3 sm:p-4 relative overflow-visible opacity-0 animate-fade-in flex flex-col h-full ${
-          connection === 'no-data' ? 'border-destructive/50' : ''
-        } ${connection === 'stale' ? 'border-warning/50' : ''} ${connection === 'fault' ? 'border-orange-500/50' : ''} ${!isPump && connection === 'inactive' ? 'border-sky-500/30' : ''}`}
+        className="premium-card rounded-xl p-3 sm:p-4 relative overflow-visible opacity-0 animate-fade-in flex flex-col h-full"
         style={{ animationDelay: `${index * 40}ms` }}
       >
         <div className="relative z-10 flex flex-col flex-1">
           <div className="flex items-center justify-between mb-1.5 sm:mb-2">
-            <div className="flex items-center gap-1 min-w-0">
-              <ConnIcon className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-              <span className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{sensor.label}</span>
-            </div>
-            {getHealthBadge()}
+            <span className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{sensor.label}</span>
           </div>
           <div className="flex-1 flex items-center justify-center">
             {renderInstrument()}
           </div>
           <div className="flex items-center gap-1 mt-1">
-            {(isPump ? isPumpRunning : connection === 'connected') && (
-              <div className="w-1.5 h-1.5 rounded-full bg-success pulse-live shrink-0" />
-            )}
             <span className="text-[9px] sm:text-[10px] text-muted-foreground font-mono truncate">{tag.timestamp.toLocaleTimeString()}</span>
           </div>
         </div>
@@ -261,35 +189,23 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
   return (
     <>
       <div
-        className={`
-          premium-card rounded-xl p-2 sm:p-3 relative overflow-visible cursor-pointer
-          opacity-0 animate-fade-in
-          flex flex-col h-full
-          ${connection === 'no-data' ? 'border-destructive/50' : ''}
-          ${connection === 'stale' ? 'border-warning/50' : ''}
-          ${connection === 'fault' ? 'border-orange-500/50' : ''}
-          ${connection === 'inactive' ? 'border-sky-500/30' : ''}
-        `}
+        className="premium-card rounded-xl p-2 sm:p-3 relative overflow-visible cursor-pointer opacity-0 animate-fade-in flex flex-col h-full"
         style={{ animationDelay: `${index * 40}ms` }}
         onClick={() => setShowTrends(true)}
       >
         <div className="relative z-10 flex flex-col flex-1">
           <div className="flex items-center justify-between mb-1.5 sm:mb-2 shrink-0">
-            <div className="flex items-center gap-1 min-w-0">
-              <ConnIcon className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-              <span className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{sensor.label}</span>
-              {getHealthBadge()}
-            </div>
+            <span className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{sensor.label}</span>
             <div className="flex gap-0 sm:gap-0.5 shrink-0">
               <Tooltip delayDuration={150}>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-5 w-5 sm:h-6 sm:w-6 hover:bg-primary/10"
-                      onClick={(e) => { e.stopPropagation(); setShowTrends(true); }}>
-                      <TrendingUp className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="z-[100]"><p>📈 View Trends</p></TooltipContent>
-                </Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-5 w-5 sm:h-6 sm:w-6 hover:bg-primary/10"
+                    onClick={(e) => { e.stopPropagation(); setShowTrends(true); }}>
+                    <TrendingUp className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="z-[100]"><p>📈 View Trends</p></TooltipContent>
+              </Tooltip>
               <AlarmBellButton 
                 hasAlarmConfig={hasAlarmConfig} 
                 onClick={(e) => { e.stopPropagation(); setShowAlarmSettings(true); }} 
@@ -320,7 +236,6 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
             )}
 
             <div className="flex items-center gap-1 mt-1">
-              {connection === 'connected' && <div className="w-1.5 h-1.5 rounded-full bg-success pulse-live shrink-0" />}
               <span className="text-[9px] sm:text-[10px] text-muted-foreground font-mono truncate">{tag.timestamp.toLocaleTimeString()}</span>
             </div>
           </div>

@@ -1,7 +1,5 @@
 import React, { useMemo } from 'react';
 import { useScada } from '@/contexts/ScadaContext';
-import SensorStatusStrip from './SensorStatusStrip';
-
 
 /**
  * Intake Well - Process Simulation View
@@ -14,18 +12,20 @@ const IntakeProcessSimulation: React.FC = () => {
   const pt1Tag = findTag('INT-PT1');
   const pt2Tag = findTag('INT-PT2');
   const ltTag = findTag('INT-LT');
-  const flowTag = findTag('INT-Flow');
-  const totalizerTag = findTag('INT-Totalizer');
+  const flowInTag = findTag('INT-Flow-IN');
+  const flowOutTag = findTag('INT-Flow-OUT') || findTag('INT-Flow');
+  const totalizerInTag = findTag('INT-Totalizer-IN');
+  const totalizerOutTag = findTag('INT-Totalizer-OUT') || findTag('INT-Totalizer');
   const pump1Tag = findTag('INT-Pump1');
   const pump2Tag = findTag('INT-Pump2');
-  const combinedPtTag = findTag('INT-CombinedPT');
+  const combinedPtTag = findTag('INT-HeaderPT') || findTag('INT-CombinedPT');
 
   const pt1Val = pt1Tag?.value ?? 0;
   const pt2Val = pt2Tag?.value ?? 0;
   const combinedPtVal = combinedPtTag?.value ?? 0;
   const ltVal = ltTag?.value ?? 0;
-  const flowVal = flowTag?.value ?? 0;
-  const totalizerVal = totalizerTag?.value ?? 0;
+  const flowVal = (flowOutTag?.value ?? flowInTag?.value) ?? 0;
+  const totalizerVal = (totalizerOutTag?.value ?? totalizerInTag?.value) ?? 0;
 
   const pump1Running = (pt1Tag?.status === 'connected' && pt1Val > 1.5) || (pump1Tag?.status === 'connected' && pump1Tag?.value === 1);
   const pump2Running = (pt2Tag?.status === 'connected' && pt2Val > 1.5) || (pump2Tag?.status === 'connected' && pump2Tag?.value === 1);
@@ -333,10 +333,6 @@ const IntakeProcessSimulation: React.FC = () => {
 
   return (
     <div className="w-full premium-card rounded-xl p-3 md:p-5 animate-fade-in overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-      <SensorStatusStrip
-        tags={intakeTags}
-        sensorIds={['INT-PT1', 'INT-PT2', 'INT-LT', 'INT-Flow', 'INT-Totalizer', 'INT-Pump1', 'INT-Pump2']}
-      />
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" style={{ maxHeight: '88vh', minWidth: '650px' }}>
         <defs>
           <linearGradient id="p-pipe-h" x1="0" y1="0" x2="0" y2="1">

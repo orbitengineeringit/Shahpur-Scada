@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useScada } from '@/contexts/ScadaContext';
-import SensorStatusStrip from './SensorStatusStrip';
+import { useMqtt } from '@/contexts/MqttContext';
 
 
 /**
@@ -537,6 +537,8 @@ const InlineHTPump: React.FC<{ x: number; y: number; w: number; h: number; isRun
 // ────────────────────────────────────────────────────────────
 const WtpProcessSimulation: React.FC = () => {
   const { wtpTags } = useScada();
+  const { config } = useMqtt();
+  const isCommissioned = Boolean(config.topics.WTP);
   const findTag = (id: string) => wtpTags.find(t => t.id === id);
 
   // Extract tag values
@@ -764,13 +766,18 @@ const WtpProcessSimulation: React.FC = () => {
 
   return (
     <div className="w-full premium-card rounded-xl p-3 md:p-5 animate-fade-in overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-      <SensorStatusStrip
-        tags={wtpTags}
-        sensorIds={[
-          'WTP-Flow-IN','WTP-Flow-OUT','WTP-LT-BW','WTP-LT-CW','WTP-PH-IN','WTP-TA-IN','WTP-PH','WTP-CL','WTP-TA',
-          'WTP-Totalizer-IN','WTP-Totalizer-OUT','WTP-PT1','WTP-PT2','WTP-HeaderPT','WTP-TEM'
-        ]}
-      />
+      {!isCommissioned && (
+        <div className="mb-4 p-3 sm:p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3 text-amber-600 dark:text-amber-400">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <span className="text-xl shrink-0">⏳</span>
+            <div>
+              <p className="text-xs sm:text-sm font-bold uppercase tracking-wider">Awaiting Commissioning</p>
+              <p className="text-[11px] sm:text-xs opacity-80">WTP telemetry topic and RTU telemetry will activate upon station commissioning.</p>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 rounded-md text-[10px] sm:text-xs font-bold bg-amber-500/20 border border-amber-500/40 uppercase tracking-wider shrink-0">Phase 2</span>
+        </div>
+      )}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
       <svg viewBox={`-450 0 ${SVG_W + 450} ${SVG_H}`} className="w-full h-auto" style={{ maxHeight: '90vh', minWidth: '700px' }}>
         <defs>
@@ -822,7 +829,7 @@ const WtpProcessSimulation: React.FC = () => {
           WATER TREATMENT PLANT — PROCESS FLOW
         </text>
         <text x={850} y={52} textAnchor="middle" fontSize="16" fontWeight="600" fill="hsl(var(--muted-foreground))">
-          Mohgaon WTP | AMRUT 2.0 | Live SCADA Mimic
+          Shahpur WTP | Package-61 | Process Mimic
         </text>
 
         {/* ═══ GROUND ═══ */}

@@ -5,7 +5,7 @@ import StatusBar from '@/components/StatusBar';
 import InstrumentCard from '@/components/InstrumentCard';
 import SortableCardGrid, { SortableItem } from '@/components/SortableCardGrid';
 import SortableSectionList from '@/components/SortableSectionList';
-import { OHT1_SENSORS, OHT2_SENSORS, OHT3_SENSORS, OHT4_SENSORS, MohgaonSensor } from '@/config/mohgaonSensors';
+import { OHT1_SENSORS, OHT2_SENSORS, ShahpurSensor } from '@/config/shahpurSensors';
 import OhtAnalyticsCard from '@/components/OhtAnalyticsCard';
 import { BarChart2, LayoutGrid, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,7 +20,7 @@ interface OhtConfig {
   borderColor: string;
   bgColor: string;
   iconBg: string;
-  sensors: MohgaonSensor[];
+  sensors: ShahpurSensor[];
   startIndex: number;
   capacity: string;
   groupKey: string;
@@ -52,7 +52,7 @@ const OhtSubsection: React.FC<{ config: OhtConfig; tags: any[]; viewMode: 'cards
 
   const sensorIds = useMemo(() => config.sensors.filter(s => !s.notInstalled).map(s => s.id), [config.sensors, config.groupKey]);
   const sensorMap = useMemo(() => {
-    const map: Record<string, MohgaonSensor> = {};
+    const map: Record<string, ShahpurSensor> = {};
     config.sensors.forEach(s => { map[s.id] = s; });
     return map;
   }, [config.groupKey]);
@@ -67,7 +67,7 @@ const OhtSubsection: React.FC<{ config: OhtConfig; tags: any[]; viewMode: 'cards
         </div>
         <div>
           <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${config.color} pulse-live`} />
+            <div className={`w-2.5 h-2.5 rounded-full ${config.color}`} />
             {config.title}
           </h3>
           <p className="text-xs text-muted-foreground">{config.capacity}</p>
@@ -103,28 +103,16 @@ const OhtPage: React.FC = () => {
 
   const ohtConfigs: OhtConfig[] = [
     {
-      title: 'OHT - 1 Ward No 04 - 300KL', label: '#1', color: 'bg-primary', colorHsl: '199 89% 48%',
+      title: 'OHT - 1 (Bus Station OHT)', label: '#1', color: 'bg-primary', colorHsl: '199 89% 48%',
       borderColor: 'border-primary/20', bgColor: 'bg-primary/[0.03]', iconBg: 'bg-primary/10',
-      sensors: OHT1_SENSORS, startIndex: 0, capacity: '4 instruments • Inlet PT, LT, Flow Inlet, Totalizer',
+      sensors: OHT1_SENSORS, startIndex: 0, capacity: '6 instruments • PT1, PT2, Level, Flow, Totalizer, Decr Totalizer',
       groupKey: 'oht-1',
     },
     {
-      title: 'OHT - 2 Ward No 06 500KL', label: '#2', color: 'bg-accent', colorHsl: '38 92% 50%',
+      title: 'OHT - 2 (Awaiting Commissioning)', label: '#2', color: 'bg-accent', colorHsl: '38 92% 50%',
       borderColor: 'border-accent/20', bgColor: 'bg-accent/[0.03]', iconBg: 'bg-accent/10',
-      sensors: OHT2_SENSORS, startIndex: 4, capacity: '4 instruments • Inlet PT, LT, Flow Inlet, Totalizer',
+      sensors: OHT2_SENSORS, startIndex: 6, capacity: 'Awaiting Commissioning • 6 instruments scaffolded',
       groupKey: 'oht-2',
-    },
-    {
-      title: 'OHT - 3 Ward No 06 200KL', label: '#3', color: 'bg-success', colorHsl: '142 71% 45%',
-      borderColor: 'border-success/20', bgColor: 'bg-success/[0.03]', iconBg: 'bg-success/10',
-      sensors: OHT3_SENSORS, startIndex: 8, capacity: '4 instruments • Inlet PT, LT, Flow Inlet, Totalizer',
-      groupKey: 'oht-3',
-    },
-    {
-      title: 'OHT - 4 Ward No 10 200KL', label: '#4', color: 'bg-indigo-500', colorHsl: '271 91% 65%',
-      borderColor: 'border-indigo-500/20', bgColor: 'bg-indigo-500/[0.03]', iconBg: 'bg-indigo-500/10',
-      sensors: OHT4_SENSORS, startIndex: 12, capacity: '4 instruments • Inlet PT, LT, Flow Inlet, Totalizer',
-      groupKey: 'oht-4',
     },
   ];
 
@@ -149,7 +137,7 @@ const OhtPage: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h2 className="text-xl leading-tight md:text-2xl font-bold text-foreground">Overhead Tanks (OHT)</h2>
-              <p className="text-sm text-muted-foreground">4 OHT units × 4 instruments each</p>
+              <p className="text-sm text-muted-foreground">2 OHT units • Bus Station OHT (Live) & OHT-2 (Pending)</p>
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:gap-3 sm:w-auto sm:flex-nowrap sm:justify-end">

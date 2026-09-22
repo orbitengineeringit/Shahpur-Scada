@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { useMqtt } from '@/contexts/MqttContext';
 import { MqttStatus } from '@/components/MqttStatus';
 import { cn } from '@/lib/utils';
-import { MQTT_TOPIC_KEYS } from '@/config/mohgaonSensors';
+import { MQTT_TOPIC_KEYS } from '@/config/shahpurSensors';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const DataExportSettings = lazy(() => import('@/components/DataExportSettings'));
@@ -32,7 +32,7 @@ const MqttSettingsPage: React.FC = () => {
                 <Settings className="h-6 w-6 text-primary" />
                 MQTT Configuration
               </h1>
-              <p className="text-sm text-muted-foreground mt-1">Configure MQTT broker for Mohgaon SCADA</p>
+              <p className="text-sm text-muted-foreground mt-1">Configure MQTT broker for Shahpur SCADA</p>
             </div>
           </div>
           <MqttStatus />
@@ -101,8 +101,8 @@ const MqttSettingsPage: React.FC = () => {
 
           <Card className="glass">
             <CardHeader>
-               <CardTitle>Topic Subscriptions (Mohgaon)</CardTitle>
-               <CardDescription>6 MQTT topics for OHT×4, Intake, and WTP — managed securely via database</CardDescription>
+               <CardTitle>Topic Subscriptions (Shahpur)</CardTitle>
+               <CardDescription>MQTT topics for Intake, OHT, and WTP — managed securely via database</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3">

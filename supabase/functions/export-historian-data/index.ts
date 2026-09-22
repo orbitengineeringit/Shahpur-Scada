@@ -224,7 +224,7 @@ serve(async (req) => {
 
             const startStr = periodStart.toISOString().split('T')[0];
             const endStr = periodEnd.toISOString().split('T')[0];
-            const fileName = `mohgaon_scada_export_${startStr}_to_${endStr}.csv`;
+            const fileName = `shahpur_scada_export_${startStr}_to_${endStr}.csv`;
 
             // Ensure storage bucket exists
             const { data: buckets } = await supabase.storage.listBuckets();
@@ -263,7 +263,7 @@ serve(async (req) => {
               .select('email')
               .eq('scope', 'export');
             const emails: string[] = (recipientRows || []).map((r: any) => r.email);
-            const plantName = (plantConfig as any)?.plant_name || 'Mohgaon SCADA';
+            const plantName = (plantConfig as any)?.plant_name || 'Shahpur SCADA';
 
             const smtpUser = Deno.env.get('SMTP_USER');
             const smtpPass = Deno.env.get('SMTP_PASSWORD');

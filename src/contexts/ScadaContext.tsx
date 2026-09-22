@@ -4,11 +4,11 @@ import { logError, logDebug } from '@/lib/errorLogger';
 import { isTagLive } from '@/hooks/useTagConnection';
 import {
   ALL_OHT_SENSORS, INTAKE_SENSORS, WTP_SENSORS, ALL_SENSORS,
-  MohgaonSensor, OHT1_SENSORS, OHT2_SENSORS, OHT3_SENSORS, OHT4_SENSORS,
-} from '@/config/mohgaonSensors';
+  ShahpurSensor, OHT1_SENSORS, OHT2_SENSORS,
+} from '@/config/shahpurSensors';
 
 /** Get default setpoints based on instrument type and range */
-export const getDefaultSetpoints = (sensor: MohgaonSensor): { high: number | null; low: number | null } => {
+export const getDefaultSetpoints = (sensor: ShahpurSensor): { high: number | null; low: number | null } => {
   switch (sensor.instrumentType) {
     case 'pt': // Pressure: high at 80% of max, low at 10% of max
       return { high: sensor.max * 0.8, low: sensor.max * 0.1 };
@@ -88,7 +88,7 @@ interface ScadaContextType extends ScadaState {
   setMqttEnabled: (enabled: boolean) => void;
 }
 
-const sensorToTag = (sensor: MohgaonSensor): TagData => ({
+const sensorToTag = (sensor: ShahpurSensor): TagData => ({
   id: sensor.id,
   label: sensor.label,
   unit: sensor.unit,
@@ -109,7 +109,7 @@ const sensorToTag = (sensor: MohgaonSensor): TagData => ({
 const ScadaContext = createContext<ScadaContextType | undefined>(undefined);
 
 export const ScadaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [plantName, setPlantNameState] = useState('Mohgaon SCADA');
+  const [plantName, setPlantNameState] = useState('Shahpur SCADA');
   const [configMode, setConfigModeState] = useState(false);
   const [intakeTags, setIntakeTags] = useState<TagData[]>(() => INTAKE_SENSORS.map(sensorToTag));
   const [ohtTags, setOhtTags] = useState<TagData[]>(() => ALL_OHT_SENSORS.map(sensorToTag));

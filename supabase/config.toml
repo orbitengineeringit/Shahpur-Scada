@@ -1,4 +1,4 @@
-project_id = "tzuppdqvefvzgyrqstsy"
+project_id = "oizfikvgvwumhcllufqu"
 
 [functions.gis-sync]
 verify_jwt = false
@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.get-mqtt-credentials]
 verify_jwt = true
+
+[functions.plant-assistant]
+verify_jwt = false

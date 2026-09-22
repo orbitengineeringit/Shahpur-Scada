@@ -1,12 +1,17 @@
-# Mohgaon SCADA - Water Treatment Plant Monitoring System
+# Shahpur SCADA - Water Supply Scheme Monitoring System
 
-Built with React + Vite + Supabase + Vercel
+**Package-61 · MPUDCL · 1.75 MLD · Distt. Sagar, M.P.**  
+**Contractor:** M/s. CMPV Engineering Pvt. Ltd.  
+**System Integrator:** Orbit Engineering Solutions  
+
+Built with React + Vite + Supabase + Edge Functions + MQTT
 
 ## Stack
 - Frontend: React + TypeScript + Vite
 - UI: shadcn/ui + TailwindCSS
 - Backend: Supabase (PostgreSQL + Edge Functions)
-- Hosting: Vercel
-- MQTT: HIVEMQ Broker
-- GIS: MP Urban GIS Portal (MPGARUD)
+- MQTT Broker: mqtt.orbitengineerings.com:1883 / sahpur/#
+- GIS: MP Urban GIS Portal (MPGARUD) Telemetry Sync
+- Project ID: `oizfikvgvwumhcllufqu`
+
 

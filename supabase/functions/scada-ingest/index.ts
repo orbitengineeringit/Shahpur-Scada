@@ -38,79 +38,82 @@ type ParsedMessage = {
   timestamp: Date;
 };
 
+function sanitizeRtuValue(val: number | null | undefined): number {
+  if (val === null || val === undefined) return 0.0;
+  if (!Number.isFinite(val)) return 0.0;
+  if (val < 0) return 0.0;
+  if (val > 0 && val < 0.0001) return 0.0;
+  if (val > 100000000) return 0.0;
+  return Number(val.toFixed(2));
+}
+
 function normalizeSensorValue(sensor: Sensor, value: number): number | null {
   if (!Number.isFinite(value)) return null;
-  if (value >= sensor.min && value <= sensor.max) return value;
+  const sanitized = sanitizeRtuValue(value);
+  if (sanitized >= sensor.min && sanitized <= sensor.max) return sanitized;
 
   const isPercentagePosition = sensor.unit === "%" &&
     (sensor.instrumentType === "lt" || sensor.instrumentType === "fcv");
-  if (isPercentagePosition && value >= sensor.min - 2 && value <= sensor.max + 2) {
-    return Math.min(sensor.max, Math.max(sensor.min, value));
+  if (isPercentagePosition && sanitized >= sensor.min - 2 && sanitized <= sensor.max + 2) {
+    return Math.min(sensor.max, Math.max(sensor.min, sanitized));
   }
 
   return null;
 }
 
 const DEFAULT_TOPICS = {
-  INTAKE: "mohgaon/intake",
-  WTP: "mohgaon/wtp",
-  OHT1: "OES/M7g4/Ov1h/8672x4Af",
-  OHT2: "OES/M7g4/Ov2h/8672x4Af",
-  OHT3: "mohgaon/oht-3",
-  OHT4: "OES/M7g4/Ov4h/8672x4Af",
+  INTAKE: "sahpur/intake/plc01/update",
+  WTP: "sahpur/wtp/plc01/update",
+  OHT1: "sahpur/oht/plc01/update",
+  OHT2: "sahpur/oht/plc02/update",
 };
 
 const ohtSensors = (n: number): Sensor[] => {
   const prefix = `OHT${n}`;
   const subsection = `OHT-${n}`;
-  const isLiveOht3 = n === 3;
   return [
-    { id: `${prefix}-PT`, mqttKey: isLiveOht3 ? "PT" : "PT_01", label: "Pressure (PT)", unit: "Bar", min: 0, max: isLiveOht3 ? 16 : 10, section: "oht", subsection, instrumentType: "pt" },
-    { id: `${prefix}-LT`, mqttKey: isLiveOht3 ? "LT" : "LEVEL", label: "Level (LT)", unit: "%", min: 0, max: 100, section: "oht", subsection, instrumentType: "lt" },
-    { id: `${prefix}-Flow-IN`, mqttKey: isLiveOht3 ? "EFM_FLOW" : "FLOW", label: "Flow Meter (Inlet)", unit: "m³/hr", min: 0, max: 50, section: "oht", subsection, instrumentType: "flow" },
-    { id: `${prefix}-Totalizer`, mqttKey: isLiveOht3 ? "EFM_1_2" : "TOTALIZER", label: isLiveOht3 ? "EFM 1 Totalizer 2" : "Totalizer", unit: "m³", min: isLiveOht3 ? -999999 : 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
+    { id: `${prefix}-PT1`, mqttKey: "OHT_PT_1", label: "Inlet Pressure 1 (PT1)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
+    { id: `${prefix}-PT2`, mqttKey: "OHT_PT_2", label: "Inlet Pressure 2 (PT2)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
+    { id: `${prefix}-LT`, mqttKey: "OHT_LT", label: "Water Level (LT)", unit: "%", min: 0, max: 100, section: "oht", subsection, instrumentType: "lt" },
+    { id: `${prefix}-Flow`, mqttKey: "OHT_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 50, section: "oht", subsection, instrumentType: "flow" },
+    { id: `${prefix}-Totalizer`, mqttKey: "OHT_POSICUMVALUE", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
+    { id: `${prefix}-DecrTotalizer`, mqttKey: "OHT_DECPOSICUMVALUE", label: "Decremental Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
   ];
 };
 
 const SENSORS: Sensor[] = [
-  // === INTAKE sensors (logged first) — Mohgaon plant: RTU Device ID: 02500225110500008735 ===
-  // mqttKey values match exact PLC r_data tag names from mohgaon/intake topic
-  { id: "INT-PT1", mqttKey: "PT_1", label: "Pressure 1 (PT)", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
-  { id: "INT-PT2", mqttKey: "PT_2", label: "Pressure 2 (PT)", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
-  { id: "INT-CombinedPT", mqttKey: "PT_3", label: "Main Header Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "combined_pt" },
-  { id: "INT-LT", mqttKey: "RLT", label: "Level (LT)", unit: "%", min: 0, max: 100, section: "intake", instrumentType: "lt" },
-  { id: "INT-Flow", mqttKey: "EFM_FLOW", label: "Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
-  { id: "INT-Totalizer", mqttKey: "EFM", label: "Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
+  // === INTAKE sensors — Shahpur SCADA: RTU Device ID: 02500225110500007982 ===
+  // mqttKey values match PLC tags from sahpur/intake/plc01/update
+  { id: "INT-PT1", mqttKey: "INTAKEPT1", label: "VT Pump 1 Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
+  { id: "INT-PT2", mqttKey: "INTAKEPT2", label: "VT Pump 2 Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
+  { id: "INT-HeaderPT", mqttKey: "INTAKEHDPT1", label: "Main Header Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "combined_pt" },
+  { id: "INT-LT", mqttKey: "INTAKERLT", label: "River Level (RLT)", unit: "%", min: 0, max: 100, section: "intake", instrumentType: "lt" },
+  { id: "INT-Flow-IN", mqttKey: "INFLOW1", label: "Inlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
+  { id: "INT-Totalizer-IN", mqttKey: "INTotalizer1H", label: "Inlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
+  { id: "INT-Flow-OUT", mqttKey: "OUTFLOW1", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
+  { id: "INT-Totalizer-OUT", mqttKey: "OUTTotalizer1H", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
   { id: "INT-Pump1", mqttKey: "", label: "VT Pump 1", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
   { id: "INT-Pump2", mqttKey: "", label: "VT Pump 2", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
-  // === WTP sensors (logged second) — Mohgaon plant: 2 HT Pumps, RTU Device ID: 02500225110500007666 ===
-  // mqttKey values match exact PLC r_data tag names from mohgaon/wtp topic
+  // === WTP sensors — Shahpur SCADA (Scaffolded, awaiting commissioning) ===
   { id: "WTP-LT-BW", mqttKey: "BW_LT", label: "Backwash Level", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
   { id: "WTP-LT-CW", mqttKey: "CWR_LT", label: "Clear Water Level", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
-  // HT Pump pressures: PT_1=Pump1, PT_2=Pump2 (NOT VT pumps)
   { id: "WTP-PT1", mqttKey: "PT_1", label: "HT Pump 1 Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "pt" },
   { id: "WTP-PT2", mqttKey: "PT_2", label: "HT Pump 2 Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "pt" },
-  // Combined Header Pressure — PLC tag PT_3 (direct field reading, NOT a VT pump)
   { id: "WTP-HeaderPT", mqttKey: "PT_3", label: "Combined Header Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "combined_pt" },
-  // Inlet flow/totalizer: RAW_EFM_FLOW = Inlet Flow Meter, RAW_EFM = Inlet Totalizer
   { id: "WTP-Flow-IN", mqttKey: "RAW_EFM_FLOW", label: "Inlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
   { id: "WTP-Totalizer-IN", mqttKey: "RAW_EFM", label: "Inlet Totalizer", unit: "m³", min: 0, max: 999999, section: "wtp", instrumentType: "totalizer" },
-  // Outlet flow/totalizer: CLR_EFM_FLOW = Outlet Flow Meter, CLR_EFM = Outlet Totalizer
   { id: "WTP-Flow-OUT", mqttKey: "CLR_EFM_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
   { id: "WTP-Totalizer-OUT", mqttKey: "CLR_EFM", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "wtp", instrumentType: "totalizer" },
-  // Inlet analyzers: RW_PH = Inlet pH, RW_TB = Inlet Turbidity
   { id: "WTP-PH-IN", mqttKey: "RW_PH", label: "Inlet pH", unit: "pH", min: 0, max: 14, section: "wtp", instrumentType: "ph" },
   { id: "WTP-TA-IN", mqttKey: "RW_TB", label: "Inlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
-  // Outlet analyzers: CWR_TB = Outlet Turbidity
   { id: "WTP-PH", mqttKey: "CWR_PH", label: "Outlet pH", unit: "pH", min: 0, max: 14, section: "wtp", instrumentType: "ph" },
   { id: "WTP-CL", mqttKey: "CWR_CL", label: "Outlet Chlorine", unit: "PPM", min: 0, max: 20, section: "wtp", instrumentType: "chlorine" },
   { id: "WTP-TA", mqttKey: "CWR_TB", label: "Outlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
-  // Temperature — CWR_TEM = Outlet Temperature
   { id: "WTP-TEM", mqttKey: "CWR_TEM", label: "Outlet Temperature", unit: "°C", min: 0, max: 60, section: "wtp", instrumentType: "temperature" },
   { id: "WTP-Pump1", mqttKey: "", label: "HT Pump 1", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
   { id: "WTP-Pump2", mqttKey: "", label: "HT Pump 2", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
-  // === OHT sensors (logged last, OHT1 → OHT2 → OHT3 → OHT4) ===
-  ...ohtSensors(1), ...ohtSensors(2), ...ohtSensors(3), ...ohtSensors(4),
+  // === OHT sensors (Shahpur: 2 OHTs) ===
+  ...ohtSensors(1), ...ohtSensors(2),
 ];
 
 const PT_TO_PUMP: Record<string, string> = {
@@ -119,37 +122,39 @@ const PT_TO_PUMP: Record<string, string> = {
 };
 
 // MQTT key aliases: maps legacy/alternative key names to canonical PLC tags
-// Primary keys are the real RTU-published tag names; aliases are for backward compat
 const MQTT_KEY_ALIASES: Record<string, string[]> = {
-  // Intake tags — canonical: PT_1, PT_2, PT_3, RLT, EFM, EFM_FLOW
-  "RLT": ["RLT", "INTAKE_LT", "LEVEL", "Level"],
-  "EFM_FLOW": ["EFM_FLOW", "INTAKE_FLOW", "FLOW", "Flow", "INT_FLOW"],
-  "EFM": ["EFM", "INTAKE_TOT", "TOTALIZER", "INT_TOT"],
-  // WTP levels
+  // Intake tags — Shahpur PLC tags
+  "INTAKEPT1": ["INTAKEPT1", "PT_1", "PT1", "INTAKE_PT1"],
+  "INTAKEPT2": ["INTAKEPT2", "PT_2", "PT2", "INTAKE_PT2"],
+  "INTAKEHDPT1": ["INTAKEHDPT1", "PT_3", "PT3", "INTAKE_PT3", "HEADER_PT"],
+  "INTAKERLT": ["INTAKERLT", "RLT", "INTAKE_LT", "LEVEL", "Level"],
+  "INFLOW1": ["INFLOW1", "EFM_FLOW", "FLOW", "INT_FLOW", "IN_FLOW"],
+  "INTotalizer1H": ["INTotalizer1H", "INTOTALIZER1H", "EFM", "INT_TOT"],
+  "OUTFLOW1": ["OUTFLOW1", "OUT_FLOW", "CLR_FLOW"],
+  "OUTTotalizer1H": ["OUTTotalizer1H", "OUTTOTALIZER1H", "OUT_TOT"],
+  // OHT tags — Shahpur tags
+  "OHT_PT_1": ["OHT_PT_1", "PT_1", "PT1", "PT_01", "PT"],
+  "OHT_PT_2": ["OHT_PT_2", "PT_2", "PT2", "PT_02"],
+  "OHT_LT": ["OHT_LT", "LT", "LEVEL", "Level"],
+  "OHT_FLOW": ["OHT_FLOW", "FLOW", "Flow", "EFM_FLOW"],
+  "OHT_POSICUMVALUE": ["OHT_POSICUMVALUE", "TOTALIZER", "POSICUMVALUE", "EFM"],
+  "OHT_DECPOSICUMVALUE": ["OHT_DECPOSICUMVALUE", "DECPOSICUMVALUE"],
+  // WTP tags
   "BW_LT": ["BW_LEVEL", "BW_LT"],
   "CWR_LT": ["CWR_LEVEL", "CWR_LT"],
-  // Pressures — canonical RTU tags: PT_1, PT_2, PT_3
-  "PT_1": ["PT_1", "CWR_PT1", "PT_01", "INTAKE_PT1"],
-  "PT_2": ["PT_2", "CWR_PT2", "PT_02", "INTAKE_PT2"],
-  "PT_3": ["PT_3", "PT_03", "INTAKE_PT3", "PT_COM"],
-  // Inlet flow/totalizer — canonical: RAW_EFM_FLOW, RAW_EFM
+  "PT_1": ["PT_1", "CWR_PT1", "PT_01"],
+  "PT_2": ["PT_2", "CWR_PT2", "PT_02"],
+  "PT_3": ["PT_3", "PT_03"],
   "RAW_EFM_FLOW": ["RAW_EFM_FLOW", "FLOWMETER", "FLOW", "FLOW_IN"],
   "RAW_EFM": ["RAW_EFM", "TOTALIZER", "TOTALIZER_IN"],
-  // Outlet flow/totalizer — canonical: CLR_EFM_FLOW, CLR_EFM
   "CLR_EFM_FLOW": ["CLR_EFM_FLOW", "CWR_FLOW", "FLOW_OUT"],
   "CLR_EFM": ["CLR_EFM", "CWR_TOT", "TOTALIZER_OUT"],
-  // Inlet analyzers — canonical: RW_PH, RW_TB
   "RW_PH": ["RW_PH", "RAW_PH"],
   "RW_TB": ["RW_TB", "RAW_TR", "RW_TR"],
-  // Outlet analyzers — canonical: CWR_PH, CWR_CL, CWR_TB, CWR_TEM
   "CWR_PH": ["CWR_PH", "PH", "CW_PH"],
   "CWR_CL": ["CWR_CL", "CL"],
   "CWR_TB": ["CWR_TB", "CWR_TR", "TR", "CW_TR"],
   "CWR_TEM": ["CWR_TEM"],
-  // OHT keys with prefixed names
-  "PT_01": ["PT_01", "PT"],
-  "LEVEL": ["LEVEL", "Level", "LT"],
-  "FLOW": ["FLOW", "Flow", "FLOW_IN"],
 };
 
 /** Check if an MQTT key matches a sensor's expected key, including aliases */
@@ -271,18 +276,16 @@ function topicSetup(cfg: MqttConfig | null) {
     WTP: Deno.env.get("MQTT_TOPIC_WTP") || cfg?.wtp_topic || DEFAULT_TOPICS.WTP,
     OHT1: Deno.env.get("MQTT_TOPIC_OHT1") || cfg?.oht_topic || DEFAULT_TOPICS.OHT1,
     OHT2: Deno.env.get("MQTT_TOPIC_OHT2") || cfg?.oht_topic_2 || DEFAULT_TOPICS.OHT2,
-    OHT3: Deno.env.get("MQTT_TOPIC_OHT3") || cfg?.oht_topic_3 || DEFAULT_TOPICS.OHT3,
-    OHT4: Deno.env.get("MQTT_TOPIC_OHT4") || cfg?.oht_topic_4 || DEFAULT_TOPICS.OHT4,
   };
   const topicToSection = new Map<string, { section: Section; subsection?: string }>([
     [topics.INTAKE, { section: "intake" }],
     [topics.WTP, { section: "wtp" }],
     [topics.OHT1, { section: "oht", subsection: "OHT-1" }],
     [topics.OHT2, { section: "oht", subsection: "OHT-2" }],
-    [topics.OHT3, { section: "oht", subsection: "OHT-3" }],
-    [topics.OHT4, { section: "oht", subsection: "OHT-4" }],
   ]);
-  // Subscribe to the commissioned paths as well as configured legacy aliases.
+  // Subscribe to wildcard patterns for Shahpur
+  topicToSection.set("sahpur/#", { section: "intake" });
+  topicToSection.set("shahpur/#", { section: "intake" });
   for (const [key, path] of Object.entries(DEFAULT_TOPICS)) {
     topicToSection.set(path, key === 'INTAKE' ? { section: 'intake' } : key === 'WTP'
       ? { section: 'wtp' } : { section: 'oht', subsection: `OHT-${key.slice(3)}` });
@@ -312,7 +315,7 @@ async function collectSnapshot(
 
   return await new Promise((resolve, reject) => {
     const client = mqtt.connect(brokerUrl, {
-      clientId: `${cfg?.client_id || "mohgaon-backend"}-${crypto.randomUUID().slice(0, 8)}`,
+      clientId: `${cfg?.client_id || "shahpur-backend"}-${crypto.randomUUID().slice(0, 8)}`,
       username: Deno.env.get("MQTT_USERNAME") || "",
       password: Deno.env.get("MQTT_PASSWORD") || "",
       protocolVersion: 4,
@@ -367,11 +370,35 @@ function mapReadings(msg: ParsedMessage) {
   if (msg.section === 'unknown') return [];
   const sensors = SENSORS.filter(s => s.section === msg.section && (!s.subsection || s.subsection === msg.subsection) && s.mqttKey);
   const rows = new Map<string, {tag_id: string; section: Section; value: number | null; quality: string; received_at: string; mqtt_topic: string}>();
+
+  // 32-bit combined registers for Intake Totalizers: H * 65536 + L
+  if (msg.section === 'intake') {
+    const p = msg.payload;
+    if ('INTotalizer1H' in p || 'INTotalizer1L' in p) {
+      const h = Number(p['INTotalizer1H'] ?? 0);
+      const l = Number(p['INTotalizer1L'] ?? 0);
+      const tot = sanitizeRtuValue(h * 65536 + l);
+      rows.set('INT-Totalizer-IN', {
+        tag_id: 'INT-Totalizer-IN', section: 'intake', value: tot, quality: 'good',
+        received_at: msg.timestamp.toISOString(), mqtt_topic: msg.topic
+      });
+    }
+    const outLKey = 'OUTToalizer1L' in p ? 'OUTToalizer1L' : 'OUTTotalizer1L';
+    if ('OUTTotalizer1H' in p || outLKey in p) {
+      const h = Number(p['OUTTotalizer1H'] ?? 0);
+      const l = Number(p[outLKey] ?? 0);
+      const tot = sanitizeRtuValue(h * 65536 + l);
+      rows.set('INT-Totalizer-OUT', {
+        tag_id: 'INT-Totalizer-OUT', section: 'intake', value: tot, quality: 'good',
+        received_at: msg.timestamp.toISOString(), mqtt_topic: msg.topic
+      });
+    }
+  }
+
   for (const [key, raw] of Object.entries(msg.payload)) {
     const sensor = sensors.find(s => mqttKeyMatches(s.mqttKey, key));
     if (!sensor) continue;
     let value = raw === '' || raw === null || typeof raw === 'boolean' ? NaN : Number(raw);
-    // WTP flow is already m³/hr; do not apply a litres-to-m³ conversion.
     const normalized = normalizeSensorValue(sensor, value);
     rows.set(sensor.id, {tag_id:sensor.id, section:sensor.section, value:normalized,
       quality:normalized === null ? 'fault' : 'good', received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});

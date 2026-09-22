@@ -3,7 +3,7 @@ import mqtt, { MqttClient, IClientOptions } from 'mqtt';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { logError, logDebug, logWarn, logInfo } from '@/lib/errorLogger';
-import { MQTT_TOPICS, ALL_MQTT_TOPICS, TOPIC_TO_SECTION, DEFAULT_MQTT_TOPICS, setTopicsFromDb } from '@/config/mohgaonSensors';
+import { MQTT_TOPICS, ALL_MQTT_TOPICS, TOPIC_TO_SECTION, DEFAULT_MQTT_TOPICS, setTopicsFromDb } from '@/config/shahpurSensors';
 
 export interface MqttConfig {
   id?: string;
@@ -95,8 +95,8 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
           if (session?.session?.access_token) {
             const { data: creds, error: credErr } = await supabase.functions.invoke('get-mqtt-credentials');
             if (!credErr && creds) {
-              if (creds.username && creds.username !== 'AdminMohgaon') mqttUsername = creds.username;
-              if (creds.password && creds.password !== 'Admin@mohgaon56978') mqttPassword = creds.password;
+              if (creds.username) mqttUsername = creds.username;
+              if (creds.password) mqttPassword = creds.password;
               if (creds.topics && typeof creds.topics === 'object') {
                 vaultTopics = creds.topics;
                 setTopicsFromDb(creds.topics);
@@ -120,8 +120,6 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
           const dbTopics = {
             OHT1: data.oht_topic || DEFAULT_MQTT_TOPICS.OHT1,
             OHT2: (data as any).oht_topic_2 || DEFAULT_MQTT_TOPICS.OHT2,
-            OHT3: (data as any).oht_topic_3 || DEFAULT_MQTT_TOPICS.OHT3,
-            OHT4: (data as any).oht_topic_4 || DEFAULT_MQTT_TOPICS.OHT4,
             INTAKE: data.intake_topic || DEFAULT_MQTT_TOPICS.INTAKE,
             WTP: (data as any).wtp_topic || DEFAULT_MQTT_TOPICS.WTP,
           };
@@ -246,38 +244,27 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
         if (key === 'WTP') return { section: 'wtp' };
         if (key === 'OHT1') return { section: 'oht', subsection: 'OHT-1' };
         if (key === 'OHT2') return { section: 'oht', subsection: 'OHT-2' };
-        if (key === 'OHT3') return { section: 'oht', subsection: 'OHT-3' };
-        if (key === 'OHT4') return { section: 'oht', subsection: 'OHT-4' };
       }
     }
 
-    if (topic.toLowerCase().includes('oht') || topic.includes('Ov1h') || topic.includes('Ov2h') || topic.includes('Ov3h') || topic.includes('Ov4h')) {
-      if (topic.includes('OHT01') || topic.includes('OHT-1') || topic.includes('OHT1') || topic.includes('Ov1h')) {
+    if (topic.toLowerCase().includes('oht')) {
+      if (topic.includes('OHT01') || topic.includes('OHT-1') || topic.includes('OHT1') || topic.includes('plc01')) {
         return { section: 'oht', subsection: 'OHT-1' };
       }
-      if (topic.includes('OHT02') || topic.includes('OHT-2') || topic.includes('OHT2') || topic.includes('Ov2h')) {
+      if (topic.includes('OHT02') || topic.includes('OHT-2') || topic.includes('OHT2') || topic.includes('plc02')) {
         return { section: 'oht', subsection: 'OHT-2' };
       }
-      if (topic.includes('OHT03') || topic.includes('OHT-3') || topic.includes('OHT3') || topic.toLowerCase().includes('oht-3') || topic.includes('Ov3h')) {
-        return { section: 'oht', subsection: 'OHT-3' };
-      }
-      if (topic.includes('OHT04') || topic.includes('OHT-4') || topic.includes('OHT4') || topic.includes('Ov4h')) {
-        return { section: 'oht', subsection: 'OHT-4' };
-      }
-      return { section: 'oht' };
+      return { section: 'oht', subsection: 'OHT-1' };
     }
     const upperTopic = topic.toUpperCase();
-    if (upperTopic.includes('INTAKE') || upperTopic.includes('INT') || upperTopic.includes('NK3A') || topic.toLowerCase().includes('intake')) return { section: 'intake' };
-    if (upperTopic.includes('WTP') || upperTopic.includes('TR8P') || topic.toLowerCase().includes('wtp')) return { section: 'wtp' };
+    if (upperTopic.includes('INTAKE') || upperTopic.includes('INT') || topic.toLowerCase().includes('intake')) return { section: 'intake' };
+    if (upperTopic.includes('WTP') || topic.toLowerCase().includes('wtp')) return { section: 'wtp' };
 
     // Payload tag inspection fallback
     if (payloadStr) {
-      if (payloadStr.includes('02500225110500008735') || payloadStr.includes('RLT') || payloadStr.includes('INTAKE_') || payloadStr.includes('INT_')) return { section: 'intake' };
-      if (payloadStr.includes('02500225110500007666') || payloadStr.includes('RAW_PH') || payloadStr.includes('RAW_EFM') || payloadStr.includes('FLOWMETER') || payloadStr.includes('CWR_') || payloadStr.includes('BW_LT')) return { section: 'wtp' };
-      if (payloadStr.includes('OHT1_')) return { section: 'oht', subsection: 'OHT-1' };
-      if (payloadStr.includes('OHT2_')) return { section: 'oht', subsection: 'OHT-2' };
-      if (payloadStr.includes('OHT3_')) return { section: 'oht', subsection: 'OHT-3' };
-      if (payloadStr.includes('OHT4_')) return { section: 'oht', subsection: 'OHT-4' };
+      if (payloadStr.includes('02500225110500007982') || payloadStr.includes('INTAKEPT') || payloadStr.includes('INFLOW') || payloadStr.includes('INT_')) return { section: 'intake' };
+      if (payloadStr.includes('02500225110500007512') || payloadStr.includes('OHT_PT_') || payloadStr.includes('OHT_LT') || payloadStr.includes('OHT_FLOW')) return { section: 'oht', subsection: 'OHT-1' };
+      if (payloadStr.includes('RAW_PH') || payloadStr.includes('RAW_EFM') || payloadStr.includes('CWR_') || payloadStr.includes('BW_LT')) return { section: 'wtp' };
     }
 
     return { section: 'unknown' };
@@ -305,7 +292,7 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
     try {
       const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
       const options: IClientOptions = {
-        clientId: `${config.clientId || 'mohgaon'}_${Math.random().toString(16).slice(2, 10)}`,
+        clientId: `${config.clientId || 'shahpur'}_${Math.random().toString(16).slice(2, 10)}`,
         clean: true,
         connectTimeout: 8000,
         reconnectPeriod: isHttps ? 20000 : 3000, // On HTTPS if broker SSL is missing, gracefully retry every 20s
@@ -326,7 +313,7 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
           wasConnectedRef.current = true;
         }
         const defaultTopicList = Object.values(DEFAULT_MQTT_TOPICS).filter(Boolean);
-        const topicsToSub = Array.from(new Set([...ALL_MQTT_TOPICS, ...defaultTopicList, 'mohgaon/#', 'mohgaon/wtp', 'OES/M7g4/#']));
+        const topicsToSub = Array.from(new Set([...ALL_MQTT_TOPICS, ...defaultTopicList, 'sahpur/#', 'sahpur/wtp']));
         client.subscribe(topicsToSub, (err) => {
           if (err) { logError('MqttContext.subscribe', err); }
           else logInfo('MQTT', `Subscribed to ${topicsToSub.length} topics: ${topicsToSub.join(', ')}`);
@@ -423,8 +410,6 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
         client_id: config.clientId || null,
         oht_topic: config.topics.OHT1 || MQTT_TOPICS.OHT1,
         oht_topic_2: config.topics.OHT2 || MQTT_TOPICS.OHT2,
-        oht_topic_3: config.topics.OHT3 || MQTT_TOPICS.OHT3,
-        oht_topic_4: config.topics.OHT4 || MQTT_TOPICS.OHT4,
         intake_topic: config.topics.INTAKE || MQTT_TOPICS.INTAKE,
         wtp_topic: config.topics.WTP || MQTT_TOPICS.WTP,
         auto_connect: config.autoConnect,

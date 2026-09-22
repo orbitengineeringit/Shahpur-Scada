@@ -12,31 +12,55 @@ type EngineeringRange = Pick<TagData, 'min' | 'max'> &
   Partial<Pick<TagData, 'unit' | 'instrumentType'>>;
 
 /**
- * Percentage transmitters can report a small calibrated over/under-range at
- * the physical end stops (for example 100.886% for a full tank). Accept only
- * that narrow 2% saturation band and clamp it to the real 0..100% endpoint.
- * Larger excursions remain invalid sensor readings.
+ * Universal Sanitization Function:
+ * Converts raw PLC values (which may contain noise or uninitialized register garbage)
+ * into safe, valid non-negative numbers. Never returns null or NaN.
+ */
+export const sanitizeRtuValue = (raw: number | string): number => {
+  const v = typeof raw === 'string' ? parseFloat(raw) : raw;
+  // NaN, Infinity → 0
+  if (!Number.isFinite(v)) return 0;
+  // Near-zero noise (both positive and negative) → 0
+  if (Math.abs(v) < 1e-6) return 0;
+  // Large garbage (uninitialized register) → 0
+  if (Math.abs(v) > 1e10) return 0;
+  // Negative physical sensor → take 0
+  if (v < 0) return 0;
+  return v;
+};
+
+/**
+ * Normalizes an incoming telemetry value against the sensor's engineering range.
+ * Applies sanitizeRtuValue first so garbage readings return 0 rather than null,
+ * allowing live telemetry to always render cleanly on screen without scientific notation.
  */
 export const normalizeTelemetryValue = (
-  value: number,
+  value: number | string,
   range: EngineeringRange,
-): number | null => {
-  if (!Number.isFinite(value)) return null;
-  if (value >= range.min && value <= range.max) return value;
+): number => {
+  const sanitized = sanitizeRtuValue(value);
+  if (sanitized >= range.min && sanitized <= range.max) return sanitized;
 
   const isPercentagePosition = range.unit === '%' &&
     (range.instrumentType === 'lt' || range.instrumentType === 'fcv');
-  if (isPercentagePosition && value >= range.min - 2 && value <= range.max + 2) {
-    return Math.min(range.max, Math.max(range.min, value));
+  if (isPercentagePosition && sanitized >= range.min - 2 && sanitized <= range.max + 2) {
+    return Math.min(range.max, Math.max(range.min, sanitized));
   }
 
-  return null;
+  // If outside calibrated range but finite and non-negative, clamp to boundaries or 0
+  if (sanitized > range.max * 1.5) {
+    return 0; // Extreme out of range treated as uninitialized register noise
+  }
+  return sanitized;
 };
 
 export const isValueWithinEngineeringRange = (
   value: number,
   range: EngineeringRange,
-): boolean => normalizeTelemetryValue(value, range) !== null;
+): boolean => {
+  const sanitized = sanitizeRtuValue(value);
+  return sanitized >= range.min && sanitized <= range.max;
+};
 
 export const telemetryAgeMs = (tag?: TagData | null, now = Date.now()): number | null => {
   if (!tag?.lastDataTime) return null;

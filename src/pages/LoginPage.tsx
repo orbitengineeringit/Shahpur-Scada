@@ -89,7 +89,7 @@ const LoginPage = () => {
               <div className="flex flex-col items-start leading-none gap-1">
                 <span className="text-[8px] sm:text-[10px] font-black tracking-[0.2em] text-cyan-600 dark:text-cyan-400 uppercase px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 dark:bg-cyan-400/10 dark:border-cyan-400/20">M/S</span>
                 <span className="text-xs sm:text-sm md:text-base font-black tracking-wider bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 dark:from-cyan-400 dark:via-teal-400 dark:to-emerald-400 bg-clip-text text-transparent drop-shadow-sm uppercase font-sans">
-                  Dilip Patidar
+                  CMPV Engineering Pvt. Ltd.
                 </span>
               </div>
             </div>
@@ -100,21 +100,21 @@ const LoginPage = () => {
           <div className="text-center mb-6">
             <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-500/10 dark:bg-blue-500/20 border border-blue-500/15 text-blue-600 dark:text-cyan-400 font-extrabold text-[9px] uppercase tracking-wider mb-3">
               <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse" />
-              Under AMRUT 2.0
+              Package-61 · MPUDCL
             </div>
             
             <h1 className="text-base sm:text-lg font-black text-foreground leading-snug tracking-tight mb-1">
-              Augmentation of Water Supply Scheme
+              Improvement of Water Supply Scheme
             </h1>
             
             <p className="text-xs sm:text-sm font-extrabold bg-gradient-to-r from-blue-600 to-indigo-500 dark:from-cyan-400 dark:to-blue-400 bg-clip-text text-transparent mb-4 uppercase">
-              Mohgaon Nagar Parishad, Chhindwara
+              Shahpur, Distt. Sagar (M.P.)
             </p>
 
             <div className="flex items-center justify-center gap-2 text-[10px] text-muted-foreground font-semibold px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/40 dark:border-slate-800/40 mb-4 max-w-sm mx-auto">
-              <span>Client: <span className="text-foreground">Chief Municipal Officer</span></span>
+              <span>Client: <span className="text-foreground">MPUDCL</span></span>
               <span className="w-1 h-1 rounded-full bg-border" />
-              <span>Capacity: <span className="text-foreground">1.8 MLD</span></span>
+              <span>Capacity: <span className="text-foreground">1.75 MLD</span></span>
             </div>
 
             <div className="flex items-center justify-center gap-2">
@@ -168,7 +168,7 @@ const LoginPage = () => {
           </form>
 
           <p className="text-center text-[11px] text-muted-foreground mt-6">
-            Powered by M/s Dilip Patidar × Orbit Automation
+            Powered by M/s CMPV Engineering × Orbit Automation
           </p>
         </div>
       </div>

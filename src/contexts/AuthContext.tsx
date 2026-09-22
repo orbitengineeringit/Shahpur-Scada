@@ -10,7 +10,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const AUTH_EMAIL_DOMAIN = '@mohgaon.scada';
+const AUTH_EMAIL_DOMAIN = '@shahpur.scada';
 const AUTO_LOGOUT_HOURS = 12;
 const AUTO_LOGOUT_MS = AUTO_LOGOUT_HOURS * 60 * 60 * 1000;
 
@@ -82,7 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     // If sign in fails and username doesn't contain '@', try fallback domains for existing db users
     if (error && !username.includes('@')) {
-      const fallbacks = ['@burhar.scada', '@beohari.scada'];
+      const fallbacks = ['@mohgaon.scada', '@burhar.scada', '@beohari.scada'];
       for (const domain of fallbacks) {
         const fallbackEmail = `${username}${domain}`;
         const result = await supabase.auth.signInWithPassword({ email: fallbackEmail, password });

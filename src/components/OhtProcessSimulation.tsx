@@ -1,6 +1,5 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { MohgaonSensor } from '@/config/mohgaonSensors';
-import SensorStatusStrip from './SensorStatusStrip';
+import React, { useState, useEffect } from 'react';
+import { ShahpurSensor } from '@/config/shahpurSensors';
 import { useScada } from '@/contexts/ScadaContext';
 
 interface CircularGaugeProps {
@@ -99,47 +98,37 @@ const CircularGauge: React.FC<CircularGaugeProps> = ({ cx, cy, r, value, min, ma
 };
 
 export interface OhtProcessSimulationProps {
-  sensors: MohgaonSensor[];
+  sensors: ShahpurSensor[];
   tags: any[];
   config: any;
 }
 
 const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, tags, config }) => {
   const { setOhtTags } = useScada();
-  const getSensor = (key: string) => sensors.find(s => 
-    s.mqttKey === key || 
-    s.mqttKey.endsWith(`_${key}`) || 
-    s.instrumentType === key.toLowerCase() || 
-    (key === 'PT_01' && s.instrumentType === 'pt') ||
-    (key === 'FLOW' && s.id.endsWith('-Flow-IN')) ||
-    (key === 'FLOW_OUT' && s.id.endsWith('-Flow-OUT')) ||
-    (key === 'LEVEL' && s.instrumentType === 'lt')
-  );
-  const getTag = (key: string) => {
-    const sensor = getSensor(key);
-    return tags.find(t => t.id === sensor?.id);
-  };
 
-  const ltTag = getTag('LEVEL');
+  const ltSensor = sensors.find(s => s.instrumentType === 'lt');
+  const ltTag = ltSensor ? tags.find(t => t.id === ltSensor.id) : null;
   const ltVal = ltTag?.value || 0;
 
-  const ptTag = getTag('PT_01');
+  const ptSensor = sensors.find(s => s.instrumentType === 'pt');
+  const ptTag = ptSensor ? tags.find(t => t.id === ptSensor.id) : null;
+  const ptVal = ptTag?.value || 0;
 
-  const fInTag = getTag('FLOW');
+  const flowSensor = sensors.find(s => s.instrumentType === 'flow');
+  const flowTag = flowSensor ? tags.find(t => t.id === flowSensor.id) : null;
+  const flowVal = flowTag?.value || 0;
 
-  const fOutTag = getTag('FLOW_OUT');
+  const totalizerSensor = sensors.find(s => s.instrumentType === 'totalizer');
+  const totTag = totalizerSensor ? tags.find(t => t.id === totalizerSensor.id) : null;
+  const totVal = totTag?.value || 0;
 
-  const fcvTag = getTag('FCV');
+  const fcvTag = tags.find(t => t.id?.toLowerCase().includes('fcv'));
   const hasFcvSensor = sensors.some(s => s.instrumentType === 'fcv' && !s.notInstalled);
   const fcvVal = fcvTag?.value || 0;
   const fcvOpen = fcvVal > 0;
 
-  const totalizerSensor = sensors.find(s => s.instrumentType === 'totalizer');
-  const totTag = totalizerSensor ? tags.find(t => t.id === totalizerSensor.id) : null;
-
-  const ptVal = ptTag?.value || 0;
-  const fInVal = fInTag?.value || 0;
-  const totVal = totTag?.value || 0;
+  const fInVal = flowVal;
+  const fOutTag = tags.find(t => t.id?.toLowerCase().includes('flow_out') || t.id?.toLowerCase().includes('out'));
 
   const handleFcvToggle = () => {
     const fcvSensor = sensors.find(s => s.instrumentType === 'fcv');
@@ -231,12 +220,6 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
 
   return (
     <div className="w-full relative overflow-hidden bg-background border border-border/50 rounded-2xl p-1 md:p-3">
-      <div className="relative z-10">
-        <SensorStatusStrip
-          tags={tags}
-          sensorIds={sensors.filter(s => !s.notInstalled).map(s => s.id)}
-        />
-      </div>
       {/* Blueprint Grid Background Pattern */}
       <div
         className="w-full h-full min-h-[350px]"
@@ -302,19 +285,19 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
           {/* Inlet Pipe before FCV */}
           <g>
             {drawPipe(inPipeBeforeFcv, pipeW)}
-            {drawWaterFlow(inPipeBeforeFcv, fInVal, fInVal > 0)}
+            {drawWaterFlow(inPipeBeforeFcv, ptVal > 0.2 ? 20 : 0, ptVal > 0.2)}
           </g>
 
           {/* Inlet Pipe after FCV */}
           <g>
             {drawPipe(inPipeAfterFcv, pipeW)}
-            {(!hasFcvSensor || fcvOpen) && drawWaterFlow(inPipeAfterFcv, fInVal, fInVal > 0)}
+            {drawWaterFlow(inPipeAfterFcv, ptVal > 0.2 ? 20 : 0, ptVal > 0.2)}
           </g>
 
           {/* Outlet Pipe */}
           <g>
             {drawPipe(outPipePath, pipeW)}
-            {fOutTag && drawWaterFlow(outPipePath, fOutTag.value || 0, (fOutTag.value || 0) > 0)}
+            {drawWaterFlow(outPipePath, flowVal, flowVal > 0)}
           </g>
 
           <g>
@@ -419,9 +402,6 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
               );
             })}
 
-            {/* Status badge */}
-            <rect x={gaugeX - 8} y={gaugeBottom + 12} width="50" height="22" rx="6" fill={statusColor} fillOpacity="0.15" stroke={statusColor} strokeWidth="1" />
-            <text x={gaugeX + 17} y={gaugeBottom + 27} textAnchor="middle" fontSize="10" fontWeight="800" fill={statusColor} fontFamily="ui-monospace, monospace">{statusText}</text>
           </g>
 
           {/* OHT Level Display — Embedded inside tank body as LCD panel */}
@@ -445,47 +425,47 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
 
           {/* INSTRUMENTS */}
 
-          {/* Flow IN METER (On the inlet pipe) */}
+          {/* Pressure Meter on Inlet (PT) - Left side on inlet pipe */}
+          <g>
+            <path d={`M 400 ${pillarY + pillarH} L 400 ${pillarY + pillarH - 40}`} fill="none" stroke="#475569" strokeWidth="6" />
+            <circle cx={400} cy={pillarY + pillarH} r="6" fill="#475569" />
+            <CircularGauge cx={400} cy={pillarY + pillarH - 100} r={55} value={ptVal} min={0} max={ptTag?.max ?? 10} label="PT Inlet" unit="Bar" />
+          </g>
+
+          {/* Outlet Flow Meter & Totalizer (On outlet pipe - right side) */}
           {(() => {
-            const efmX = 300;
+            const efmX = 1350;
             const efmY = pillarY + pillarH;
             const hTop = efmY - 120;
             const hW = 110, hH = 65, nW = 28;
 
             return (
               <g>
-                <text x={efmX} y={hTop - 18} textAnchor="middle" fontSize="18" fontWeight="900" fill="hsl(var(--foreground))" letterSpacing="0.5px">Flow IN</text>
+                <text x={efmX} y={hTop - 18} textAnchor="middle" fontSize="18" fontWeight="900" fill="hsl(var(--foreground))" letterSpacing="0.5px">Outlet Flow</text>
 
                 <polygon points={`${efmX - hW / 2 + 8},${hTop} ${efmX + hW / 2 - 8},${hTop} ${efmX + hW / 2},${hTop + 16} ${efmX - hW / 2},${hTop + 16}`} fill="hsl(199 89% 48% / 0.85)" stroke="hsl(var(--border))" strokeWidth="1.5" />
                 <rect x={efmX - hW / 2} y={hTop + 16} width={hW} height={hH} rx={8} fill="hsl(199 89% 48% / 0.9)" stroke="hsl(var(--border))" strokeWidth="1.5" />
 
                 <rect x={efmX - 45} y={hTop + 30} width={90} height={40} rx="4" fill="hsl(var(--secondary))" stroke="hsl(var(--border))" strokeWidth="1" />
                 <rect x={efmX - 42} y={hTop + 33} width={84} height={34} rx="3" fill="hsl(142 71% 45% / 0.1)" />
-                <text x={efmX} y={hTop + 57} textAnchor="middle" fill="hsl(var(--foreground))" style={{ fontSize: '18px', fontFamily: "ui-monospace, monospace", fontWeight: 800 }}>{fInVal.toFixed(2)}</text>
+                <text x={efmX} y={hTop + 57} textAnchor="middle" fill="hsl(var(--foreground))" style={{ fontSize: '18px', fontFamily: "ui-monospace, monospace", fontWeight: 800 }}>{flowVal.toFixed(2)}</text>
 
                 <rect x={efmX - nW / 2} y={hTop + 16 + hH} width={nW} height={efmY - (hTop + 16 + hH) - 10} fill="#64748b" stroke="#475569" strokeWidth="1" />
                 <rect x={efmX - nW / 2 - 6} y={efmY - 16} width={nW + 12} height={10} rx={3} fill={pVDark} stroke={pVDark} strokeWidth="1.5" />
 
                 <g>
                   <rect x={efmX - 95} y={efmY + 40} width={190} height={95} rx={12} fill="hsl(199 89% 48% / 0.06)" stroke="hsl(199 89% 48% / 0.5)" strokeWidth="1.5" style={{ filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.12))' }} />
-                  <text x={efmX} y={efmY + 61} textAnchor="middle" fontSize="13" fontWeight="800" fill="hsl(199 89% 55%)" letterSpacing="1px">FLOW RATE</text>
-                  <text x={efmX} y={efmY + 87} textAnchor="middle" fontSize="26" fontWeight="900" fill="hsl(var(--foreground))" fontFamily="ui-monospace">{fInVal.toFixed(1)} <tspan fontSize="13" fill="hsl(var(--muted-foreground))" fontWeight="600">m³/h</tspan></text>
+                  <text x={efmX} y={efmY + 61} textAnchor="middle" fontSize="13" fontWeight="800" fill="hsl(199 89% 55%)" letterSpacing="1px">OUTLET FLOW</text>
+                  <text x={efmX} y={efmY + 87} textAnchor="middle" fontSize="26" fontWeight="900" fill="hsl(var(--foreground))" fontFamily="ui-monospace">{flowVal.toFixed(1)} <tspan fontSize="13" fill="hsl(var(--muted-foreground))" fontWeight="600">m³/h</tspan></text>
 
                   <rect x={efmX - 75} y={efmY + 99} width={150} height="7" rx="3" fill="hsl(199 89% 48% / 0.2)" />
-                  <rect x={efmX - 75} y={efmY + 99} width={150 * Math.min(1, fInVal / 50)} height="7" rx="3" fill="hsl(199 89% 48%)" className="transition-all duration-500" />
+                  <rect x={efmX - 75} y={efmY + 99} width={150 * Math.min(1, flowVal / 50)} height="7" rx="3" fill="hsl(199 89% 48%)" className="transition-all duration-500" />
 
                   <text x={efmX} y={efmY + 123} textAnchor="middle" fontSize="12" fontWeight="800" fill="hsl(199 89% 55% / 0.8)">TOTALIZER: {totVal.toLocaleString()} m³</text>
                 </g>
               </g>
             );
           })()}
-
-          {/* Pressure Meter on Inlet (PT) - Left side on inlet pipe */}
-          <g>
-            <path d={`M 500 ${pillarY + pillarH} L 500 ${pillarY + pillarH - 40}`} fill="none" stroke="#475569" strokeWidth="6" />
-            <circle cx={500} cy={pillarY + pillarH} r="6" fill="#475569" />
-            <CircularGauge cx={500} cy={pillarY + pillarH - 100} r={55} value={ptVal} min={0} max={ptTag?.max ?? 10} label="PT Inlet" unit="Bar" />
-          </g>
 
           {/* Flow Control Valve (FCV) on Inlet Pipe - Right side of PT Inlet */}
           {hasFcvSensor && <g cursor="pointer" onClick={handleFcvToggle} className="select-none">

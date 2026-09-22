@@ -5,7 +5,7 @@ import { Clock, Activity, Database, Wifi, WifiOff, Loader2 } from 'lucide-react'
 import GisSyncStatus from './GisSyncStatus';
 
 const StatusBar = memo(forwardRef<HTMLDivElement>((_, ref) => {
-  const { getActiveTagCount, intakeTags, ohtTags, wtpTags, telemetryHealth } = useScada();
+  const { telemetryHealth } = useScada();
   const { isConnected, isConnecting, config } = useMqtt();
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -13,11 +13,6 @@ const StatusBar = memo(forwardRef<HTMLDivElement>((_, ref) => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-
-  const activeCount = getActiveTagCount();
-  const totalCount = useMemo(() => {
-    return [...intakeTags, ...ohtTags, ...wtpTags].filter(t => !t.notInstalled && t.instrumentType !== 'pump').length;
-  }, [intakeTags, ohtTags, wtpTags]);
 
   const cloudHealthy = telemetryHealth.state === 'connected' && !!telemetryHealth.checkedAt && currentTime.getTime() - telemetryHealth.checkedAt.getTime() < 30000;
   const isOnline = isConnected || cloudHealthy;
@@ -29,14 +24,13 @@ const StatusBar = memo(forwardRef<HTMLDivElement>((_, ref) => {
         {/* Left: Branding + MQTT Status */}
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-success pulse-live shrink-0" />
-            <span className="text-gradient-primary font-semibold truncate hidden sm:block">Mohgaon SCADA</span>
+            <span className="text-gradient-primary font-semibold truncate hidden sm:block">Shahpur SCADA</span>
             <span className="text-gradient-primary font-semibold sm:hidden">SCADA</span>
           </div>
           {/* MQTT Status Pill */}
           <div className="w-px h-3.5 bg-border/40 shrink-0 hidden sm:block" />
           <div
-            title={isOnline ? 'Live data connection available. Sensor status uses each instrument’s last received time.' : telemetryHealth.message || 'Connecting to live data'}
+            title={isOnline ? 'Live data connection available.' : telemetryHealth.message || 'Connecting to live data'}
             className={`flex items-center gap-1 sm:gap-1.5 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-lg text-[9px] sm:text-[10px] font-bold transition-all duration-300 border shrink-0 ${
             isOnline
               ? 'bg-success/10 text-success border-success/20'
@@ -56,21 +50,6 @@ const StatusBar = memo(forwardRef<HTMLDivElement>((_, ref) => {
             </span>
           </div>
           <GisSyncStatus />
-        </div>
-
-        {/* Center: Stats */}
-        <div className="flex items-center gap-2 sm:gap-4">
-          <div className="flex items-center gap-1 sm:gap-2">
-            <Database className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary shrink-0" />
-            <span>
-              <span className="font-bold text-primary">{activeCount}</span>
-              <span className="text-muted-foreground">/{totalCount}</span>
-            </span>
-          </div>
-          <div className="flex items-center gap-1 sm:gap-1.5">
-            <Activity className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-success shrink-0" />
-            <span className="text-muted-foreground hidden sm:inline">{activeCount > 0 ? 'Live' : 'No fresh data'}</span>
-          </div>
         </div>
 
         {/* Right: Time */}

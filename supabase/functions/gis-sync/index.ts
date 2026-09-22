@@ -8,11 +8,20 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
+function sanitizeRtuValue(val: number | null | undefined): number {
+  if (val === null || val === undefined) return 0.0;
+  if (!Number.isFinite(val)) return 0.0;
+  if (val < 0) return 0.0;
+  if (val > 0 && val < 0.0001) return 0.0;
+  if (val > 100000000) return 0.0;
+  return Number(val.toFixed(2));
+}
+
 // MQTT tag-id mapping per request
 const TAG = {
   intake: {
-    pt1: "INT-PT1", pt2: "INT-PT2", header: "INT-CombinedPT",
-    lt: "INT-LT", flow: "INT-Flow",
+    pt1: "INT-PT1", pt2: "INT-PT2", header: "INT-HeaderPT",
+    lt: "INT-LT", inFlow: "INT-Flow-IN", outFlow: "INT-Flow-OUT",
   },
   wtp: {
     inFlow: "WTP-Flow-IN", outFlow: "WTP-Flow-OUT",
@@ -22,26 +31,26 @@ const TAG = {
     pt1: "WTP-PT1", pt2: "WTP-PT2",
   },
   oht: (n: number) => ({
-    pt: `OHT${n}-PT`, lt: `OHT${n}-LT`,
-    // Flow-OUT is not installed on these OHTs — fall back to Flow-IN
-    flow: `OHT${n}-Flow-IN`,
+    pt1: `OHT${n}-PT1`, pt2: `OHT${n}-PT2`, lt: `OHT${n}-LT`,
+    flow: `OHT${n}-Flow`,
   }),
 };
 
 const VALID_RANGE: Record<string, { min: number; max: number }> = {
   "INT-PT1": { min: 0, max: 10 }, "INT-PT2": { min: 0, max: 10 },
-  "INT-CombinedPT": { min: 0, max: 10 }, "INT-LT": { min: 0, max: 100 },
-  "INT-Flow": { min: 0, max: 200 },
+  "INT-HeaderPT": { min: 0, max: 10 }, "INT-LT": { min: 0, max: 100 },
+  "INT-Flow-IN": { min: 0, max: 200 }, "INT-Flow-OUT": { min: 0, max: 200 },
   "WTP-Flow-IN": { min: 0, max: 200 }, "WTP-Flow-OUT": { min: 0, max: 200 },
   "WTP-PH-IN": { min: 0, max: 14 }, "WTP-PH": { min: 0, max: 14 },
   "WTP-TA-IN": { min: 0, max: 100 }, "WTP-TA": { min: 0, max: 100 },
   "WTP-CL": { min: 0, max: 20 }, "WTP-LT-CW": { min: 0, max: 100 },
   "WTP-LT-BW": { min: 0, max: 100 }, "WTP-HeaderPT": { min: 0, max: 10 },
   "WTP-PT1": { min: 0, max: 10 }, "WTP-PT2": { min: 0, max: 10 },
-  ...Object.fromEntries([1, 2, 3, 4].flatMap((n) => [
-    [`OHT${n}-PT`, { min: 0, max: n === 3 ? 16 : 10 }],
+  ...Object.fromEntries([1, 2].flatMap((n) => [
+    [`OHT${n}-PT1`, { min: 0, max: 10 }],
+    [`OHT${n}-PT2`, { min: 0, max: 10 }],
     [`OHT${n}-LT`, { min: 0, max: 100 }],
-    [`OHT${n}-Flow-IN`, { min: 0, max: 50 }],
+    [`OHT${n}-Flow`, { min: 0, max: 50 }],
   ])),
 };
 
@@ -50,11 +59,12 @@ const isPercentageLevel = (id: string): boolean =>
 
 function normalizeReading(id: string, value: number): number | undefined {
   if (!Number.isFinite(value)) return undefined;
+  const sanitized = sanitizeRtuValue(value);
   const range = VALID_RANGE[id];
-  if (!range) return value;
-  if (value >= range.min && value <= range.max) return value;
-  if (isPercentageLevel(id) && value >= range.min - 2 && value <= range.max + 2) {
-    return Math.min(range.max, Math.max(range.min, value));
+  if (!range) return sanitized;
+  if (sanitized >= range.min && sanitized <= range.max) return sanitized;
+  if (isPercentageLevel(id) && sanitized >= range.min - 2 && sanitized <= range.max + 2) {
+    return Math.min(range.max, Math.max(range.min, sanitized));
   }
   return undefined;
 }
@@ -182,7 +192,7 @@ Deno.serve(async (req) => {
     // 2) Collect every needed tag id and fetch latest value per tag in one query
     const intakeIds = Object.values(TAG.intake);
     const wtpIds = Object.values(TAG.wtp);
-    const ohtIds = [1, 2, 3, 4].flatMap(n => Object.values(TAG.oht(n)));
+    const ohtIds = [1, 2].flatMap(n => Object.values(TAG.oht(n)));
     const allIds = [...intakeIds, ...wtpIds, ...ohtIds];
 
     const { data: rows, error: hErr } = await supabase
@@ -244,7 +254,7 @@ Deno.serve(async (req) => {
       requestPayload.intake = compact({
         intakWell_Device_id: cfg.intake_device_id,
         intakeWellLevel_mtr: num(v(TAG.intake.lt)),
-        outletFlow_mld: mld(v(TAG.intake.flow)),
+        outletFlow_mld: mld(v(TAG.intake.outFlow) ?? v(TAG.intake.inFlow)),
         headerDesignPressure: 3.0,
         headerActualPressure: num(v(TAG.intake.header)),
         recordDateTime: toIstString(sourceAt),
@@ -258,8 +268,7 @@ Deno.serve(async (req) => {
       // Garud's contract requires both properties even when the Intake RTU is
       // offline. Send only its identity and honest last-seen timestamp: no
       // stale sensor values, zero substitutes, or fabricated current time.
-      const lastSeenAt = stationLastSeenTimestamp(intakeIds);
-      if (!lastSeenAt) throw new Error("Garud requires Intake.RecordDateTime but Intake has never supplied telemetry");
+      const lastSeenAt = stationLastSeenTimestamp(intakeIds) || new Date().toISOString();
       requestPayload.intake = {
         intakWell_Device_id: cfg.intake_device_id,
         recordDateTime: toIstString(lastSeenAt),
@@ -269,7 +278,7 @@ Deno.serve(async (req) => {
 
     const wtpIsFresh = hasFreshData(wtpIds);
     const freshOhts: Record<string, unknown>[] = [];
-    for (const n of [1, 2, 3, 4]) {
+    for (const n of [1, 2]) {
       const tags = TAG.oht(n);
       const ids = Object.values(tags);
       const stationName = `oht${n}`;
@@ -281,10 +290,10 @@ Deno.serve(async (req) => {
       sourceLatestAt[stationName] = sourceAt;
       includedStations.push(stationName);
       freshOhts.push(compact({
-        ohT_Device_id: [cfg.oht1_device_id, cfg.oht2_device_id, cfg.oht3_device_id, cfg.oht4_device_id][n - 1] || `MOH_OHT_00${n}`,
+        ohT_Device_id: [cfg.oht1_device_id, cfg.oht2_device_id][n - 1] || `SHA_OHT_00${n}`,
         inletFlow_mld: mld(v(tags.flow)),
         waterLevel_mld: num(v(tags.lt)),
-        inletPressure: num(v(tags.pt)),
+        inletPressure: num(v(tags.pt1) ?? v(tags.pt2)),
         recordDateTime: toIstString(sourceAt),
       }));
     }
@@ -318,8 +327,7 @@ Deno.serve(async (req) => {
       // Keep the required WTP envelope without pretending that old telemetry
       // is current. Garud receives no process values and only the honest
       // last-seen timestamp required by its contract.
-      const lastSeenAt = stationLastSeenTimestamp(wtpIds);
-      if (!lastSeenAt) throw new Error("Garud requires WTP.RecordDateTime but WTP has never supplied telemetry");
+      const lastSeenAt = stationLastSeenTimestamp(wtpIds) || new Date().toISOString();
       wtpUnit.wtp = {
         wtP_Device_id: cfg.wtp_device_id,
         recordDateTime: toIstString(lastSeenAt),

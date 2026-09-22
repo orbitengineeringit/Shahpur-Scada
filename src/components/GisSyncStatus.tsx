@@ -37,12 +37,10 @@ type ParamRow = { param: string; value: string; unit?: string; sensorId: string 
 const VENDOR_KEY = 'UADDORESREG022';
 
 const DEVICES = [
-  { key: 'intake', id: 'MOH_INTK_001', label: 'INTAKE WELL' },
-  { key: 'wtp', id: 'MOH_WTP_001', label: 'WATER TREATMENT PLANT (WTP)' },
-  { key: 'oht1', id: 'MOH_OHT_001', label: 'OHT - 1 Ward No 04 - 300KL' },
-  { key: 'oht2', id: 'MOH_OHT_002', label: 'OHT - 2 Ward No 06 500KL' },
-  { key: 'oht3', id: 'MOH_OHT_003', label: 'OHT - 3 Ward No 06 200KL' },
-  { key: 'oht4', id: 'MOH_OHT_004', label: 'OHT - 4 Ward No 10 200KL' },
+  { key: 'intake', id: 'SHA_INTK_001', label: 'INTAKE WELL' },
+  { key: 'wtp', id: 'SHA_WTP_001', label: 'WATER TREATMENT PLANT (WTP)' },
+  { key: 'oht1', id: 'SHA_OHT_001', label: 'OHT - 1 Bus Station' },
+  { key: 'oht2', id: 'SHA_OHT_002', label: 'OHT - 2 (Pending)' },
 ] as const;
 
 const stationDeliveryFromPayload = (payload: unknown, key: string, deviceId: string) => {
@@ -98,9 +96,10 @@ const rowsFromPayload = (payload: unknown, key: string, deviceId: string): Param
 
   const rows = key === 'intake'
     ? [
-        row('Level', 'intakeWellLevel_mtr', '%', 'INT-LT'),
-        row('Outlet Flow', 'outletFlow_mld', 'MLD', 'INT-Flow', 4),
-        row('Header Pressure', 'headerActualPressure', 'Bar', 'INT-CombinedPT', 3),
+        row('River Level', 'intakeWellLevel_mtr', '%', 'INT-LT'),
+        row('Inlet Flow', 'inletFlow_mld', 'MLD', 'INT-Flow-IN', 4),
+        row('Outlet Flow', 'outletFlow_mld', 'MLD', 'INT-Flow-OUT', 4),
+        row('Header Pressure', 'headerActualPressure', 'Bar', 'INT-HeaderPT', 3),
       ]
     : key === 'wtp'
       ? [
@@ -117,8 +116,8 @@ const rowsFromPayload = (payload: unknown, key: string, deviceId: string): Param
         ]
       : [
           row('Level', 'waterLevel_mld', '%', `${key.toUpperCase()}-LT`),
-          row('Inlet Flow', 'inletFlow_mld', 'MLD', `${key.toUpperCase()}-Flow-IN`, 4),
-          row('Pressure', 'inletPressure', 'Bar', `${key.toUpperCase()}-PT`, 3),
+          row('Outlet Flow', 'outletFlow_mld', 'MLD', `${key.toUpperCase()}-Flow`, 4),
+          row('Inlet Pressure', 'inletPressure', 'Bar', `${key.toUpperCase()}-PT`, 3),
         ];
   return rows.filter((item): item is ParamRow => item !== null);
 };
@@ -239,7 +238,7 @@ const GisSyncStatus = () => {
               </div>
               <div className="min-w-0">
                 <DialogTitle className="text-sm sm:text-lg font-bold tracking-tight leading-tight text-left">
-                  MPGARUD GIS Lab API · Sensor Sync Details
+                  Shahpur MPGARUD GIS Lab API · Sensor Sync Details
                 </DialogTitle>
                 <p className="text-[10px] sm:text-xs text-muted-foreground mt-1 text-left">
                   Real-time integration data pipeline for Directorate of Urban Administration & Development, Bhopal.
@@ -317,7 +316,7 @@ const GisSyncStatus = () => {
           <div>
             <div className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-2 mb-2">
               <h3 className="text-xs font-bold tracking-wider text-foreground">SENSOR SYNC BOARD</h3>
-              <span className="text-[10px] sm:text-[11px] text-muted-foreground">(swipe / scroll horizontally to view all 6 stations)</span>
+              <span className="text-[10px] sm:text-[11px] text-muted-foreground">(swipe / scroll horizontally to view all 4 stations)</span>
             </div>
             <div className="overflow-x-auto pb-2 -mx-1 px-1">
               <div className="flex gap-3 min-w-min">
