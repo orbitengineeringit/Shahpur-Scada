@@ -67,8 +67,8 @@ const getDisplaySection = (section: string, tagId: string): string => {
     const m = tagId.match(/^OHT[-_\s]*([0-9]+)/i);
     if (m) {
       const num = m[1];
-      if (num === '1') return 'OHT - 1 (Bus Station OHT)';
-      if (num === '2') return 'OHT - 2 (Awaiting Commissioning)';
+      if (num === '1') return 'OHT - 1 Bus Station';
+      if (num === '2') return 'OHT - 2 (Pending Commissioning)';
       return `OHT-${num}`;
     }
     return 'OHT';
@@ -76,7 +76,7 @@ const getDisplaySection = (section: string, tagId: string): string => {
   return section.toUpperCase();
 };
 
-/** Sort priority: Intake (0) → WTP (1) → OHT-1 (2) → OHT-2 (3) → OHT-3 (4) … */
+/** Sort priority: Intake (0) → WTP (1) → OHT-1 (2) → OHT-2 (3) */
 const getSectionOrder = (section: string, tagId: string): number => {
   const sec = section.toLowerCase();
   if (sec === 'intake') return 0;
@@ -84,7 +84,7 @@ const getSectionOrder = (section: string, tagId: string): number => {
   if (sec === 'oht') {
     const m = tagId.match(/^OHT[-_\s]*([0-9]+)/i);
     const n = m ? parseInt(m[1], 10) : 99;
-    return 1 + n; // OHT1 -> 2, OHT2 -> 3, OHT3 -> 4
+    return 1 + n; // OHT1 -> 2, OHT2 -> 3
   }
   return 99;
 };
@@ -524,7 +524,7 @@ const HistoryPage: React.FC = () => {
       }
 
       // Phase 3b: timestamp-first grouping — latest time on top, and within each
-      // 5-minute timestamp bucket order by Intake → WTP → OHT-1/2/3 → tag.
+      // 5-minute timestamp bucket order by Intake → WTP → OHT-1/2 → tag.
       processed.sort((a, b) => {
         const BUCKET_MS = 5 * 60 * 1000;
         const ta = Math.floor(new Date(a.timestamp).getTime() / BUCKET_MS);
@@ -730,7 +730,7 @@ const HistoryPage: React.FC = () => {
   }, [totalPages, currentPage, totalCount, pageSize, logs.length]);
 
   // Sort current page rows for display: latest timestamp first, then within the
-  // same minute Intake → WTP → OHT-1/2/3 → tag (so user sees all sections together per time).
+  // same minute Intake → WTP → OHT-1/2 → tag (so user sees all sections together per time).
   const sortedLogs = useMemo(() => {
     return [...logs].sort((a, b) => {
       const BUCKET_MS = 5 * 60 * 1000;

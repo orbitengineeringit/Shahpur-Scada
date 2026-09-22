@@ -4,8 +4,8 @@ import { useScada } from '@/contexts/ScadaContext';
 import { BarChart3, Droplets, Gauge, Activity, TrendingUp, Waves } from 'lucide-react';
 
 /**
- * OHT Analytics Card — shows a cross-tank summary for all 3 OHTs:
- * • Level comparison (bar chart across 3 tanks)
+ * OHT Analytics Card — shows a cross-tank summary for Shahpur OHTs:
+ * • Level comparison (bar chart across 2 tanks)
  * • Flow distribution
  * • Overall network health
  */
@@ -137,7 +137,7 @@ const OhtAnalyticsCard: React.FC = memo(() => {
       const prefix = `OHT${num}`;
       const findVal = (key: string) => ohtTags.find(t => t.id === `${prefix}-${key}`)?.value ?? 0;
       return {
-        label: num === 1 ? 'Bus Station' : 'OHT-2',
+        label: num === 1 ? 'OHT - 1 Bus Station' : 'OHT - 2 (Pending Commissioning)',
         level: findVal('LT'),
         flow: findVal('Flow') || findVal('Flow-IN'),
         pressure: findVal('PT'),

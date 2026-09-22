@@ -8,7 +8,7 @@ import { format, startOfDay, endOfDay, subDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 
-export type AssetFilter = 'all' | 'intake' | 'wtp' | 'oht-1' | 'oht-2' | 'oht-3' | 'oht-4';
+export type AssetFilter = 'all' | 'intake' | 'wtp' | 'oht-1' | 'oht-2';
 export type DensityFilter = 'fast' | 'detailed' | 'analytical';
 
 export interface GlobalFilters {
@@ -29,10 +29,8 @@ const ASSET_OPTIONS: { value: AssetFilter; label: string }[] = [
   { value: 'all', label: 'All Assets' },
   { value: 'intake', label: 'Intake' },
   { value: 'wtp', label: 'WTP' },
-  { value: 'oht-1', label: 'OHT - 1 Ward No 04 - 300KL' },
-  { value: 'oht-2', label: 'OHT - 2 Ward No 06 500KL' },
-  { value: 'oht-3', label: 'OHT - 3 Ward No 06 200KL' },
-  { value: 'oht-4', label: 'OHT - 4 Ward No 10 200KL' },
+  { value: 'oht-1', label: 'OHT - 1 Bus Station' },
+  { value: 'oht-2', label: 'OHT - 2 (Pending Commissioning)' },
 ];
 
 const GlobalFilterBar: React.FC<GlobalFilterBarProps> = ({ filters, onFiltersChange, onApply, compact }) => {

@@ -103,15 +103,15 @@ const OhtPage: React.FC = () => {
 
   const ohtConfigs: OhtConfig[] = [
     {
-      title: 'OHT - 1 (Bus Station OHT)', label: '#1', color: 'bg-primary', colorHsl: '199 89% 48%',
+      title: 'OHT - 1 Bus Station', label: '#1', color: 'bg-primary', colorHsl: '199 89% 48%',
       borderColor: 'border-primary/20', bgColor: 'bg-primary/[0.03]', iconBg: 'bg-primary/10',
       sensors: OHT1_SENSORS, startIndex: 0, capacity: '6 instruments • PT1, PT2, Level, Flow, Totalizer, Decr Totalizer',
       groupKey: 'oht-1',
     },
     {
-      title: 'OHT - 2 (Awaiting Commissioning)', label: '#2', color: 'bg-accent', colorHsl: '38 92% 50%',
+      title: 'OHT - 2 (Pending Commissioning)', label: '#2', color: 'bg-accent', colorHsl: '38 92% 50%',
       borderColor: 'border-accent/20', bgColor: 'bg-accent/[0.03]', iconBg: 'bg-accent/10',
-      sensors: OHT2_SENSORS, startIndex: 6, capacity: 'Awaiting Commissioning • 6 instruments scaffolded',
+      sensors: OHT2_SENSORS, startIndex: 6, capacity: 'Pending Commissioning • 6 instruments scaffolded',
       groupKey: 'oht-2',
     },
   ];
@@ -137,7 +137,7 @@ const OhtPage: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h2 className="text-xl leading-tight md:text-2xl font-bold text-foreground">Overhead Tanks (OHT)</h2>
-              <p className="text-sm text-muted-foreground">2 OHT units • Bus Station OHT (Live) & OHT-2 (Pending)</p>
+              <p className="text-sm text-muted-foreground">2 OHT units • Bus Station OHT (Live) & OHT-2 (Pending Commissioning)</p>
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:gap-3 sm:w-auto sm:flex-nowrap sm:justify-end">

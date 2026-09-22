@@ -37,10 +37,10 @@ type ParamRow = { param: string; value: string; unit?: string; sensorId: string 
 const VENDOR_KEY = 'UADDORESREG022';
 
 const DEVICES = [
-  { key: 'intake', id: 'SHA_INTK_001', label: 'INTAKE WELL' },
-  { key: 'wtp', id: 'SHA_WTP_001', label: 'WATER TREATMENT PLANT (WTP)' },
-  { key: 'oht1', id: 'SHA_OHT_001', label: 'OHT - 1 Bus Station' },
-  { key: 'oht2', id: 'SHA_OHT_002', label: 'OHT - 2 (Pending)' },
+  { key: 'intake', id: 'SHA_INTK_001', label: 'INTAKE WELL', commissioned: true },
+  { key: 'wtp', id: 'SHA_WTP_001', label: 'WATER TREATMENT PLANT (WTP)', commissioned: false },
+  { key: 'oht1', id: 'SHA_OHT_001', label: 'OHT - 1 Bus Station', commissioned: true },
+  { key: 'oht2', id: 'SHA_OHT_002', label: 'OHT - 2 (Pending Commissioning)', commissioned: false },
 ] as const;
 
 const stationDeliveryFromPayload = (payload: unknown, key: string, deviceId: string) => {
@@ -116,7 +116,7 @@ const rowsFromPayload = (payload: unknown, key: string, deviceId: string): Param
         ]
       : [
           row('Level', 'waterLevel_mld', '%', `${key.toUpperCase()}-LT`),
-          row('Outlet Flow', 'outletFlow_mld', 'MLD', `${key.toUpperCase()}-Flow`, 4),
+          row('Inlet Flow', 'inletFlow_mld', 'MLD', `${key.toUpperCase()}-Flow`, 4) || row('Outlet Flow', 'outletFlow_mld', 'MLD', `${key.toUpperCase()}-Flow`, 4),
           row('Inlet Pressure', 'inletPressure', 'Bar', `${key.toUpperCase()}-PT`, 3),
         ];
   return rows.filter((item): item is ParamRow => item !== null);
@@ -316,7 +316,7 @@ const GisSyncStatus = () => {
           <div>
             <div className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-2 mb-2">
               <h3 className="text-xs font-bold tracking-wider text-foreground">SENSOR SYNC BOARD</h3>
-              <span className="text-[10px] sm:text-[11px] text-muted-foreground">(swipe / scroll horizontally to view all 4 stations)</span>
+              <span className="text-[10px] sm:text-[11px] text-muted-foreground">(Intake & OHT-1 active • WTP & OHT-2 pending commissioning)</span>
             </div>
             <div className="overflow-x-auto pb-2 -mx-1 px-1">
               <div className="flex gap-3 min-w-min">
@@ -329,6 +329,7 @@ const GisSyncStatus = () => {
                       key={d.key}
                       label={d.label}
                       deviceId={d.id}
+                      commissioned={d.commissioned}
                       success={gatewayOk}
                       unknown={gatewayUnknown}
                       status={lastStatus}
@@ -432,8 +433,8 @@ const StatCard = ({ label, icon, value, accent }: {
   </div>
 );
 
-const StationCard = ({ label, deviceId, success, unknown: unknownProp, status, duration, timeStr, rows, payload, responseText, included, skipped, sourceAt }: {
-  label: string; deviceId: string; success: boolean; unknown?: boolean;
+const StationCard = ({ label, deviceId, commissioned = true, success, unknown: unknownProp, status, duration, timeStr, rows, payload, responseText, included, skipped, sourceAt }: {
+  label: string; deviceId: string; commissioned?: boolean; success: boolean; unknown?: boolean;
   status?: number | null; duration?: number | null; timeStr: string;
   rows: ParamRow[]; payload: unknown; responseText?: string | null;
   included?: boolean; skipped?: boolean; sourceAt?: string;
@@ -455,15 +456,15 @@ const StationCard = ({ label, deviceId, success, unknown: unknownProp, status, d
             </button>
           </div>
         </div>
-        <Badge className={`text-[9px] font-bold ${unknownProp ? 'bg-muted text-muted-foreground border-border' : skipped ? 'bg-muted text-muted-foreground border-border' : success && included !== false ? 'bg-success/15 text-success border-success/30' : 'bg-destructive/15 text-destructive border-destructive/30'}`}>
-          {unknownProp ? '…' : skipped ? 'NOT SENT' : success && included !== false ? 'SENT' : 'FAILED'}
+        <Badge className={`text-[9px] font-bold ${!commissioned ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30' : unknownProp ? 'bg-muted text-muted-foreground border-border' : skipped ? 'bg-muted text-muted-foreground border-border' : success && included !== false ? 'bg-success/15 text-success border-success/30' : 'bg-destructive/15 text-destructive border-destructive/30'}`}>
+          {!commissioned ? 'PENDING' : unknownProp ? '…' : skipped ? 'NOT SENT' : success && included !== false ? 'SENT' : 'FAILED'}
         </Badge>
       </div>
 
       <div className="px-3 py-2 border-b text-[10px] font-mono flex items-center justify-between gap-2 bg-background">
-        <span><span className="text-muted-foreground">Code:</span> <b className={skipped ? 'text-muted-foreground' : success ? 'text-success' : 'text-destructive'}>{skipped ? '—' : status ?? '—'}</b></span>
-        <span><span className="text-muted-foreground">Duration:</span> <b>{skipped ? '—' : duration != null ? `${duration}ms` : '—'}</b></span>
-        <span><span className="text-muted-foreground">{skipped ? 'Last seen:' : 'Data:'}</span> <b>{sourceAt ? new Date(sourceAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : skipped ? '—' : timeStr}</b></span>
+        <span><span className="text-muted-foreground">Code:</span> <b className={!commissioned || skipped ? 'text-muted-foreground' : success ? 'text-success' : 'text-destructive'}>{!commissioned || skipped ? '—' : status ?? '—'}</b></span>
+        <span><span className="text-muted-foreground">Duration:</span> <b>{!commissioned || skipped ? '—' : duration != null ? `${duration}ms` : '—'}</b></span>
+        <span><span className="text-muted-foreground">{skipped ? 'Last seen:' : 'Data:'}</span> <b>{sourceAt ? new Date(sourceAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : !commissioned || skipped ? '—' : timeStr}</b></span>
       </div>
 
       <div className="px-3 py-2">
@@ -481,7 +482,11 @@ const StationCard = ({ label, deviceId, success, unknown: unknownProp, status, d
           </div>
         ) : (
           <div className="rounded-lg bg-muted/50 px-2.5 py-3 text-[10px] text-muted-foreground text-center">
-            {skipped ? 'No fresh telemetry was sent for this station.' : 'No station payload is available for this attempt.'}
+            {!commissioned
+              ? 'Station pending commissioning — excluded from GIS transmission.'
+              : skipped
+                ? 'No fresh telemetry received from MQTT for this station.'
+                : 'No station payload is available for this attempt.'}
           </div>
         )}
       </div>
