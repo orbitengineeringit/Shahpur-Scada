@@ -245,7 +245,7 @@ const IntakePage: React.FC = () => {
         </div>
       ),
     },
-  ], [ptIds, midIds, pumpIds, combinedPtValue, pt1Val, pt2Val, pump1Running, pump2Running, intakeTags, totalizerSensor, sensorMap]);
+  ], [ptIds, mainIds, pumpIds, combinedPtValue, pt1Val, pt2Val, pump1Running, pump2Running, intakeTags, sensorMap]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background grid-pattern">

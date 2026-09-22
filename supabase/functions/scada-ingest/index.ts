@@ -398,7 +398,7 @@ function mapReadings(msg: ParsedMessage) {
   for (const [key, raw] of Object.entries(msg.payload)) {
     const sensor = sensors.find(s => mqttKeyMatches(s.mqttKey, key));
     if (!sensor) continue;
-    let value = raw === '' || raw === null || typeof raw === 'boolean' ? NaN : Number(raw);
+    const value = raw === '' || raw === null || typeof raw === 'boolean' ? NaN : Number(raw);
     const normalized = normalizeSensorValue(sensor, value);
     rows.set(sensor.id, {tag_id:sensor.id, section:sensor.section, value:normalized,
       quality:normalized === null ? 'fault' : 'good', received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
