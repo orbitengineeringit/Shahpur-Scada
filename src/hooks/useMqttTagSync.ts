@@ -359,6 +359,14 @@ export const useMqttTagSync = (
         continue;
       }
 
+      // Skip raw totalizer 16-bit register parts so they do NOT directly update INT-Totalizer-IN/OUT
+      if (
+        mqttKey === 'INTotalizer1H' || mqttKey === 'INTotalizer1L' ||
+        mqttKey === 'OUTTotalizer1H' || mqttKey === 'OUTToalizer1L' || mqttKey === 'OUTTotalizer1L'
+      ) {
+        continue;
+      }
+
       // Universal sanitize ensures all incoming PLC values (even garbage/near-zero noise)
       // are converted to clean non-negative numbers (e.g. -2.24e+15 -> 0.00, -2.47e-19 -> 0.00)
       const value = sanitizeRtuValue(rawValue);
@@ -373,9 +381,9 @@ export const useMqttTagSync = (
         (mqttKey === 'INTAKEHDPT1' && (s.id === 'INT-HeaderPT' || s.id === 'INT-CombinedPT')) ||
         (mqttKey === 'INTAKERLT' && s.id === 'INT-LT') ||
         (mqttKey === 'INFLOW1' && (s.id === 'INT-Flow-IN' || s.id === 'INT-Flow')) ||
-        ((mqttKey === 'INT_TOTALIZER_IN_COMBINED' || mqttKey === 'INTotalizer1H' || mqttKey === 'INTotalizer1L') && (s.id === 'INT-Totalizer-IN' || s.id === 'INT-Totalizer')) ||
+        (mqttKey === 'INT_TOTALIZER_IN_COMBINED' && (s.id === 'INT-Totalizer-IN' || s.id === 'INT-Totalizer')) ||
         (mqttKey === 'OUTFLOW2' && (s.id === 'INT-Flow-OUT' || s.id === 'INT-Flow')) ||
-        ((mqttKey === 'INT_TOTALIZER_OUT_COMBINED' || mqttKey === 'OUTTotalizer1H' || mqttKey === 'OUTToalizer1L' || mqttKey === 'OUTTotalizer1L') && (s.id === 'INT-Totalizer-OUT' || s.id === 'INT-Totalizer')) ||
+        (mqttKey === 'INT_TOTALIZER_OUT_COMBINED' && (s.id === 'INT-Totalizer-OUT' || s.id === 'INT-Totalizer')) ||
         // Shahpur OHT sensors
         (mqttKey === 'OHT_PT_1' && s.id.endsWith('-PT')) ||
         (mqttKey === 'OHT_PT_2' && s.id.endsWith('-PT2')) ||

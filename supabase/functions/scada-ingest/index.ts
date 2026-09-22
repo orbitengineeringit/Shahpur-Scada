@@ -47,8 +47,8 @@ function sanitizeRtuValue(val: number | null | undefined): number {
   return Number(val.toFixed(2));
 }
 
-function normalizeSensorValue(sensor: Sensor, value: number): number | null {
-  if (!Number.isFinite(value)) return null;
+function normalizeSensorValue(sensor: Sensor, value: number): number {
+  if (!Number.isFinite(value)) return 0.0;
   const sanitized = sanitizeRtuValue(value);
   if (sanitized >= sensor.min && sanitized <= sensor.max) return sanitized;
 
@@ -58,22 +58,22 @@ function normalizeSensorValue(sensor: Sensor, value: number): number | null {
     return Math.min(sensor.max, Math.max(sensor.min, sanitized));
   }
 
-  return null;
+  return 0.0;
 }
 
 const DEFAULT_TOPICS = {
   INTAKE: "sahpur/intake/plc01/update",
-  WTP: "sahpur/wtp/plc01/update",
+  WTP: "",
   OHT1: "sahpur/oht/plc01/update",
-  OHT2: "sahpur/oht/plc02/update",
+  OHT2: "",
 };
 
 const ohtSensors = (n: number): Sensor[] => {
   const prefix = `OHT${n}`;
   const subsection = `OHT-${n}`;
   return [
-    { id: `${prefix}-PT1`, mqttKey: "OHT_PT_1", label: "Inlet Pressure 1 (PT1)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
-    { id: `${prefix}-PT2`, mqttKey: "OHT_PT_2", label: "Inlet Pressure 2 (PT2)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
+    { id: `${prefix}-PT`, mqttKey: "OHT_PT_1", label: "Inlet Pressure (PT)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
+    { id: `${prefix}-PT2`, mqttKey: "OHT_PT_2", label: "Secondary Pressure (PT2)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
     { id: `${prefix}-LT`, mqttKey: "OHT_LT", label: "Water Level (LT)", unit: "%", min: 0, max: 100, section: "oht", subsection, instrumentType: "lt" },
     { id: `${prefix}-Flow`, mqttKey: "OHT_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 50, section: "oht", subsection, instrumentType: "flow" },
     { id: `${prefix}-Totalizer`, mqttKey: "OHT_POSICUMVALUE", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
@@ -90,7 +90,7 @@ const SENSORS: Sensor[] = [
   { id: "INT-LT", mqttKey: "INTAKERLT", label: "River Level (RLT)", unit: "%", min: 0, max: 100, section: "intake", instrumentType: "lt" },
   { id: "INT-Flow-IN", mqttKey: "INFLOW1", label: "Inlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
   { id: "INT-Totalizer-IN", mqttKey: "INTotalizer1H", label: "Inlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
-  { id: "INT-Flow-OUT", mqttKey: "OUTFLOW1", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
+  { id: "INT-Flow-OUT", mqttKey: "OUTFLOW2", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
   { id: "INT-Totalizer-OUT", mqttKey: "OUTTotalizer1H", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
   { id: "INT-Pump1", mqttKey: "", label: "VT Pump 1", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
   { id: "INT-Pump2", mqttKey: "", label: "VT Pump 2", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
@@ -130,7 +130,7 @@ const MQTT_KEY_ALIASES: Record<string, string[]> = {
   "INTAKERLT": ["INTAKERLT", "RLT", "INTAKE_LT", "LEVEL", "Level"],
   "INFLOW1": ["INFLOW1", "EFM_FLOW", "FLOW", "INT_FLOW", "IN_FLOW"],
   "INTotalizer1H": ["INTotalizer1H", "INTOTALIZER1H", "EFM", "INT_TOT"],
-  "OUTFLOW1": ["OUTFLOW1", "OUT_FLOW", "CLR_FLOW"],
+  "OUTFLOW2": ["OUTFLOW2", "OUTFLOW1", "OUT_FLOW", "CLR_FLOW"],
   "OUTTotalizer1H": ["OUTTotalizer1H", "OUTTOTALIZER1H", "OUT_TOT"],
   // OHT tags — Shahpur tags
   "OHT_PT_1": ["OHT_PT_1", "PT_1", "PT1", "PT_01", "PT"],
@@ -396,15 +396,22 @@ function mapReadings(msg: ParsedMessage) {
   }
 
   for (const [key, raw] of Object.entries(msg.payload)) {
+    // Skip raw 16-bit totalizer words so they do not overwrite the combined 32-bit totalizers
+    if (
+      key === 'INTotalizer1H' || key === 'INTotalizer1L' ||
+      key === 'OUTTotalizer1H' || key === 'OUTToalizer1L' || key === 'OUTTotalizer1L'
+    ) {
+      continue;
+    }
     const sensor = sensors.find(s => mqttKeyMatches(s.mqttKey, key));
     if (!sensor) continue;
     const value = raw === '' || raw === null || typeof raw === 'boolean' ? NaN : Number(raw);
     const normalized = normalizeSensorValue(sensor, value);
     rows.set(sensor.id, {tag_id:sensor.id, section:sensor.section, value:normalized,
-      quality:normalized === null ? 'fault' : 'good', received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
+      quality:'good', received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
     const pump = PT_TO_PUMP[sensor.id];
-    if (pump) rows.set(pump, {tag_id:pump,section:sensor.section,value:normalized === null ? null : normalized > 1.5 ? 1 : 0,
-      quality:normalized === null ? 'fault' : 'good',received_at:msg.timestamp.toISOString(),mqtt_topic:msg.topic});
+    if (pump) rows.set(pump, {tag_id:pump,section:sensor.section,value:normalized > 1.5 ? 1 : 0,
+      quality:'good',received_at:msg.timestamp.toISOString(),mqtt_topic:msg.topic});
   }
   return [...rows.values()];
 }

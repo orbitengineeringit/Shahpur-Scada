@@ -31,7 +31,7 @@ const TAG = {
     pt1: "WTP-PT1", pt2: "WTP-PT2",
   },
   oht: (n: number) => ({
-    pt1: `OHT${n}-PT1`, pt2: `OHT${n}-PT2`, lt: `OHT${n}-LT`,
+    pt1: `OHT${n}-PT`, pt2: `OHT${n}-PT2`, lt: `OHT${n}-LT`,
     flow: `OHT${n}-Flow`,
   }),
 };
@@ -47,6 +47,7 @@ const VALID_RANGE: Record<string, { min: number; max: number }> = {
   "WTP-LT-BW": { min: 0, max: 100 }, "WTP-HeaderPT": { min: 0, max: 10 },
   "WTP-PT1": { min: 0, max: 10 }, "WTP-PT2": { min: 0, max: 10 },
   ...Object.fromEntries([1, 2].flatMap((n) => [
+    [`OHT${n}-PT`, { min: 0, max: 10 }],
     [`OHT${n}-PT1`, { min: 0, max: 10 }],
     [`OHT${n}-PT2`, { min: 0, max: 10 }],
     [`OHT${n}-LT`, { min: 0, max: 100 }],
@@ -58,7 +59,7 @@ const isPercentageLevel = (id: string): boolean =>
   id === "INT-LT" || id === "WTP-LT-CW" || id === "WTP-LT-BW" || /^OHT\d+-LT$/.test(id);
 
 function normalizeReading(id: string, value: number): number | undefined {
-  if (!Number.isFinite(value)) return undefined;
+  if (!Number.isFinite(value)) return 0.0;
   const sanitized = sanitizeRtuValue(value);
   const range = VALID_RANGE[id];
   if (!range) return sanitized;
@@ -66,7 +67,7 @@ function normalizeReading(id: string, value: number): number | undefined {
   if (isPercentageLevel(id) && sanitized >= range.min - 2 && sanitized <= range.max + 2) {
     return Math.min(range.max, Math.max(range.min, sanitized));
   }
-  return undefined;
+  return 0.0;
 }
 
 function toIstString(d: Date | string | number): string {
@@ -101,8 +102,6 @@ type GisConfig = {
   wtp_device_id: string;
   oht1_device_id?: string;
   oht2_device_id?: string;
-  oht3_device_id?: string;
-  oht4_device_id?: string;
 };
 
 // Cache the cron secret across warm invocations to avoid extra vault reads.

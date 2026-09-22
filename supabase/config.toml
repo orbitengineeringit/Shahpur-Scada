@@ -9,8 +9,14 @@ verify_jwt = false
 [functions.export-historian-data]
 verify_jwt = false
 
+[functions.aggregate-data]
+verify_jwt = false
+
 [functions.get-mqtt-credentials]
 verify_jwt = true
 
 [functions.plant-assistant]
+verify_jwt = false
+
+[functions.send-alarm-email]
 verify_jwt = false

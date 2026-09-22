@@ -186,7 +186,7 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
           return results;
         }
 
-        // Handle {TAG: "NAME", VALUE: x} shape (Mohgaon broker format)
+        // Handle {TAG: "NAME", VALUE: x} shape (legacy broker format)
         const keys = Object.keys(parsed);
         const hasTag = keys.some(k => k.toUpperCase() === 'TAG');
         const hasVal = keys.some(k => k.toUpperCase() === 'VALUE');

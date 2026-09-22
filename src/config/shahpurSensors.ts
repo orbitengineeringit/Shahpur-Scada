@@ -36,8 +36,6 @@ export interface ShahpurSensor {
   derivedFromPt?: string;
 }
 
-// Backward compatibility alias during migration
-export type MohgaonSensor = ShahpurSensor;
 
 // ==================== OHT SENSORS ====================
 // Shahpur OHT Model:

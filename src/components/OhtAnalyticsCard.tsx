@@ -202,7 +202,7 @@ const OhtAnalyticsCard: React.FC = memo(() => {
                   <Droplets className="h-3.5 w-3.5 text-accent" />
                 </div>
                 Levels
-                <span className="ml-auto px-2 py-0.5 rounded-full bg-accent/10 text-[10px] font-mono text-accent font-bold">{avgLevel.toFixed(1)} m avg</span>
+                <span className="ml-auto px-2 py-0.5 rounded-full bg-accent/10 text-[10px] font-mono text-accent font-bold">{avgLevel.toFixed(1)} % avg</span>
               </div>
               <TankLevelBars tanks={tankData} />
             </div>

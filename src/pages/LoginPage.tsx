@@ -168,7 +168,7 @@ const LoginPage = () => {
           </form>
 
           <p className="text-center text-[11px] text-muted-foreground mt-6">
-            Powered by M/s CMPV Engineering × Orbit Automation
+            Powered by M/s. CMPV Engineering × Orbit Engineering Solutions
           </p>
         </div>
       </div>

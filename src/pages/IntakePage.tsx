@@ -45,7 +45,6 @@ const CombinedPtCard: React.FC<{
         <div className="absolute -inset-[1px] rounded-xl border border-primary/30 pointer-events-none z-10" />
         <div className="flex items-center justify-between mb-1.5 sm:mb-2 shrink-0">
           <div className="flex items-center gap-1 min-w-0">
-            <Wifi className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-success shrink-0" />
             <span className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">Combined Pressure (P1+P2)</span>
           </div>
           <div className="flex gap-0 sm:gap-0.5 shrink-0">
@@ -85,7 +84,6 @@ const CombinedPtCard: React.FC<{
             </div>
           )}
           <div className="flex items-center gap-1 mt-1">
-            <div className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
             <span className="text-[9px] sm:text-[10px] text-muted-foreground font-mono truncate">{new Date().toLocaleTimeString()}</span>
           </div>
         </div>

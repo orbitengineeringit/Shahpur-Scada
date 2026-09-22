@@ -24,7 +24,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 interface InstrumentCardProps {
   tag: TagData;
-  sensor: MohgaonSensor;
+  sensor: ShahpurSensor;
   section: 'intake' | 'oht' | 'wtp';
   index: number;
   pumpComponent?: 'intake' | 'wtp';

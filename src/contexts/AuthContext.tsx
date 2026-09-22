@@ -82,7 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     // If sign in fails and username doesn't contain '@', try fallback domains for existing db users
     if (error && !username.includes('@')) {
-      const fallbacks = ['@mohgaon.scada', '@burhar.scada', '@beohari.scada'];
+      const fallbacks = ['@burhar.scada', '@beohari.scada'];
       for (const domain of fallbacks) {
         const fallbackEmail = `${username}${domain}`;
         const result = await supabase.auth.signInWithPassword({ email: fallbackEmail, password });
