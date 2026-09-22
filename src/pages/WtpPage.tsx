@@ -345,7 +345,7 @@ const WtpPage: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-foreground truncate">Water Treatment Plant (WTP)</h2>
-              <p className="text-xs sm:text-sm text-muted-foreground">{WTP_SENSORS.length} instruments • Awaiting Field Commissioning</p>
+              <p className="text-xs sm:text-sm text-muted-foreground">{WTP_SENSORS.length} instruments monitoring</p>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:shrink-0">

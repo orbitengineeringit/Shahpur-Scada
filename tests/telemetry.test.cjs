@@ -25,8 +25,8 @@ const {mapReadings,parsePayload,SENSORS,topicSetup} = vm.runInContext('({mapRead
 const map = (section,payload,subsection) => mapReadings({section,subsection,payload,topic:'test',timestamp:new Date()});
 const tag={id:'WTP-LT-BW',value:40,min:0,max:100,unit:'%',instrumentType:'lt',status:'connected',lastDataTime:new Date('2026-09-19T12:00:00Z')};
 
-test('both Shahpur OHTs expose exactly six instruments',()=>{
-  for(let i=1;i<=2;i++)assert.equal(SENSORS.filter(s=>s.subsection===`OHT-${i}`).length,6);
+test('both Shahpur OHTs expose exactly four instruments',()=>{
+  for(let i=1;i<=2;i++)assert.equal(SENSORS.filter(s=>s.subsection===`OHT-${i}`).length,4);
   const readings=map('oht',{OHT_LT:'59.8292',OHT_PT_1:'10.0625',OHT_FLOW:'0',OHT_POSICUMVALUE:'1542.12'},'OHT-1');
   assert.equal(readings.find(r=>r.tag_id==='OHT1-Flow').value,0);
   assert.equal(readings.find(r=>r.tag_id==='OHT1-Totalizer').value,1542.12);

@@ -73,11 +73,9 @@ const ohtSensors = (n: number): Sensor[] => {
   const subsection = `OHT-${n}`;
   return [
     { id: `${prefix}-PT`, mqttKey: "OHT_PT_1", label: "Inlet Pressure (PT)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
-    { id: `${prefix}-PT2`, mqttKey: "OHT_PT_2", label: "Secondary Pressure (PT2)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
     { id: `${prefix}-LT`, mqttKey: "OHT_LT", label: "Water Level (LT)", unit: "%", min: 0, max: 100, section: "oht", subsection, instrumentType: "lt" },
     { id: `${prefix}-Flow`, mqttKey: "OHT_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 50, section: "oht", subsection, instrumentType: "flow" },
-    { id: `${prefix}-Totalizer`, mqttKey: "OHT_POSICUMVALUE", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
-    { id: `${prefix}-DecrTotalizer`, mqttKey: "OHT_DECPOSICUMVALUE", label: "Decremental Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
+    { id: `${prefix}-Totalizer`, mqttKey: "OHT_POSICUMVALUE", label: "Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
   ];
 };
 

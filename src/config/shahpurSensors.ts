@@ -41,7 +41,7 @@ export interface ShahpurSensor {
 // Shahpur OHT Model:
 // OHT-1: Bus Station OHT (Live)
 // OHT-2: OHT-2 (Pending Commissioning)
-// Keys: OHT_PT_1, OHT_PT_2, OHT_LT, OHT_FLOW, OHT_POSICUMVALUE, OHT_DECPOSICUMVALUE
+// Keys: OHT_PT_1, OHT_LT, OHT_FLOW, OHT_POSICUMVALUE
 const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSensor[] => {
   const prefix = `OHT${ohtNum}`;
   const sub = `OHT-${ohtNum}`;
@@ -50,19 +50,6 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
       id: `${prefix}-PT`,
       mqttKey: 'OHT_PT_1',
       label: 'Inlet Pressure (PT)',
-      unit: 'Bar',
-      min: 0,
-      max: 10,
-      section: 'oht',
-      subsection: sub,
-      type: 'analog',
-      instrumentType: 'pt',
-      pendingCommissioning: isPending,
-    },
-    {
-      id: `${prefix}-PT2`,
-      mqttKey: 'OHT_PT_2',
-      label: 'Secondary Pressure',
       unit: 'Bar',
       min: 0,
       max: 10,
@@ -101,20 +88,7 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
     {
       id: `${prefix}-Totalizer`,
       mqttKey: 'OHT_POSICUMVALUE',
-      label: 'Outlet Totalizer',
-      unit: 'm³',
-      min: 0,
-      max: 999999,
-      section: 'oht',
-      subsection: sub,
-      type: 'totalizer',
-      instrumentType: 'totalizer',
-      pendingCommissioning: isPending,
-    },
-    {
-      id: `${prefix}-DecrTotalizer`,
-      mqttKey: 'OHT_DECPOSICUMVALUE',
-      label: 'Decremental Totalizer',
+      label: 'Totalizer',
       unit: 'm³',
       min: 0,
       max: 999999,

@@ -105,13 +105,13 @@ const OhtPage: React.FC = () => {
     {
       title: 'OHT - 1 Bus Station', label: '#1', color: 'bg-primary', colorHsl: '199 89% 48%',
       borderColor: 'border-primary/20', bgColor: 'bg-primary/[0.03]', iconBg: 'bg-primary/10',
-      sensors: OHT1_SENSORS, startIndex: 0, capacity: '6 instruments • PT1, PT2, Level, Flow, Totalizer, Decr Totalizer',
+      sensors: OHT1_SENSORS, startIndex: 0, capacity: '4 instruments • PT, Level, Flow, Totalizer',
       groupKey: 'oht-1',
     },
     {
       title: 'OHT - 2 (Pending Commissioning)', label: '#2', color: 'bg-accent', colorHsl: '38 92% 50%',
       borderColor: 'border-accent/20', bgColor: 'bg-accent/[0.03]', iconBg: 'bg-accent/10',
-      sensors: OHT2_SENSORS, startIndex: 6, capacity: 'Pending Commissioning • 6 instruments scaffolded',
+      sensors: OHT2_SENSORS, startIndex: 4, capacity: 'Pending Commissioning • 4 instruments scaffolded',
       groupKey: 'oht-2',
     },
   ];
