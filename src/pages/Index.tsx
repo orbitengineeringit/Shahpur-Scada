@@ -230,7 +230,7 @@ const Index = () => {
             </filter>
           </defs>
 
-          {/* Background smaller tanks (to represent 6 units) */}
+          {/* Background tanks representation */}
           <g transform="translate(10, 20) scale(0.6)" opacity="0.4" filter="url(#dropShadow)">
             <path d="M40 90 L45 30 L55 30 L60 90 Z" fill="#64748b" />
             <ellipse cx="50" cy="20" rx="30" ry="10" fill="#94a3b8" />

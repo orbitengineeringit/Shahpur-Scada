@@ -35,28 +35,38 @@ const AlarmsPage: React.FC = () => {
       return ['oht'];
     };
 
+    const isLegacyMohgaonAlarm = (alarm: { tagId?: string; label?: string }) => {
+        const tid = (alarm.tagId || '').toUpperCase();
+        const lbl = (alarm.label || '').toLowerCase();
+        return (
+            tid.startsWith('OHT3') || tid.startsWith('OHT4') || 
+            tid.startsWith('OHT-3') || tid.startsWith('OHT-4') ||
+            lbl.includes('oht-3') || lbl.includes('oht 3') || lbl.includes('oht3') ||
+            lbl.includes('oht-4') || lbl.includes('oht 4') || lbl.includes('oht4') ||
+            lbl.includes('ward no')
+        );
+    };
+
+    const validAlarms = useMemo(() => {
+        return alarms.filter(alarm => !isLegacyMohgaonAlarm(alarm));
+    }, [alarms]);
+
     const stats = useMemo(() => {
         const todayStart = startOfDay(new Date());
         return {
-            today: alarms.filter(a => new Date(a.timestamp) >= todayStart).length,
-            unacknowledged: alarms.filter(a => !a.acknowledged).length,
-            high: alarms.filter(a => a.type === 'High').length,
-            low: alarms.filter(a => a.type === 'Low').length
+            today: validAlarms.filter(a => new Date(a.timestamp) >= todayStart).length,
+            unacknowledged: validAlarms.filter(a => !a.acknowledged).length,
+            high: validAlarms.filter(a => a.type === 'High').length,
+            low: validAlarms.filter(a => a.type === 'Low').length
         };
-    }, [alarms]);
+    }, [validAlarms]);
 
     const { filteredAlarms, displayedAlarms } = useMemo(() => {
-        const filtered = alarms.filter(alarm => {
+        const filtered = validAlarms.filter(alarm => {
             if (filter !== 'all' && alarm.type.toLowerCase() !== filter) return false;
 
             // Section Filter Pill
             if (sectionFilter !== 'all' && alarm.section !== sectionFilter) return false;
-
-            // Filter out legacy Mohgaon OHT-3 / OHT-4 alarms
-            if (alarm.tagId?.startsWith('OHT3') || alarm.tagId?.startsWith('OHT4') || 
-                alarm.tagId?.startsWith('OHT-3') || alarm.tagId?.startsWith('OHT-4')) {
-                return false;
-            }
 
             // Asset filter
             if (!globalFilters.assets.includes('all')) {
@@ -98,7 +108,7 @@ const AlarmsPage: React.FC = () => {
             filteredAlarms: filtered,
             displayedAlarms: filtered.slice(0, visibleCount),
         };
-    }, [alarms, filter, sectionFilter, globalFilters, visibleCount]);
+    }, [validAlarms, filter, sectionFilter, globalFilters, visibleCount]);
 
     const getAlarmIcon = (type: string) => {
         if (type === 'High') return <AlertTriangle className="h-4 w-4 text-destructive" />;

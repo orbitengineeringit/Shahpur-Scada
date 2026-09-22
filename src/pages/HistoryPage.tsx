@@ -57,10 +57,31 @@ const INTERVAL_LABEL: Record<ExportInterval, string> = {
 // Sensors not installed at Shahpur plant (WTP only has 2 HT Pumps; Shahpur only has 2 OHTs — legacy OHT-3/4 from Mohgaon excluded)
 const UNINSTALLED_TAG_IDS = [
   'WTP-Pump3', 'WTP-Pump4', 'WTP-PT3', 'WTP-PT4', 'WTP-CombinedPT1', 'WTP-CombinedPT2', 'WTP-KW', 'INT-KW',
-  'OHT3-PT', 'OHT3-PT1', 'OHT3-PT2', 'OHT3-LT', 'OHT3-Flow', 'OHT3-Flow-IN', 'OHT3-Flow-OUT', 'OHT3-Totalizer', 'OHT3-DecrTotalizer', 'OHT3-FCV', 'OHT3-EFM1-1', 'OHT3-EFM2-1', 'OHT3-EFM2-2',
-  'OHT4-PT', 'OHT4-PT1', 'OHT4-PT2', 'OHT4-LT', 'OHT4-Flow', 'OHT4-Flow-IN', 'OHT4-Flow-OUT', 'OHT4-Totalizer', 'OHT4-DecrTotalizer', 'OHT4-FCV',
+  'OHT3-PT', 'OHT3-PT1', 'OHT3-PT2', 'OHT3-LT', 'OHT3-Flow', 'OHT3-Flow-IN', 'OHT3-Flow-OUT', 'OHT3-Totalizer', 'OHT3-DecrTotalizer', 'OHT3-FCV', 'OHT3-EFM1-1', 'OHT3-EFM2-1', 'OHT3-EFM2-2', 'OHT3-LEVEL', 'OHT3-PT-1',
+  'OHT4-PT', 'OHT4-PT1', 'OHT4-PT2', 'OHT4-LT', 'OHT4-Flow', 'OHT4-Flow-IN', 'OHT4-Flow-OUT', 'OHT4-Totalizer', 'OHT4-DecrTotalizer', 'OHT4-FCV', 'OHT4-LEVEL', 'OHT4-PT-1',
 ];
 const UNINSTALLED_TAGS_FILTER = `("${UNINSTALLED_TAG_IDS.join('","')}")`;
+
+export const isLegacyMohgaonTag = (tagId: string): boolean => {
+  const t = (tagId || '').toUpperCase();
+  return (
+    t.startsWith('OHT3') || t.startsWith('OHT4') || 
+    t.startsWith('OHT-3') || t.startsWith('OHT-4') ||
+    t.includes('WARD NO')
+  );
+};
+
+export const matchesSelectedAssets = (log: { tag_id: string; section?: string }, assets: AssetFilter[]): boolean => {
+  if (isLegacyMohgaonTag(log.tag_id)) return false;
+  if (assets.includes('all')) return true;
+  return assets.some(a => {
+    if (a === 'intake') return log.section?.toLowerCase() === 'intake' || log.tag_id.startsWith('INT-');
+    if (a === 'wtp') return log.section?.toLowerCase() === 'wtp' || log.tag_id.startsWith('WTP-');
+    if (a === 'oht-1') return (log.section?.toLowerCase() === 'oht' || log.tag_id.startsWith('OHT')) && (log.tag_id.startsWith('OHT1-') || log.tag_id.startsWith('OHT1'));
+    if (a === 'oht-2') return (log.section?.toLowerCase() === 'oht' || log.tag_id.startsWith('OHT')) && (log.tag_id.startsWith('OHT2-') || log.tag_id.startsWith('OHT2'));
+    return false;
+  });
+};
 
 /** Derive a sub-section label like OHT-1 / OHT-2 from a tag_id (e.g. "OHT1-LT"). */
 const getDisplaySection = (section: string, tagId: string): string => {
@@ -348,10 +369,10 @@ const HistoryPage: React.FC = () => {
         .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
         .or('source.like.%5min%,source.is.null');
       if (sectionFilters.length > 0) countQuery = countQuery.in('section', sectionFilters);
-      // Apply specific OHT tag filtering
-      if (ohtPrefixes.length > 0 && sectionFilters.includes('oht') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
-        const ohtFilter = ohtPrefixes.map(p => `tag_id.like.${p}%`).join(',');
-        countQuery = countQuery.or(ohtFilter);
+      if (globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
+        countQuery = countQuery.like('tag_id', 'OHT1-%');
+      } else if (globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
+        countQuery = countQuery.like('tag_id', 'OHT2-%');
       }
 
       const offset = (page - 1) * currentSize;
@@ -365,9 +386,10 @@ const HistoryPage: React.FC = () => {
         .order('tag_id', { ascending: true })
         .range(offset, offset + currentSize - 1);
       if (sectionFilters.length > 0) dataQuery = dataQuery.in('section', sectionFilters);
-      if (ohtPrefixes.length > 0 && sectionFilters.includes('oht') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
-        const ohtFilter = ohtPrefixes.map(p => `tag_id.like.${p}%`).join(',');
-        dataQuery = dataQuery.or(ohtFilter);
+      if (globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
+        dataQuery = dataQuery.like('tag_id', 'OHT1-%');
+      } else if (globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
+        dataQuery = dataQuery.like('tag_id', 'OHT2-%');
       }
 
       const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
@@ -377,7 +399,8 @@ const HistoryPage: React.FC = () => {
 
       const total = countResult.count || 0;
       setTotalCount(total);
-      const sorted = [...(dataResult.data as unknown as HistorianLog[])].sort((a, b) => {
+      const filteredData = ((dataResult.data as unknown as HistorianLog[]) || []).filter(log => matchesSelectedAssets(log, globalFilters.assets));
+      const sorted = [...filteredData].sort((a, b) => {
         const BUCKET_MS = 5 * 60 * 1000;
         const ta = Math.floor(new Date(a.timestamp).getTime() / BUCKET_MS);
         const tb = Math.floor(new Date(b.timestamp).getTime() / BUCKET_MS);
@@ -431,16 +454,17 @@ const HistoryPage: React.FC = () => {
       const startTime = startOfDay(globalFilters.startDate).toISOString();
       const endTime = endOfDay(globalFilters.endDate).toISOString();
       const sectionFilters = getSectionFilters();
-      const ohtPrefixes = getOhtTagPrefixes();
-      const useOhtFilter = ohtPrefixes.length > 0 && sectionFilters.includes('oht') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp');
-      const ohtOr = useOhtFilter ? ohtPrefixes.map(p => `tag_id.like.${p}%`).join(',') : null;
 
       const applyFilters = (q: any) => {
         let r = q.gte('timestamp', startTime).lte('timestamp', endTime)
           .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
           .or('source.like.%5min%,source.is.null');
         if (sectionFilters.length > 0) r = r.in('section', sectionFilters);
-        if (ohtOr) r = r.or(ohtOr);
+        if (globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
+          r = r.like('tag_id', 'OHT1-%');
+        } else if (globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
+          r = r.like('tag_id', 'OHT2-%');
+        }
         return r;
       };
 
@@ -507,7 +531,7 @@ const HistoryPage: React.FC = () => {
           latestPerTagBucket.set(key, log);
         }
       }
-      let processed: HistorianLog[] = Array.from(latestPerTagBucket.values());
+      let processed: HistorianLog[] = Array.from(latestPerTagBucket.values()).filter(log => matchesSelectedAssets(log, globalFilters.assets));
 
       // Phase 3b: Further downsample by user-chosen export interval (30m / 1h / 1d etc.)
       if (exportInterval !== 'all') {

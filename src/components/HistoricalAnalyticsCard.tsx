@@ -180,6 +180,18 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
         const dateStr = agg.bucket_start.split('T')[0];
         if (!days[dateStr]) continue;
         const tagId = agg.tag_id?.toLowerCase() || '';
+
+        // Skip legacy Mohgaon OHT-3 / OHT-4 tags and uninstalled sensors
+        if (tagId.startsWith('oht3') || tagId.startsWith('oht4') || 
+            tagId.startsWith('oht-3') || tagId.startsWith('oht-4') ||
+            tagId.includes('ward no') ||
+            tagId === 'wtp-pump3' || tagId === 'wtp-pump4' || 
+            tagId === 'wtp-pt3' || tagId === 'wtp-pt4' ||
+            tagId === 'wtp-combinedpt1' || tagId === 'wtp-combinedpt2' ||
+            tagId === 'wtp-kw' || tagId === 'int-kw') {
+          continue;
+        }
+
         if (tagId.includes('lt') || tagId.includes('level')) days[dateStr].avgLevel = Math.max(days[dateStr].avgLevel, Number(agg.avg_value));
         if (tagId.includes('pt') && !tagId.includes('com')) days[dateStr].avgPressure = Math.max(days[dateStr].avgPressure, Number(agg.avg_value));
         if (tagId.includes('flow')) days[dateStr].avgFlow += Number(agg.avg_value);

@@ -9,7 +9,7 @@ function load(file, stubs = {}, extra = {}) {
     compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React},
   }).outputText;
   const exports = {};
-  const context = vm.createContext({exports,require:name=>name in stubs ? stubs[name] : require(name),
+  const context = vm.createContext({exports,require:name=>name in stubs ? stubs[name] : (name.startsWith('@/') ? {} : require(name)),
     console,Date,Map,Set,Number,JSON,Promise,setTimeout,clearTimeout,...extra});
   vm.runInContext(code,context,{filename:file});
   return {exports,context};
@@ -70,3 +70,82 @@ test('shared status thresholds tolerate cellular delays and expire honestly',()=
   assert.equal(connection({...reading,lastDataTime:new Date(Date.now()-6*60000)}),'stale');
   assert.equal(connection({...reading,lastDataTime:new Date(Date.now()-16*60000)}),'no-data');
 });
+
+test('history and alarms asset filters isolate OHT-1 and OHT-2 and purge legacy Mohgaon footprints',()=>{
+  const historyModule = load('src/pages/HistoryPage.tsx', {
+    '@/integrations/supabase/client': { supabase: {} },
+    '@/contexts/ScadaContext': { useScada: () => ({ plantName: 'Shahpur SCADA' }) },
+    '@/lib/errorLogger': {},
+    '@/hooks/use-toast': { useToast: () => ({ toast: () => {} }) },
+    '@/components/GlobalFilterBar': {},
+    '@/components/StatusBar': () => null,
+    '@/components/ui/button': {},
+    '@/components/ui/card': {},
+    '@/components/ui/table': {},
+    '@/components/ui/select': {},
+    '@/components/ui/switch': {},
+    '@/components/ui/label': {},
+    '@/components/ui/skeleton': {},
+    '@/components/ui/progress': {},
+    '@/components/ui/dialog': {},
+    '@/lib/utils': { cn: (...args) => args.filter(Boolean).join(' ') },
+    'exceljs': {},
+    'date-fns': { format: () => '', startOfDay: d => d, endOfDay: d => d, subDays: d => d },
+    'lucide-react': {},
+  }).exports;
+
+  const { isLegacyMohgaonTag, matchesSelectedAssets } = historyModule;
+
+  // 1. Legacy Mohgaon tags must be rejected
+  assert.equal(isLegacyMohgaonTag('OHT3-LT'), true);
+  assert.equal(isLegacyMohgaonTag('OHT4-Flow'), true);
+  assert.equal(isLegacyMohgaonTag('OHT-3-PT'), true);
+  assert.equal(isLegacyMohgaonTag('OHT-4-LT'), true);
+  assert.equal(isLegacyMohgaonTag('Ward No 14 Tank'), true);
+  assert.equal(isLegacyMohgaonTag('OHT1-LT'), false);
+  assert.equal(isLegacyMohgaonTag('OHT2-PT'), false);
+  assert.equal(isLegacyMohgaonTag('INT-PT1'), false);
+
+  // 2. 'all' assets filter accepts valid Shahpur tags but rejects legacy tags
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT1-LT', section: 'oht' }, ['all']), true);
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT2-LT', section: 'oht' }, ['all']), true);
+  assert.equal(matchesSelectedAssets({ tag_id: 'INT-LT', section: 'intake' }, ['all']), true);
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT3-LT', section: 'oht' }, ['all']), false);
+
+  // 3. 'oht-1' filter strictly matches ONLY OHT-1
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT1-LT', section: 'oht' }, ['oht-1']), true);
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT2-LT', section: 'oht' }, ['oht-1']), false);
+  assert.equal(matchesSelectedAssets({ tag_id: 'INT-LT', section: 'intake' }, ['oht-1']), false);
+
+  // 4. 'oht-2' filter strictly matches ONLY OHT-2
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT2-LT', section: 'oht' }, ['oht-2']), true);
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT1-LT', section: 'oht' }, ['oht-2']), false);
+
+  // 5. Multi-selection: 'intake' + 'oht-1' matches Intake & OHT-1, excludes OHT-2 and WTP
+  assert.equal(matchesSelectedAssets({ tag_id: 'INT-LT', section: 'intake' }, ['intake', 'oht-1']), true);
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT1-Flow', section: 'oht' }, ['intake', 'oht-1']), true);
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT2-Flow', section: 'oht' }, ['intake', 'oht-1']), false);
+  assert.equal(matchesSelectedAssets({ tag_id: 'WTP-PT1', section: 'wtp' }, ['intake', 'oht-1']), false);
+});
+
+test('Garud GIS sync enforces uncommissioned station omission and MQTT freshness requirements',()=>{
+  const gisCode = fs.readFileSync('supabase/functions/gis-sync/index.ts', 'utf8');
+
+  // Verify WTP and OHT-2 are marked as non-commissioned and excluded
+  assert.match(gisCode, /skippedStations\.push\("oht2"\)/);
+  assert.match(gisCode, /skippedStations\.push\("wtp"\)/);
+  assert.doesNotMatch(gisCode, /freshOhts\.push\(.*OHT2/);
+
+  // Verify Intake and OHT-1 transmit only if fresh MQTT data received
+  assert.match(gisCode, /if\s*\(hasFreshData\(intakeIds\)\)/);
+  assert.match(gisCode, /if\s*\(hasFreshData\(oht1Ids\)\)/);
+
+  // Verify 0.00 fallback for uncalibrated / zero readings
+  assert.match(gisCode, /v\(TAG\.intake\.lt\)\s*\?\?\s*0\.0/);
+  assert.match(gisCode, /v\(oht1Tags\.flow\)\s*\?\?\s*0\.0/);
+
+  // Verify when no fresh data arrived from MQTT, POST to Garud is skipped with 204
+  assert.match(gisCode, /if\s*\(includedStations\.length\s*===\s*0\)/);
+  assert.match(gisCode, /response_status:\s*204/);
+});
+

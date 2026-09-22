@@ -14,7 +14,7 @@ const OhtAnalyticsPage = memo(() => {
           </div>
           <div>
             <h2 className="text-xl md:text-2xl font-bold text-foreground">OHT Network Analytics</h2>
-            <p className="text-sm text-muted-foreground">Distribution performance and compliance</p>
+            <p className="text-sm text-muted-foreground">Distribution performance and compliance • 2 OHT Units (Bus Station OHT & OHT-2)</p>
           </div>
           <div className="ml-auto hidden sm:flex items-center gap-2 px-4 py-2 rounded-full bg-green-500/10 ring-1 ring-green-500/20">
             <BarChart2 className="h-4 w-4 text-green-500" />
