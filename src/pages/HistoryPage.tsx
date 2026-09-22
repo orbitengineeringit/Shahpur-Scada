@@ -65,15 +65,22 @@ const UNINSTALLED_TAGS_FILTER = `("${UNINSTALLED_TAG_IDS.join('","')}")`;
 export const isLegacyMohgaonTag = (tagId: string): boolean => {
   const t = (tagId || '').toUpperCase();
   return (
-    t.startsWith('OHT3') || t.startsWith('OHT4') || 
-    t.startsWith('OHT-3') || t.startsWith('OHT-4') ||
-    t.includes('WARD NO')
+    (t.startsWith('OHT') && !t.startsWith('OHT1') && !t.startsWith('OHT-1') && !t.startsWith('OHT2') && !t.startsWith('OHT-2')) ||
+    t.includes('WARD') ||
+    t.includes('MOHGAON') ||
+    t.includes('MOH_')
   );
 };
 
 export const matchesSelectedAssets = (log: { tag_id: string; section?: string }, assets: AssetFilter[]): boolean => {
   if (isLegacyMohgaonTag(log.tag_id)) return false;
-  if (assets.includes('all')) return true;
+  const tid = (log.tag_id || '').toUpperCase();
+  if (assets.includes('all')) {
+    if (log.section?.toLowerCase() === 'oht' || tid.startsWith('OHT')) {
+      return tid.startsWith('OHT1') || tid.startsWith('OHT-1') || tid.startsWith('OHT2') || tid.startsWith('OHT-2');
+    }
+    return true;
+  }
   return assets.some(a => {
     if (a === 'intake') return log.section?.toLowerCase() === 'intake' || log.tag_id.startsWith('INT-');
     if (a === 'wtp') return log.section?.toLowerCase() === 'wtp' || log.tag_id.startsWith('WTP-');
@@ -81,6 +88,34 @@ export const matchesSelectedAssets = (log: { tag_id: string; section?: string },
     if (a === 'oht-2') return (log.section?.toLowerCase() === 'oht' || log.tag_id.startsWith('OHT')) && (log.tag_id.startsWith('OHT2-') || log.tag_id.startsWith('OHT2'));
     return false;
   });
+};
+
+export const applyAssetFiltersToQuery = (query: any, assets: AssetFilter[]) => {
+  if (assets.includes('all')) return query;
+
+  const hasIntake = assets.includes('intake');
+  const hasWtp = assets.includes('wtp');
+  const hasOht1 = assets.includes('oht-1');
+  const hasOht2 = assets.includes('oht-2');
+
+  const conditions: string[] = [];
+  if (hasIntake) conditions.push('section.eq.intake');
+  if (hasWtp) conditions.push('section.eq.wtp');
+  if (hasOht1) conditions.push('tag_id.like.OHT1-%');
+  if (hasOht2) conditions.push('tag_id.like.OHT2-%');
+
+  if (conditions.length === 1) {
+    if (hasIntake) return query.eq('section', 'intake');
+    if (hasWtp) return query.eq('section', 'wtp');
+    if (hasOht1) return query.like('tag_id', 'OHT1-%');
+    if (hasOht2) return query.like('tag_id', 'OHT2-%');
+  } else if (conditions.length > 1) {
+    if (hasIntake && hasWtp && !hasOht1 && !hasOht2) {
+      return query.in('section', ['intake', 'wtp']);
+    }
+    return query.or(conditions.join(','));
+  }
+  return query;
 };
 
 /** Derive a sub-section label like OHT-1 / OHT-2 from a tag_id (e.g. "OHT1-LT"). */
@@ -368,12 +403,7 @@ const HistoryPage: React.FC = () => {
         .gte('timestamp', startTime).lte('timestamp', endTime)
         .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
         .or('source.like.%5min%,source.is.null');
-      if (sectionFilters.length > 0) countQuery = countQuery.in('section', sectionFilters);
-      if (globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
-        countQuery = countQuery.like('tag_id', 'OHT1-%');
-      } else if (globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
-        countQuery = countQuery.like('tag_id', 'OHT2-%');
-      }
+      countQuery = applyAssetFiltersToQuery(countQuery, globalFilters.assets);
 
       const offset = (page - 1) * currentSize;
       let dataQuery = supabase.from('historian_logs')
@@ -385,12 +415,7 @@ const HistoryPage: React.FC = () => {
         .order('section', { ascending: true })
         .order('tag_id', { ascending: true })
         .range(offset, offset + currentSize - 1);
-      if (sectionFilters.length > 0) dataQuery = dataQuery.in('section', sectionFilters);
-      if (globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
-        dataQuery = dataQuery.like('tag_id', 'OHT1-%');
-      } else if (globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
-        dataQuery = dataQuery.like('tag_id', 'OHT2-%');
-      }
+      dataQuery = applyAssetFiltersToQuery(dataQuery, globalFilters.assets);
 
       const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
 
@@ -459,13 +484,7 @@ const HistoryPage: React.FC = () => {
         let r = q.gte('timestamp', startTime).lte('timestamp', endTime)
           .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
           .or('source.like.%5min%,source.is.null');
-        if (sectionFilters.length > 0) r = r.in('section', sectionFilters);
-        if (globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
-          r = r.like('tag_id', 'OHT1-%');
-        } else if (globalFilters.assets.includes('oht-2') && !globalFilters.assets.includes('oht-1') && !globalFilters.assets.includes('intake') && !globalFilters.assets.includes('wtp')) {
-          r = r.like('tag_id', 'OHT2-%');
-        }
-        return r;
+        return applyAssetFiltersToQuery(r, globalFilters.assets);
       };
 
       // Phase 1: count + estimate

@@ -33,6 +33,17 @@ interface AlarmContextType {
 
 const AlarmContext = createContext<AlarmContextType | undefined>(undefined);
 
+export const isLegacyMohgaonAlarm = (alarm: { tagId?: string; label?: string }): boolean => {
+    const tid = (alarm.tagId || '').toUpperCase();
+    const lbl = (alarm.label || '').toLowerCase();
+    return (
+        (tid.startsWith('OHT') && !tid.startsWith('OHT1') && !tid.startsWith('OHT-1') && !tid.startsWith('OHT2') && !tid.startsWith('OHT-2')) ||
+        lbl.includes('oht-3') || lbl.includes('oht 3') || lbl.includes('oht3') ||
+        lbl.includes('oht-4') || lbl.includes('oht 4') || lbl.includes('oht4') ||
+        lbl.includes('ward') || lbl.includes('mohgaon') || tid.includes('MOH')
+    );
+};
+
 export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [alarms, setAlarms] = useState<AlarmLog[]>([]);
     const recentAlarmKeys = React.useRef<Map<string, number>>(new Map());
@@ -54,7 +65,7 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             }
 
             if (data) {
-                setAlarms(data.map(a => ({
+                const mapped: AlarmLog[] = data.map(a => ({
                     id: a.id,
                     timestamp: a.created_at,
                     tagId: a.tag_id,
@@ -68,7 +79,8 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                     acknowledged: a.acknowledged,
                     emailSent: a.email_sent,
                     source: a.source as 'browser' | 'backend:5min',
-                })));
+                }));
+                setAlarms(mapped.filter(a => !isLegacyMohgaonAlarm(a)));
             }
         } catch (error) {
             logError('AlarmContext.loadAlarms', error);
@@ -105,7 +117,10 @@ export const AlarmProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 },
                 (payload) => {
                     if (payload.eventType === 'INSERT') {
-                        setAlarms(prev => [mapAlarmRow(payload.new), ...prev].slice(0, 500));
+                        const newRow = mapAlarmRow(payload.new);
+                        if (!isLegacyMohgaonAlarm(newRow)) {
+                            setAlarms(prev => [newRow, ...prev].slice(0, 500));
+                        }
                     } else if (payload.eventType === 'UPDATE') {
                         const updated = payload.new as any;
                         setAlarms(prev => prev.map(a =>

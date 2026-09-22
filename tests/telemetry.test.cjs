@@ -94,16 +94,22 @@ test('history and alarms asset filters isolate OHT-1 and OHT-2 and purge legacy 
     'lucide-react': {},
   }).exports;
 
-  const { isLegacyMohgaonTag, matchesSelectedAssets } = historyModule;
+  const { isLegacyMohgaonTag, matchesSelectedAssets, applyAssetFiltersToQuery } = historyModule;
 
-  // 1. Legacy Mohgaon tags must be rejected
+  // 1. Legacy Mohgaon tags must be rejected (OHT3, OHT4, OHT5, Ward No, Mohgaon, etc.)
   assert.equal(isLegacyMohgaonTag('OHT3-LT'), true);
   assert.equal(isLegacyMohgaonTag('OHT4-Flow'), true);
+  assert.equal(isLegacyMohgaonTag('OHT5-Flow'), true);
   assert.equal(isLegacyMohgaonTag('OHT-3-PT'), true);
   assert.equal(isLegacyMohgaonTag('OHT-4-LT'), true);
+  assert.equal(isLegacyMohgaonTag('OHT-5-LT'), true);
   assert.equal(isLegacyMohgaonTag('Ward No 14 Tank'), true);
+  assert.equal(isLegacyMohgaonTag('Mohgaon Tank'), true);
+  assert.equal(isLegacyMohgaonTag('MOH_OHT_001'), true);
   assert.equal(isLegacyMohgaonTag('OHT1-LT'), false);
+  assert.equal(isLegacyMohgaonTag('OHT-1-PT'), false);
   assert.equal(isLegacyMohgaonTag('OHT2-PT'), false);
+  assert.equal(isLegacyMohgaonTag('OHT-2-LT'), false);
   assert.equal(isLegacyMohgaonTag('INT-PT1'), false);
 
   // 2. 'all' assets filter accepts valid Shahpur tags but rejects legacy tags
@@ -111,6 +117,8 @@ test('history and alarms asset filters isolate OHT-1 and OHT-2 and purge legacy 
   assert.equal(matchesSelectedAssets({ tag_id: 'OHT2-LT', section: 'oht' }, ['all']), true);
   assert.equal(matchesSelectedAssets({ tag_id: 'INT-LT', section: 'intake' }, ['all']), true);
   assert.equal(matchesSelectedAssets({ tag_id: 'OHT3-LT', section: 'oht' }, ['all']), false);
+  assert.equal(matchesSelectedAssets({ tag_id: 'OHT5-LT', section: 'oht' }, ['all']), false);
+  assert.equal(matchesSelectedAssets({ tag_id: 'Ward Tank', section: 'oht' }, ['all']), false);
 
   // 3. 'oht-1' filter strictly matches ONLY OHT-1
   assert.equal(matchesSelectedAssets({ tag_id: 'OHT1-LT', section: 'oht' }, ['oht-1']), true);
@@ -126,6 +134,74 @@ test('history and alarms asset filters isolate OHT-1 and OHT-2 and purge legacy 
   assert.equal(matchesSelectedAssets({ tag_id: 'OHT1-Flow', section: 'oht' }, ['intake', 'oht-1']), true);
   assert.equal(matchesSelectedAssets({ tag_id: 'OHT2-Flow', section: 'oht' }, ['intake', 'oht-1']), false);
   assert.equal(matchesSelectedAssets({ tag_id: 'WTP-PT1', section: 'wtp' }, ['intake', 'oht-1']), false);
+
+  // 6. SQL Query Builder: applyAssetFiltersToQuery correctly isolates assets
+  const createMockQuery = () => {
+    const ops = [];
+    return {
+      ops,
+      eq: (k, v) => { ops.push({ op: 'eq', k, v }); return createMockQueryProxy(ops); },
+      in: (k, v) => { ops.push({ op: 'in', k, v }); return createMockQueryProxy(ops); },
+      like: (k, v) => { ops.push({ op: 'like', k, v }); return createMockQueryProxy(ops); },
+      or: (cond) => { ops.push({ op: 'or', cond }); return createMockQueryProxy(ops); },
+    };
+  };
+  const createMockQueryProxy = (ops) => ({
+    ops,
+    eq: (k, v) => { ops.push({ op: 'eq', k, v }); return createMockQueryProxy(ops); },
+    in: (k, v) => { ops.push({ op: 'in', k, v }); return createMockQueryProxy(ops); },
+    like: (k, v) => { ops.push({ op: 'like', k, v }); return createMockQueryProxy(ops); },
+    or: (cond) => { ops.push({ op: 'or', cond }); return createMockQueryProxy(ops); },
+  });
+
+  const serializeOps = (q) => JSON.parse(JSON.stringify(q.ops));
+
+  // Test SQL filters for single assets
+  const qAll = applyAssetFiltersToQuery(createMockQuery(), ['all']);
+  assert.equal(qAll.ops.length, 0); // 'all' requires no restrictive asset filter
+
+  const qIntake = applyAssetFiltersToQuery(createMockQuery(), ['intake']);
+  assert.deepEqual(serializeOps(qIntake), [{ op: 'eq', k: 'section', v: 'intake' }]);
+
+  const qWtp = applyAssetFiltersToQuery(createMockQuery(), ['wtp']);
+  assert.deepEqual(serializeOps(qWtp), [{ op: 'eq', k: 'section', v: 'wtp' }]);
+
+  const qOht1 = applyAssetFiltersToQuery(createMockQuery(), ['oht-1']);
+  assert.deepEqual(serializeOps(qOht1), [{ op: 'like', k: 'tag_id', v: 'OHT1-%' }]);
+
+  const qOht2 = applyAssetFiltersToQuery(createMockQuery(), ['oht-2']);
+  assert.deepEqual(serializeOps(qOht2), [{ op: 'like', k: 'tag_id', v: 'OHT2-%' }]);
+
+  // Test SQL filters for multi-asset combinations
+  const qIntakeOht1 = applyAssetFiltersToQuery(createMockQuery(), ['intake', 'oht-1']);
+  assert.deepEqual(serializeOps(qIntakeOht1), [{ op: 'or', cond: 'section.eq.intake,tag_id.like.OHT1-%' }]);
+
+  const qIntakeWtp = applyAssetFiltersToQuery(createMockQuery(), ['intake', 'wtp']);
+  assert.deepEqual(serializeOps(qIntakeWtp), [{ op: 'in', k: 'section', v: ['intake', 'wtp'] }]);
+
+  const qOht1Oht2 = applyAssetFiltersToQuery(createMockQuery(), ['oht-1', 'oht-2']);
+  assert.deepEqual(serializeOps(qOht1Oht2), [{ op: 'or', cond: 'tag_id.like.OHT1-%,tag_id.like.OHT2-%' }]);
+
+  const qIntakeWtpOht1 = applyAssetFiltersToQuery(createMockQuery(), ['intake', 'wtp', 'oht-1']);
+  assert.deepEqual(serializeOps(qIntakeWtpOht1), [{ op: 'or', cond: 'section.eq.intake,section.eq.wtp,tag_id.like.OHT1-%' }]);
+
+  // 7. Alarms: isLegacyMohgaonAlarm filters out legacy alarms
+  const alarmModule = load('src/contexts/AlarmContext.tsx', {
+    '@/integrations/supabase/client': { supabase: {} },
+    '@/lib/errorLogger': {},
+    'sonner': { toast: {} },
+    'react': { createContext: () => ({}), useContext: () => ({}), useState: () => [null, () => {}], useEffect: () => {}, useCallback: fn => fn, useRef: () => ({ current: new Map() }) },
+  }).exports;
+  const { isLegacyMohgaonAlarm } = alarmModule;
+
+  assert.equal(isLegacyMohgaonAlarm({ tagId: 'OHT3-LT', label: 'Tank High' }), true);
+  assert.equal(isLegacyMohgaonAlarm({ tagId: 'OHT4-Flow', label: 'Flow meter' }), true);
+  assert.equal(isLegacyMohgaonAlarm({ tagId: 'OHT5-LT', label: 'Tank Level' }), true);
+  assert.equal(isLegacyMohgaonAlarm({ tagId: 'INT-PT1', label: 'Ward No 14 Tank Level' }), true);
+  assert.equal(isLegacyMohgaonAlarm({ tagId: 'INT-PT1', label: 'Mohgaon Station Pump' }), true);
+  assert.equal(isLegacyMohgaonAlarm({ tagId: 'OHT1-LT', label: 'Bus Station OHT Level' }), false);
+  assert.equal(isLegacyMohgaonAlarm({ tagId: 'OHT2-PT', label: 'OHT-2 Pressure' }), false);
+  assert.equal(isLegacyMohgaonAlarm({ tagId: 'INT-PT1', label: 'VT Pump 1' }), false);
 });
 
 test('Garud GIS sync enforces uncommissioned station omission and MQTT freshness requirements',()=>{
@@ -147,5 +223,11 @@ test('Garud GIS sync enforces uncommissioned station omission and MQTT freshness
   // Verify when no fresh data arrived from MQTT, POST to Garud is skipped with 204
   assert.match(gisCode, /if\s*\(includedStations\.length\s*===\s*0\)/);
   assert.match(gisCode, /response_status:\s*204/);
+
+  // Verify GisSyncStatus component rejects false-positive SENT when payload is null or status 204
+  const gisUiCode = fs.readFileSync('src/components/GisSyncStatus.tsx', 'utf8');
+  assert.match(gisUiCode, /if\s*\(!payload\s*\|\|\s*typeof\s*payload\s*!==\s*'object'\)\s*return\s*\{\s*included:\s*false/);
+  assert.match(gisUiCode, /isSkippedStatus\s*=\s*lastStatus\s*===\s*204/);
+  assert.match(gisUiCode, /\(success\s*&&\s*included\)\s*\?\s*'SENT'/);
 });
 

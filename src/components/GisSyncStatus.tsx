@@ -44,7 +44,7 @@ const DEVICES = [
 ] as const;
 
 const stationDeliveryFromPayload = (payload: unknown, key: string, deviceId: string) => {
-  if (!payload || typeof payload !== 'object') return { included: undefined, sourceAt: undefined };
+  if (!payload || typeof payload !== 'object') return { included: false, sourceAt: undefined };
   const body = payload as Record<string, unknown>;
   if (key === 'intake') {
     const intake = body.intake as Record<string, unknown> | undefined;
@@ -165,11 +165,16 @@ const GisSyncStatus = () => {
     try {
       const { data, error } = await supabase.functions.invoke('gis-sync');
       if (error) throw error;
-      const result = data as { proof?: SyncProof; success?: boolean; request_payload?: unknown } | null;
+      const result = data as { proof?: SyncProof; success?: boolean; request_payload?: unknown; message?: string } | null;
       const proof = result?.proof;
       const ok = result?.success;
-      if (ok) toast.success(`GIS sync OK (HTTP ${proof?.status})`);
-      else toast.error(`GIS sync failed: HTTP ${proof?.status ?? 'n/a'}`);
+      if (proof?.status === 204) {
+        toast.info('GIS sync skipped (HTTP 204): No fresh MQTT telemetry received for Intake / OHT-1.');
+      } else if (ok) {
+        toast.success(`GIS sync OK (HTTP ${proof?.status})`);
+      } else {
+        toast.error(`GIS sync failed: HTTP ${proof?.status ?? 'n/a'}`);
+      }
       localStorage.setItem('gov_last_payload', JSON.stringify(result?.request_payload ?? null));
       localStorage.setItem('gov_last_response', JSON.stringify(proof ?? null));
       localStorage.setItem('gov_last_sync_at', new Date().toISOString());
@@ -200,12 +205,13 @@ const GisSyncStatus = () => {
   };
 
   const lastLog = logs[0];
-  const successCount = logs.filter(l => l.success).length;
+  const successCount = logs.filter(l => l.success && l.response_status !== 204).length;
   const batchTotal = logs.length;
-  const gatewayOk = lastLog ? lastLog.success : !!lastResponse && lastResponse.status != null && lastResponse.status >= 200 && lastResponse.status < 300;
+  const lastStatus = lastLog?.response_status ?? lastResponse?.status;
+  const isSkippedStatus = lastStatus === 204;
+  const gatewayOk = !isSkippedStatus && (lastLog ? lastLog.success : !!lastResponse && lastResponse.status != null && lastResponse.status >= 200 && lastResponse.status < 300);
   const gatewayUnknown = logsLoaded ? !lastLog && !lastResponse : !lastResponse;
   const lastDuration = lastLog?.duration_ms ?? lastResponse?.duration_ms;
-  const lastStatus = lastLog?.response_status ?? lastResponse?.status;
   const latestLogTime = lastLog?.triggered_at || lastSyncAt;
   const lastTimeStr = latestLogTime
     ? new Date(latestLogTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -270,6 +276,11 @@ const GisSyncStatus = () => {
                     <RefreshCw className="h-4 w-4 animate-spin" />
                     CHECKING…
                   </span>
+                ) : isSkippedStatus ? (
+                  <span className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400">
+                    <Clock className="h-4 w-4" />
+                    SKIPPED (NO MQTT DATA)
+                  </span>
                 ) : (
                   <span className={`flex items-center gap-1.5 font-bold ${gatewayOk ? 'text-success' : 'text-destructive'}`}>
                     {gatewayOk ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
@@ -278,8 +289,16 @@ const GisSyncStatus = () => {
                 )
               }
               accent={
-                <Badge className={`text-[10px] font-bold ${gatewayUnknown ? 'bg-muted text-muted-foreground border-border' : gatewayOk ? 'bg-success/15 text-success border-success/30' : 'bg-destructive/15 text-destructive border-destructive/30'}`}>
-                  {gatewayUnknown ? '…' : gatewayOk ? 'OK' : 'ERR'}
+                <Badge className={`text-[10px] font-bold ${
+                  gatewayUnknown 
+                    ? 'bg-muted text-muted-foreground border-border' 
+                    : isSkippedStatus
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                      : gatewayOk 
+                        ? 'bg-success/15 text-success border-success/30' 
+                        : 'bg-destructive/15 text-destructive border-destructive/30'
+                }`}>
+                  {gatewayUnknown ? '…' : isSkippedStatus ? 'SKIPPED' : gatewayOk ? 'OK' : 'ERR'}
                 </Badge>
               }
             />
@@ -322,8 +341,8 @@ const GisSyncStatus = () => {
               <div className="flex gap-3 min-w-min">
                 {DEVICES.map(d => {
                   const delivery = stationDeliveryFromPayload(activePayload, d.key, d.id);
-                  const included = includedStations ? includedStations.includes(d.key) : delivery.included;
-                  const skipped = skippedStations ? skippedStations.includes(d.key) : included === false;
+                  const included = includedStations ? includedStations.includes(d.key) : (delivery.included === true);
+                  const skipped = skippedStations ? skippedStations.includes(d.key) : (!included || isSkippedStatus);
                   return (
                     <StationCard
                       key={d.key}
@@ -384,12 +403,18 @@ const GisSyncStatus = () => {
               {logs.map(log => (
                 <div key={log.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 sm:px-4 py-2.5 text-xs hover:bg-muted/30 transition">
                   <div className="flex items-center gap-2 min-w-0">
-                    {log.success
-                      ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
-                      : <XCircle className="h-4 w-4 text-destructive shrink-0" />}
+                    {log.response_status === 204
+                      ? <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+                      : log.success
+                        ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+                        : <XCircle className="h-4 w-4 text-destructive shrink-0" />}
                     <div className="min-w-0">
                       <div className="font-semibold truncate">
-                        {log.success ? 'Transmission Successful' : 'Transmission Failed'}
+                        {log.response_status === 204
+                          ? 'Transmission Skipped (No Fresh Telemetry)'
+                          : log.success
+                            ? 'Transmission Successful'
+                            : 'Transmission Failed'}
                       </div>
                       <div className="font-mono text-[10px] text-muted-foreground truncate">
                         {new Date(log.triggered_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false })} IST · {log.duration_ms ?? '?'}ms
@@ -397,7 +422,13 @@ const GisSyncStatus = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 ml-6 sm:ml-0">
-                    <Badge variant="outline" className={`text-[10px] font-mono font-bold ${log.success ? 'text-success border-success/40 bg-success/10' : 'text-destructive border-destructive/40 bg-destructive/10'}`}>
+                    <Badge variant="outline" className={`text-[10px] font-mono font-bold ${
+                      log.response_status === 204
+                        ? 'text-amber-600 dark:text-amber-400 border-amber-500/40 bg-amber-500/10'
+                        : log.success
+                          ? 'text-success border-success/40 bg-success/10'
+                          : 'text-destructive border-destructive/40 bg-destructive/10'
+                    }`}>
                       HTTP {log.response_status ?? 'ERR'}
                     </Badge>
                     <Button variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => copyProof(log)}>
@@ -456,8 +487,26 @@ const StationCard = ({ label, deviceId, commissioned = true, success, unknown: u
             </button>
           </div>
         </div>
-        <Badge className={`text-[9px] font-bold ${!commissioned ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30' : unknownProp ? 'bg-muted text-muted-foreground border-border' : skipped ? 'bg-muted text-muted-foreground border-border' : success && included !== false ? 'bg-success/15 text-success border-success/30' : 'bg-destructive/15 text-destructive border-destructive/30'}`}>
-          {!commissioned ? 'PENDING' : unknownProp ? '…' : skipped ? 'NOT SENT' : success && included !== false ? 'SENT' : 'FAILED'}
+        <Badge className={`text-[9px] font-bold ${
+          !commissioned 
+            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30' 
+            : unknownProp 
+              ? 'bg-muted text-muted-foreground border-border' 
+              : (skipped || !included) 
+                ? 'bg-muted text-muted-foreground border-border' 
+                : (success && included) 
+                  ? 'bg-success/15 text-success border-success/30' 
+                  : 'bg-destructive/15 text-destructive border-destructive/30'
+        }`}>
+          {!commissioned 
+            ? 'PENDING' 
+            : unknownProp 
+              ? '…' 
+              : (skipped || !included) 
+                ? 'NOT SENT' 
+                : (success && included) 
+                  ? 'SENT' 
+                  : 'FAILED'}
         </Badge>
       </div>
 

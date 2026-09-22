@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, Trash2, CheckCircle2, AlertTriangle, BellRing } from 'lucide-react';
-import { useAlarm } from '@/contexts/AlarmContext';
+import { useAlarm, isLegacyMohgaonAlarm } from '@/contexts/AlarmContext';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -33,18 +33,6 @@ const AlarmsPage: React.FC = () => {
       if (asset === 'intake') return ['intake'];
       if (asset === 'wtp') return ['wtp'];
       return ['oht'];
-    };
-
-    const isLegacyMohgaonAlarm = (alarm: { tagId?: string; label?: string }) => {
-        const tid = (alarm.tagId || '').toUpperCase();
-        const lbl = (alarm.label || '').toLowerCase();
-        return (
-            tid.startsWith('OHT3') || tid.startsWith('OHT4') || 
-            tid.startsWith('OHT-3') || tid.startsWith('OHT-4') ||
-            lbl.includes('oht-3') || lbl.includes('oht 3') || lbl.includes('oht3') ||
-            lbl.includes('oht-4') || lbl.includes('oht 4') || lbl.includes('oht4') ||
-            lbl.includes('ward no')
-        );
     };
 
     const validAlarms = useMemo(() => {

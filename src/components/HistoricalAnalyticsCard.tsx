@@ -181,10 +181,10 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
         if (!days[dateStr]) continue;
         const tagId = agg.tag_id?.toLowerCase() || '';
 
-        // Skip legacy Mohgaon OHT-3 / OHT-4 tags and uninstalled sensors
-        if (tagId.startsWith('oht3') || tagId.startsWith('oht4') || 
-            tagId.startsWith('oht-3') || tagId.startsWith('oht-4') ||
-            tagId.includes('ward no') ||
+        // Skip legacy Mohgaon OHT tags (any OHT other than OHT-1 or OHT-2) and uninstalled sensors
+        const isLegacyOht = tagId.startsWith('oht') && !tagId.startsWith('oht1') && !tagId.startsWith('oht2') && !tagId.startsWith('oht-1') && !tagId.startsWith('oht-2');
+        if (isLegacyOht || 
+            tagId.includes('ward') || tagId.includes('mohgaon') || tagId.includes('moh_') ||
             tagId === 'wtp-pump3' || tagId === 'wtp-pump4' || 
             tagId === 'wtp-pt3' || tagId === 'wtp-pt4' ||
             tagId === 'wtp-combinedpt1' || tagId === 'wtp-combinedpt2' ||
