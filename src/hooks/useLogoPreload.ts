@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 
 export function useLogoPreload(sources: string[]) {
   const [ready, setReady] = useState(false);
+  const sourcesKey = sources.join('|');
 
   useEffect(() => {
     let cancelled = false;
     let loadedCount = 0;
-    const uniqueSources = Array.from(new Set(sources.filter(Boolean)));
+    const uniqueSources = Array.from(new Set(sourcesKey.split('|').filter(Boolean)));
 
     if (uniqueSources.length === 0) {
       setReady(true);
@@ -40,7 +41,7 @@ export function useLogoPreload(sources: string[]) {
         img.onerror = null;
       });
     };
-  }, [sources.join('|')]);
+  }, [sourcesKey]);
 
   return ready;
 }
