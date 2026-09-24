@@ -38,10 +38,10 @@ type ParsedMessage = {
   timestamp: Date;
 };
 
-function sanitizeRtuValue(val: number | null | undefined): number {
+function sanitizeRtuValue(val: number | null | undefined, allowNegative: boolean = false): number {
   if (val === null || val === undefined) return 0.0;
   if (!Number.isFinite(val)) return 0.0;
-  if (val < 0) return 0.0;
+  if (val < 0 && !allowNegative) return 0.0;
   if (val > 0 && val < 0.0001) return 0.0;
   if (val > 100000000) return 0.0;
   return Number(val.toFixed(2));
@@ -49,7 +49,8 @@ function sanitizeRtuValue(val: number | null | undefined): number {
 
 function normalizeSensorValue(sensor: Sensor, value: number): number {
   if (!Number.isFinite(value)) return 0.0;
-  const sanitized = sanitizeRtuValue(value);
+  const allowNegative = sensor.min < 0;
+  const sanitized = sanitizeRtuValue(value, allowNegative);
   if (sanitized >= sensor.min && sanitized <= sensor.max) return sanitized;
 
   const isPercentagePosition = sensor.unit === "%" &&
@@ -64,7 +65,7 @@ function normalizeSensorValue(sensor: Sensor, value: number): number {
 const DEFAULT_TOPICS = {
   INTAKE: "sahpur/intake/plc01/update",
   WTP: "sahpur/wtp/plc01/update",
-  OHT1: "sahpur/oht/plc01/update",
+  OHT1: "sahpur/oht1/plc01/update",
   OHT2: "",
 };
 
@@ -72,10 +73,10 @@ const ohtSensors = (n: number): Sensor[] => {
   const prefix = `OHT${n}`;
   const subsection = `OHT-${n}`;
   return [
-    { id: `${prefix}-PT`, mqttKey: "OHT_PT_1", label: "Inlet Pressure (PT)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
-    { id: `${prefix}-LT`, mqttKey: "OHT_LT", label: "Water Level (LT)", unit: "%", min: 0, max: 100, section: "oht", subsection, instrumentType: "lt" },
-    { id: `${prefix}-Flow`, mqttKey: "OHT_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 50, section: "oht", subsection, instrumentType: "flow" },
-    { id: `${prefix}-Totalizer`, mqttKey: "OHT_POSICUMVALUE", label: "Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
+    { id: `${prefix}-PT`, mqttKey: n === 1 ? "OHT1_PT_ACT" : "OHT_PT_1", label: "Inlet Pressure (PT)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
+    { id: `${prefix}-LT`, mqttKey: n === 1 ? "OHT1_LT_ACT" : "OHT_LT", label: "Water Level (LT)", unit: "%", min: 0, max: 100, section: "oht", subsection, instrumentType: "lt" },
+    { id: `${prefix}-Flow`, mqttKey: "OHT_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: n === 1 ? -50 : 0, max: 50, section: "oht", subsection, instrumentType: "flow" },
+    { id: `${prefix}-Totalizer`, mqttKey: n === 1 ? "OHT_TOTALIZER" : "OHT_POSICUMVALUE", label: "Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
   ];
 };
 
@@ -142,11 +143,14 @@ const MQTT_KEY_ALIASES: Record<string, string[]> = {
   "OUTFLOW2": ["OUTFLOW2", "OUTFLOW1", "OUT_FLOW", "CLR_FLOW"],
   "OUTTotalizer1H": ["OUTTotalizer1H", "OUTTOTALIZER1H", "OUT_TOT"],
   // OHT tags — Shahpur tags
-  "OHT_PT_1": ["OHT_PT_1", "PT_1", "PT1", "PT_01", "PT"],
+  "OHT1_PT_ACT": ["OHT1_PT_ACT", "OHT_PT_1", "PT_1", "PT1", "PT_01", "PT"],
+  "OHT1_LT_ACT": ["OHT1_LT_ACT", "OHT_LT", "LT", "LEVEL"],
+  "OHT_TOTALIZER": ["OHT_TOTALIZER", "OHT_POSICUMVALUE", "TOTALIZER"],
+  "OHT_PT_1": ["OHT_PT_1", "OHT1_PT_ACT", "PT_1", "PT1", "PT_01", "PT"],
   "OHT_PT_2": ["OHT_PT_2", "PT_2", "PT2", "PT_02"],
-  "OHT_LT": ["OHT_LT", "LT", "LEVEL", "Level"],
+  "OHT_LT": ["OHT_LT", "OHT1_LT_ACT", "LT", "LEVEL", "Level"],
   "OHT_FLOW": ["OHT_FLOW", "FLOW", "Flow", "EFM_FLOW"],
-  "OHT_POSICUMVALUE": ["OHT_POSICUMVALUE", "TOTALIZER", "POSICUMVALUE", "EFM"],
+  "OHT_POSICUMVALUE": ["OHT_POSICUMVALUE", "OHT_TOTALIZER", "TOTALIZER", "POSICUMVALUE", "EFM"],
   "OHT_DECPOSICUMVALUE": ["OHT_DECPOSICUMVALUE", "DECPOSICUMVALUE"],
   // WTP tags — slave_id=1 real PLC keys (canonical, self-aliased)
   "TURBIDITY_INLET": ["TURBIDITY_INLET"],
@@ -392,7 +396,7 @@ async function collectSnapshot(
             mapped = { section: "wtp" };
           } else if (payloadStr.includes("PUMP1_PT1_ACT") || payloadStr.includes("COMMON_HEADER_PT_ACT") || payloadStr.includes("RLT_ACT") || payloadStr.includes("INTAKEPT")) {
             mapped = { section: "intake" };
-          } else if (payloadStr.includes("OHT_PT_1") || payloadStr.includes("OHT_LT")) {
+          } else if (payloadStr.includes("OHT_PT_1") || payloadStr.includes("OHT_LT") || payloadStr.includes("OHT1_PT_ACT") || payloadStr.includes("OHT1_LT_ACT") || payloadStr.includes("OHT_TOTALIZER") || payloadStr.includes("02500225110500007512")) {
             mapped = { section: "oht", subsection: "OHT-1" };
           } else {
             mapped = { section: "unknown" as const };

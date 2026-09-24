@@ -16,7 +16,7 @@ type EngineeringRange = Pick<TagData, 'min' | 'max'> &
  * Converts raw PLC values (which may contain noise or uninitialized register garbage)
  * into safe, valid non-negative numbers. Never returns null or NaN.
  */
-export const sanitizeRtuValue = (raw: number | string): number => {
+export const sanitizeRtuValue = (raw: number | string, allowNegative: boolean = false): number => {
   const v = typeof raw === 'string' ? parseFloat(raw) : raw;
   // NaN, Infinity → 0
   if (!Number.isFinite(v)) return 0;
@@ -24,8 +24,8 @@ export const sanitizeRtuValue = (raw: number | string): number => {
   if (Math.abs(v) < 1e-6) return 0;
   // Large garbage (uninitialized register) → 0
   if (Math.abs(v) > 1e10) return 0;
-  // Negative physical sensor → take 0
-  if (v < 0) return 0;
+  // Negative physical sensor → take 0 unless allowNegative is explicitly true (e.g. OHT-1 flow)
+  if (v < 0 && !allowNegative) return 0;
   return v;
 };
 
@@ -38,7 +38,8 @@ export const normalizeTelemetryValue = (
   value: number | string,
   range: EngineeringRange,
 ): number => {
-  const sanitized = sanitizeRtuValue(value);
+  const allowNegative = range.min !== undefined && range.min < 0;
+  const sanitized = sanitizeRtuValue(value, allowNegative);
   if (sanitized >= range.min && sanitized <= range.max) return sanitized;
 
   const isPercentagePosition = range.unit === '%' &&
@@ -47,9 +48,12 @@ export const normalizeTelemetryValue = (
     return Math.min(range.max, Math.max(range.min, sanitized));
   }
 
-  // If outside calibrated range but finite and non-negative, clamp to boundaries or 0
-  if (sanitized > range.max * 1.5) {
+  // If outside calibrated range but finite, clamp to boundaries or 0
+  if (sanitized > 0 && sanitized > range.max * 1.5) {
     return 0; // Extreme out of range treated as uninitialized register noise
+  }
+  if (sanitized < 0 && sanitized < range.min * 1.5) {
+    return 0;
   }
   return sanitized;
 };
@@ -58,7 +62,8 @@ export const isValueWithinEngineeringRange = (
   value: number,
   range: EngineeringRange,
 ): boolean => {
-  const sanitized = sanitizeRtuValue(value);
+  const allowNegative = range.min !== undefined && range.min < 0;
+  const sanitized = sanitizeRtuValue(value, allowNegative);
   return sanitized >= range.min && sanitized <= range.max;
 };
 

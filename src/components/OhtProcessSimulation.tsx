@@ -150,9 +150,10 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
   const pipeW = 18;
 
   const drawWaterFlow = (d: string, flow: number, forceShow: boolean = false) => {
-    if (!forceShow && flow <= 0.1) return null;
+    const absFlow = Math.abs(flow);
+    if (!forceShow && absFlow <= 0.1) return null;
     // Normalize flow: assume 100 m3/h is max speed. Map 0-100 to 0-1 range.
-    const pNorm = Math.min(1, Math.max(0.1, flow / 100));
+    const pNorm = Math.min(1, Math.max(0.1, absFlow / 100));
     const durFast = (2.4 - pNorm * 1.6).toFixed(2) + 's';
     const durSlow = (3.6 - pNorm * 2.0).toFixed(2) + 's';
     const dashA = 55, gapA = 22, cycleA = dashA + gapA;
@@ -459,7 +460,7 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
                   <text x={efmX} y={efmY + 87} textAnchor="middle" fontSize="26" fontWeight="900" fill="hsl(var(--foreground))" fontFamily="ui-monospace">{flowVal.toFixed(1)} <tspan fontSize="13" fill="hsl(var(--muted-foreground))" fontWeight="600">m³/h</tspan></text>
 
                   <rect x={efmX - 75} y={efmY + 99} width={150} height="7" rx="3" fill="hsl(199 89% 48% / 0.2)" />
-                  <rect x={efmX - 75} y={efmY + 99} width={150 * Math.min(1, flowVal / 50)} height="7" rx="3" fill="hsl(199 89% 48%)" className="transition-all duration-500" />
+                  <rect x={efmX - 75} y={efmY + 99} width={150 * Math.max(0, Math.min(1, Math.abs(flowVal) / 50))} height="7" rx="3" fill="hsl(199 89% 48%)" className="transition-all duration-500" />
 
                   <text x={efmX} y={efmY + 123} textAnchor="middle" fontSize="12" fontWeight="800" fill="hsl(199 89% 55% / 0.8)">TOTALIZER: {totVal.toLocaleString()} m³</text>
                 </g>

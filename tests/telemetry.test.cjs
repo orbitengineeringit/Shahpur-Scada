@@ -289,4 +289,51 @@ test('WTP aliases map accurately to sensors in scada-ingest', () => {
   assert.equal(wtpAliases.find(r => r.tag_id === 'WTP-Totalizer-OUT')?.value, 12050);
 });
 
+test('OHT-1 payload parses correctly and preserves negative flow', () => {
+  const oht1PayloadRaw = JSON.stringify({
+    params: {
+      dir: "up",
+      id: "02500225110500007512",
+      r_data: [
+        { name: "OHT1_PT_ACT", value: "0.00997485", err: "0" },
+        { name: "OHT1_LT_ACT", value: "32.5", err: "0" },
+        { name: "OHT_FLOW", value: "-10.5181", err: "0" },
+        { name: "OHT_TOTALIZER", value: "9254", err: "0" }
+      ]
+    }
+  });
+
+  const parsed = Object.assign({}, ...parsePayload(oht1PayloadRaw));
+  assert.equal(parsed.OHT1_PT_ACT, "0.00997485");
+  assert.equal(parsed.OHT1_LT_ACT, "32.5");
+  assert.equal(parsed.OHT_FLOW, "-10.5181");
+  assert.equal(parsed.OHT_TOTALIZER, "9254");
+
+  const readings = map('oht', parsed, 'OHT-1');
+  const pt = readings.find(r => r.tag_id === 'OHT1-PT');
+  const lt = readings.find(r => r.tag_id === 'OHT1-LT');
+  const flow = readings.find(r => r.tag_id === 'OHT1-Flow');
+  const tot = readings.find(r => r.tag_id === 'OHT1-Totalizer');
+
+  assert.ok(pt, 'OHT1-PT should be mapped');
+  assert.equal(pt.value, 0.01);
+  assert.equal(pt.quality, 'good');
+
+  assert.ok(lt, 'OHT1-LT should be mapped');
+  assert.equal(lt.value, 32.5);
+  assert.equal(lt.quality, 'good');
+
+  assert.ok(flow, 'OHT1-Flow should be mapped');
+  assert.equal(flow.value, -10.52);
+  assert.equal(flow.quality, 'good');
+
+  assert.ok(tot, 'OHT1-Totalizer should be mapped');
+  assert.equal(tot.value, 9254);
+  assert.equal(tot.quality, 'good');
+
+  // Verify telemetryQuality sanitize and normalize also preserve negative flow when allowed
+  assert.equal(quality.sanitizeRtuValue("-10.5181", true), -10.5181);
+  assert.equal(quality.sanitizeRtuValue("-10.5181", false), 0.0);
+  assert.equal(quality.normalizeTelemetryValue("-10.5181", { min: -50, max: 50 }), -10.5181);
+});
 

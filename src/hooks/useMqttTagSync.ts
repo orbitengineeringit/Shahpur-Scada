@@ -367,10 +367,6 @@ export const useMqttTagSync = (
         continue;
       }
 
-      // Universal sanitize ensures all incoming PLC values (even garbage/near-zero noise)
-      // are converted to clean non-negative numbers (e.g. -2.24e+15 -> 0.00, -2.47e-19 -> 0.00)
-      const value = sanitizeRtuValue(rawValue);
-      
       const sensor = sensors.find(s => 
         // Exact match (canonical mqttKey)
         s.mqttKey === mqttKey ||
@@ -391,10 +387,13 @@ export const useMqttTagSync = (
         (mqttKey === 'OUTFLOW2' && (s.id === 'INT-Flow-OUT' || s.id === 'INT-Flow')) ||
         (mqttKey === 'INT_TOTALIZER_OUT_COMBINED' && (s.id === 'INT-Totalizer-OUT' || s.id === 'INT-Totalizer')) ||
         // Shahpur OHT sensors
+        (mqttKey === 'OHT1_PT_ACT' && (s.id === 'OHT1-PT' || s.id.endsWith('-PT'))) ||
+        (mqttKey === 'OHT1_LT_ACT' && (s.id === 'OHT1-LT' || s.id.endsWith('-LT'))) ||
         (mqttKey === 'OHT_PT_1' && s.id.endsWith('-PT')) ||
         (mqttKey === 'OHT_PT_2' && s.id.endsWith('-PT2')) ||
         (mqttKey === 'OHT_LT' && s.id.endsWith('-LT')) ||
         (mqttKey === 'OHT_FLOW' && (s.id.endsWith('-Flow') || s.id.endsWith('-Flow-IN'))) ||
+        (mqttKey === 'OHT_TOTALIZER' && (s.id === 'OHT1-Totalizer' || s.id.endsWith('-Totalizer'))) ||
         (mqttKey === 'OHT_POSICUMVALUE' && s.id.endsWith('-Totalizer')) ||
         (mqttKey === 'OHT_DECPOSICUMVALUE' && s.id.endsWith('-DecrTotalizer')) ||
         // Shahpur WTP aliases
@@ -415,6 +414,11 @@ export const useMqttTagSync = (
         (mqttKey === 'RLT' && s.id === 'INT-LT')
       );
       if (!sensor) continue;
+
+      // Universal sanitize ensures all incoming PLC values (even garbage/near-zero noise)
+      // are converted to clean numbers. Negative values are preserved ONLY for sensors that support it (OHT1 flow).
+      const allowNegative = sensor.min < 0 || sensor.id === 'OHT1-Flow';
+      const value = sanitizeRtuValue(rawValue, allowNegative);
 
       const sensorId = sensor.id;
       const existingTag = tags.find(t => t.id === sensorId);

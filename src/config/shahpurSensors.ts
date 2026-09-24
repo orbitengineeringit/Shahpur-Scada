@@ -48,7 +48,7 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
   return [
     {
       id: `${prefix}-PT`,
-      mqttKey: 'OHT_PT_1',
+      mqttKey: ohtNum === 1 ? 'OHT1_PT_ACT' : 'OHT_PT_1',
       label: 'Inlet Pressure (PT)',
       unit: 'Bar',
       min: 0,
@@ -61,7 +61,7 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
     },
     {
       id: `${prefix}-LT`,
-      mqttKey: 'OHT_LT',
+      mqttKey: ohtNum === 1 ? 'OHT1_LT_ACT' : 'OHT_LT',
       label: 'Level Transducer',
       unit: '%',
       min: 0,
@@ -77,7 +77,7 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
       mqttKey: 'OHT_FLOW',
       label: 'Outlet Flow Meter',
       unit: 'm³/hr',
-      min: 0,
+      min: ohtNum === 1 ? -50 : 0, // Negative flow display enabled for OHT-1
       max: 50,
       section: 'oht',
       subsection: sub,
@@ -87,7 +87,7 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
     },
     {
       id: `${prefix}-Totalizer`,
-      mqttKey: 'OHT_POSICUMVALUE',
+      mqttKey: ohtNum === 1 ? 'OHT_TOTALIZER' : 'OHT_POSICUMVALUE',
       label: 'Totalizer',
       unit: 'm³',
       min: 0,
@@ -182,7 +182,7 @@ const getEnv = (key: string): string | undefined => {
 // Default topics for Shahpur plant
 export const DEFAULT_MQTT_TOPICS: Record<string, string> = {
   INTAKE: getEnv('VITE_MQTT_TOPIC_INTAKE') || getEnv('NEXT_PUBLIC_MQTT_TOPIC_INTAKE') || 'sahpur/intake/plc01/update',
-  OHT1:   getEnv('VITE_MQTT_TOPIC_OHT1')   || getEnv('NEXT_PUBLIC_MQTT_TOPIC_OHT1')   || 'sahpur/oht/plc01/update',
+  OHT1:   getEnv('VITE_MQTT_TOPIC_OHT1')   || getEnv('NEXT_PUBLIC_MQTT_TOPIC_OHT1')   || 'sahpur/oht1/plc01/update',
   OHT2:   getEnv('VITE_MQTT_TOPIC_OHT2')   || getEnv('NEXT_PUBLIC_MQTT_TOPIC_OHT2')   || '',
   WTP:    getEnv('VITE_MQTT_TOPIC_WTP')    || getEnv('NEXT_PUBLIC_MQTT_TOPIC_WTP')    || 'sahpur/wtp/plc01/update',
 };
@@ -244,7 +244,8 @@ export const getPumpSensors = (section: SectionType): ShahpurSensor[] => {
 
 // Valid MQTT keys per section
 export const VALID_OHT_KEYS = [
-  'OHT_PT_1', 'OHT_PT_2', 'OHT_LT', 'OHT_FLOW', 'OHT_POSICUMVALUE', 'OHT_DECPOSICUMVALUE',
+  'OHT1_PT_ACT', 'OHT1_LT_ACT', 'OHT_FLOW', 'OHT_TOTALIZER',
+  'OHT_PT_1', 'OHT_PT_2', 'OHT_LT', 'OHT_POSICUMVALUE', 'OHT_DECPOSICUMVALUE',
   // Backward compatibility / alias keys
   'PT', 'PT_01', 'LT', 'LEVEL', 'FLOW', 'TOTALIZER',
 ];

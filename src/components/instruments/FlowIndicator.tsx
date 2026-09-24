@@ -12,8 +12,8 @@ interface FlowIndicatorProps {
  * Blue head with LCD display, flanged pipe body with flow arrow
  */
 const FlowIndicator: React.FC<FlowIndicatorProps> = ({ value, unit, max, direction }) => {
-  const isActive = value > 0.01;
-  const percentage = useMemo(() => Math.min(100, Math.max(0, (value / max) * 100)), [value, max]);
+  const isActive = Math.abs(value) > 0.01;
+  const percentage = useMemo(() => Math.min(100, Math.max(0, (Math.abs(value) / max) * 100)), [value, max]);
 
   const isOutlet = direction === 'outlet';
   const headColor = isOutlet ? "hsl(38 92% 50%" : "hsl(199 89% 48%";

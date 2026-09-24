@@ -286,7 +286,7 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
     // Payload tag inspection fallback
     if (payloadStr) {
       if (payloadStr.includes('02500225110500007982') || payloadStr.includes('INTAKEPT') || payloadStr.includes('INFLOW') || payloadStr.includes('INT_') || payloadStr.includes('PUMP1_PT1_ACT') || payloadStr.includes('COMMON_HEADER_PT_ACT') || payloadStr.includes('RLT_ACT')) return { section: 'intake' };
-      if (payloadStr.includes('02500225110500007512') || payloadStr.includes('OHT_PT_') || payloadStr.includes('OHT_LT') || payloadStr.includes('OHT_FLOW')) return { section: 'oht', subsection: 'OHT-1' };
+      if (payloadStr.includes('02500225110500007512') || payloadStr.includes('OHT_PT_') || payloadStr.includes('OHT_LT') || payloadStr.includes('OHT_FLOW') || payloadStr.includes('OHT1_PT_ACT') || payloadStr.includes('OHT1_LT_ACT') || payloadStr.includes('OHT_TOTALIZER')) return { section: 'oht', subsection: 'OHT-1' };
       if (payloadStr.includes('RAW_PH') || payloadStr.includes('RAW_EFM') || payloadStr.includes('CWR_') || payloadStr.includes('BW_LT') || payloadStr.includes('ROF_FB1') || payloadStr.includes('LOH_FB1')) return { section: 'wtp' };
     }
 
