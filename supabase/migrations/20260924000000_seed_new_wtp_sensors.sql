@@ -12,9 +12,9 @@
 
 INSERT INTO public.tag_config (tag_id, section, label, unit, is_active, alarm_enabled)
 VALUES
-  ('WTP-ROF-FB1', 'wtp', 'Rate of Flow (Filter Bed 1)', 'm³/hr', true, true),
-  ('WTP-LOH-FB1', 'wtp', 'Loss of Head (FB1)',          'm',     true, true),
-  ('WTP-LOH-FB2', 'wtp', 'Loss of Head (FB2)',          'm',     true, true),
+  ('WTP-ROF-FB1', 'wtp', 'Rate of Flow (Filter Bed 1)', 'm³', true, true),
+  ('WTP-LOH-FB1', 'wtp', 'Loss of Head (FB1)',          '%',  true, true),
+  ('WTP-LOH-FB2', 'wtp', 'Loss of Head (FB2)',          '%',  true, true),
   -- Trip sensors: alarm_enabled=false because the backend 5-min snapshot
   -- skips instrumentType='pump' sensors for standard High/Low evaluation.
   -- Trip alarms are handled separately via backend Trip detection logic

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { type TagData, useScada } from '@/contexts/ScadaContext';
-import { normalizeTelemetryValue, TELEMETRY_OFFLINE_MS } from '@/lib/telemetryQuality';
+import { normalizeTelemetryValue, TELEMETRY_LIVE_MS } from '@/lib/telemetryQuality';
 import { logError } from '@/lib/errorLogger';
 
 export interface TelemetryRow {
@@ -17,10 +17,10 @@ export function applyCloudReading(tag: TagData, row: TelemetryRow, now = Date.no
   if (!Number.isFinite(at) || at > now + 10000) return tag;
   if (tag.lastDataTime && at <= new Date(tag.lastDataTime).getTime()) return tag;
   const value = row.value === null ? null : normalizeTelemetryValue(row.value, tag);
-  const fresh = now - at <= TELEMETRY_OFFLINE_MS;
+  const fresh = now - at <= TELEMETRY_LIVE_MS;
   const fault = row.quality !== 'good' || value === null;
   return {
-    ...tag, value: value ?? tag.value, status: !fresh ? 'disconnected' : fault ? 'fault' : 'connected',
+    ...tag, value: fresh && !fault ? (value ?? 0) : 0, status: !fresh ? 'disconnected' : fault ? 'fault' : 'connected',
     source: 'mqtt', isActive: fresh && !fault,
     lastDataTime: new Date(at), timestamp: new Date(at),
   };

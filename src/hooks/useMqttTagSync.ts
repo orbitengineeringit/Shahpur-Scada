@@ -10,7 +10,7 @@ import {
   VALID_OHT_KEYS, VALID_INTAKE_KEYS, VALID_WTP_KEYS,
   ShahpurSensor, PT_TO_PUMP_MAP,
 } from '@/config/shahpurSensors';
-import { normalizeTelemetryValue, sanitizeRtuValue, TELEMETRY_OFFLINE_MS } from '@/lib/telemetryQuality';
+import { normalizeTelemetryValue, sanitizeRtuValue, TELEMETRY_LIVE_MS, TELEMETRY_OFFLINE_MS } from '@/lib/telemetryQuality';
 
 interface TagUpdate {
   tagId: string;
@@ -92,12 +92,6 @@ export const useMqttTagSync = (
   // Timestamp tracker for the last received message per section (TDM Case E Gateway check)
   const lastMessageTime = useRef<Map<string, number>>(new Map());
 
-  // 32-bit totalizer registers for Intake (H * 65536 + L)
-  const inTotHRef = useRef<number | null>(null);
-  const inTotLRef = useRef<number | null>(null);
-  const outTotHRef = useRef<number | null>(null);
-  const outTotLRef = useRef<number | null>(null);
-
   // Helper to determine if pressure alarm should be suppressed due to no flow
   const isPressureSuppressed = (sensorId: string, currentTags: TagData[]): boolean => {
     const getSectionFlowValue = (sec: 'intake' | 'wtp', flowTagId: string): number => {
@@ -109,15 +103,7 @@ export const useMqttTagSync = (
         return localFlow.value;
       }
       
-      // Fallback to cross-section redundancy (Intake outflow matches WTP raw water inflow)
-      const crossTags = sec === 'intake' ? wtpTags : intakeTags;
-      const crossFlowId = sec === 'intake' ? 'WTP-Flow-IN' : 'INT-Flow-OUT';
-      const crossFlow = crossTags.find(t => t.id === crossFlowId || t.id === 'INT-Flow');
-      if (crossFlow && crossFlow.status === 'connected' && crossFlow.value !== null) {
-        return crossFlow.value;
-      }
-      
-      return 999.0; // If both are offline, disable suppression (safety fallback)
+      return 999.0; // Never borrow another station's stale or foreign reading.
     };
 
     if (sensorId.startsWith('INT-PT') || sensorId === 'INT-HeaderPT' || sensorId === 'INT-CombinedPT') {
@@ -125,7 +111,7 @@ export const useMqttTagSync = (
       return flowVal < 5.0;
     }
     if (sensorId.startsWith('WTP-PT') || sensorId.startsWith('WTP-CombinedPT') || sensorId === 'WTP-HeaderPT') {
-      const flowVal = getSectionFlowValue('wtp', 'WTP-Flow-IN');
+      const flowVal = getSectionFlowValue('wtp', 'WTP-Flow-OUT');
       return flowVal < 5.0;
     }
     if (sensorId.startsWith('OHT') && sensorId.includes('-PT')) {
@@ -177,7 +163,7 @@ export const useMqttTagSync = (
         const silenceDisconnectTags = (setter: React.Dispatch<React.SetStateAction<TagData[]>>) => {
           setter(prev => prev.map(tag => {
             if (tag.source === 'mqtt' && tag.status !== 'disconnected') {
-              return { ...tag, status: 'disconnected' as const };
+              return { ...tag, value: 0, isActive: false, status: 'disconnected' as const };
             }
             return tag;
           }));
@@ -191,25 +177,32 @@ export const useMqttTagSync = (
       // Clear gateway offline once network is restored
       alarmActiveSince.current.delete('SCADA-Gateway-Offline');
 
-      // The UI shows an amber delayed state after 2 minutes. Only this hard
-      // timeout changes the tag to offline and raises a disconnect alarm.
+      // Stop presenting a value once it is no longer live. The longer hard
+      // timeout raises the communication alarm without restoring stale data.
       const checkTags = (setter: React.Dispatch<React.SetStateAction<TagData[]>>) => {
         setter(prev => prev.map(tag => {
           if (tag.source === 'mqtt' && tag.lastDataTime) {
             const elapsed = nowTime - tag.lastDataTime.getTime();
-            if (elapsed > TELEMETRY_OFFLINE_MS && tag.status !== 'disconnected') {
-              const msg = `Communication Loss: ${tag.label} (${tag.id}) is offline (No cellular GPRS data for ${Math.round(elapsed / 1000)}s)`;
-              addAlarm({
-                tagId: tag.id,
-                tagConfigId: tag.dbId,
-                label: tag.label,
-                value: 0,
-                unit: '',
-                type: 'Disconnect',
-                message: msg,
-                section: tag.section,
-              });
-              return { ...tag, status: 'disconnected' as const };
+            if (elapsed > TELEMETRY_OFFLINE_MS) {
+              const alarmKey = `${tag.id}-Disconnect`;
+              if (!alarmActiveSince.current.has(alarmKey)) {
+                alarmActiveSince.current.set(alarmKey, nowTime);
+                const msg = `Communication Loss: ${tag.label} (${tag.id}) is offline (No cellular GPRS data for ${Math.round(elapsed / 1000)}s)`;
+                addAlarm({
+                  tagId: tag.id,
+                  tagConfigId: tag.dbId,
+                  label: tag.label,
+                  value: 0,
+                  unit: '',
+                  type: 'Disconnect',
+                  message: msg,
+                  section: tag.section,
+                });
+              }
+              return { ...tag, value: 0, isActive: false, status: 'disconnected' as const };
+            }
+            if (elapsed > TELEMETRY_LIVE_MS && tag.status !== 'disconnected') {
+              return { ...tag, value: 0, isActive: false, status: 'disconnected' as const };
             }
           }
           return tag;
@@ -323,25 +316,17 @@ export const useMqttTagSync = (
     // Intake 32-bit totalizer word pre-combination: H × 65536 + L
     const effectivePayload: Record<string, string | number> = { ...payload };
     if (section === 'intake') {
-      if (payload['INTotalizer1H'] !== undefined) {
-        inTotHRef.current = Math.max(0, sanitizeRtuValue(payload['INTotalizer1H']));
-      }
-      if (payload['INTotalizer1L'] !== undefined) {
-        inTotLRef.current = Math.max(0, sanitizeRtuValue(payload['INTotalizer1L']));
-      }
-      if (inTotHRef.current !== null && inTotLRef.current !== null) {
-        effectivePayload['INT_TOTALIZER_IN_COMBINED'] = inTotHRef.current * 65536 + inTotLRef.current;
+      if (payload['INTotalizer1H'] !== undefined && payload['INTotalizer1L'] !== undefined) {
+        const high = Math.max(0, sanitizeRtuValue(payload['INTotalizer1H']));
+        const low = Math.max(0, sanitizeRtuValue(payload['INTotalizer1L']));
+        effectivePayload['INT_TOTALIZER_IN_COMBINED'] = high * 65536 + low;
       }
 
       const outLRaw = payload['OUTToalizer1L'] !== undefined ? payload['OUTToalizer1L'] : payload['OUTTotalizer1L'];
-      if (payload['OUTTotalizer1H'] !== undefined) {
-        outTotHRef.current = Math.max(0, sanitizeRtuValue(payload['OUTTotalizer1H']));
-      }
-      if (outLRaw !== undefined) {
-        outTotLRef.current = Math.max(0, sanitizeRtuValue(outLRaw));
-      }
-      if (outTotHRef.current !== null && outTotLRef.current !== null) {
-        effectivePayload['INT_TOTALIZER_OUT_COMBINED'] = outTotHRef.current * 65536 + outTotLRef.current;
+      if (payload['OUTTotalizer1H'] !== undefined && outLRaw !== undefined) {
+        const high = Math.max(0, sanitizeRtuValue(payload['OUTTotalizer1H']));
+        const low = Math.max(0, sanitizeRtuValue(outLRaw));
+        effectivePayload['INT_TOTALIZER_OUT_COMBINED'] = high * 65536 + low;
       }
     }
 
@@ -407,9 +392,6 @@ export const useMqttTagSync = (
         ((mqttKey === 'PUMP2_PT' || mqttKey === 'PT_2') && (s.id === 'INT-PT2' || s.id === 'WTP-PT2')) ||
         ((mqttKey === 'OUTLET_FLOW' || mqttKey === 'CLR_EFM_FLOW') && s.id === 'WTP-Flow-OUT') ||
         ((mqttKey === 'TOTALIZER' || mqttKey === 'CLR_EFM') && s.id === 'WTP-Totalizer-OUT') ||
-        ((mqttKey === 'RAW_EFM_FLOW' || mqttKey === 'FLOWMETER') && s.id === 'WTP-Flow-IN') ||
-        ((mqttKey === 'RAW_EFM' || mqttKey === 'TOTALIZER_IN') && s.id === 'WTP-Totalizer-IN') ||
-        ((mqttKey === 'RW_PH' || mqttKey === 'RAW_PH') && s.id === 'WTP-PH-IN') ||
         // Fallback / legacy aliases
         (mqttKey === 'RLT' && s.id === 'INT-LT')
       );
@@ -418,10 +400,16 @@ export const useMqttTagSync = (
       // Universal sanitize ensures all incoming PLC values (even garbage/near-zero noise)
       // are converted to clean numbers. Negative values are preserved ONLY for sensors that support it (OHT1 flow).
       const allowNegative = sensor.min < 0 || sensor.id === 'OHT1-Flow';
-      const value = sanitizeRtuValue(rawValue, allowNegative);
+      const sanitizedValue = sanitizeRtuValue(rawValue, allowNegative);
+      // The LOH transmitters publish on their original 0–25 engineering scale.
+      // Store and display the calibrated 0–100 percentage requested by operations.
+      const value = sensor.id.startsWith('WTP-LOH-')
+        ? Math.min(100, sanitizedValue * 4)
+        : sanitizedValue;
 
       const sensorId = sensor.id;
       const existingTag = tags.find(t => t.id === sensorId);
+      alarmActiveSince.current.delete(`${sensorId}-Disconnect`);
 
       // Signal Validation: normalizeTelemetryValue returns sanitized value clamped to valid bounds
       let processedValue = value;
@@ -512,7 +500,7 @@ export const useMqttTagSync = (
         if (levelDelta > 1.0) { // level rose by > 1.0%
           let isFlowActive = false;
           if (sensorId === 'WTP-LT-CW') {
-            const flowIn = latestValues.get('WTP-Flow-IN') || 0;
+            const flowIn = latestValues.get('WTP-Flow-OUT') || 0;
             isFlowActive = flowIn > 2.0;
           } else if (sensorId.startsWith('OHT') && sensorId.endsWith('-LT')) {
             const ohtNum = sensorId.match(/OHT(\d+)/)?.[1];
@@ -550,7 +538,7 @@ export const useMqttTagSync = (
         const flowTag = intakeTags.find(t => t.id === 'INT-Flow-OUT' || t.id === 'INT-Flow');
         sectionFlowActive = flowTag ? flowTag.value > 10.0 : false;
       } else if (section === 'wtp') {
-        const flowTag = wtpTags.find(t => t.id === 'WTP-Flow-IN');
+        const flowTag = wtpTags.find(t => t.id === 'WTP-Flow-OUT');
         sectionFlowActive = flowTag ? flowTag.value > 10.0 : false;
       }
       
@@ -599,7 +587,7 @@ export const useMqttTagSync = (
           if (section === 'intake') {
             hasFlow = ((latestValues.get('INT-Flow-OUT') ?? latestValues.get('INT-Flow') ?? 0) > 5.0);
           } else if (section === 'wtp') {
-            hasFlow = (latestValues.get('WTP-Flow-IN') || 0) > 5.0;
+            hasFlow = (latestValues.get('WTP-Flow-OUT') || 0) > 5.0;
           }
           if (!hasFlow) suppressed = true; // Block low pressure alarm if pump is not pumping
         }
@@ -807,9 +795,9 @@ export const useMqttTagSync = (
 
     // -- Ultra-MIV Rule 2: Pipeline Burst Check --
     if (section === 'wtp') {
-      const flowIn = latestValues.get('WTP-Flow-IN') || 0;
+      const flowIn = latestValues.get('WTP-Flow-OUT') || 0;
       const combinedPT = latestValues.get('WTP-HeaderPT') || 0;
-      const flowTag = tags.find(t => t.id === 'WTP-Flow-IN');
+      const flowTag = tags.find(t => t.id === 'WTP-Flow-OUT');
       const ptTag = tags.find(t => t.id === 'WTP-HeaderPT');
       
       const isFlowActive = flowTag && flowTag.status === 'connected' && flowIn > 120.0;
@@ -872,7 +860,7 @@ export const useMqttTagSync = (
 
     // -- Ultra-MIV Rule 4: Impeller Wear / Low Pump Output Detector (FDHE Fallback) --
     if (section === 'wtp') {
-      const flowIn = latestValues.get('WTP-Flow-IN') || 0;
+      const flowIn = latestValues.get('WTP-Flow-OUT') || 0;
       const kwVal = latestValues.get('WTP-KW') || 0;
       
       const checkPumpEfficiency = (ptId: string, pumpId: string) => {
@@ -885,7 +873,7 @@ export const useMqttTagSync = (
         const kwMissing = !kwTag || kwTag.status !== 'connected' || kwTag.notInstalled;
         
         const isPumpRunning = isPtActive && (isKwActive || kwMissing);
-        const flowTag = tags.find(t => t.id === 'WTP-Flow-IN');
+        const flowTag = tags.find(t => t.id === 'WTP-Flow-OUT');
         const isFlowLow = flowTag && flowTag.status === 'connected' && flowIn < 40.0;
 
         if (isPumpRunning && isFlowLow) {
@@ -911,14 +899,14 @@ export const useMqttTagSync = (
 
     // -- Ultra-MIV Rule 5: Sump / Reservoir Mass Balance Check --
     if (section === 'wtp') {
-      const flowIn = latestValues.get('WTP-Flow-IN') || 0;
+      const flowIn = latestValues.get('WTP-Flow-OUT') || 0;
       const level = latestValues.get('WTP-LT-CW') || 0;
       
       const pump1Val = latestValues.get('WTP-Pump1') || 0;
       const pump2Val = latestValues.get('WTP-Pump2') || 0;
       const arePumpsOff = pump1Val === 0 && pump2Val === 0;
       
-      const flowTag = tags.find(t => t.id === 'WTP-Flow-IN');
+      const flowTag = tags.find(t => t.id === 'WTP-Flow-OUT');
       const ltTag = tags.find(t => t.id === 'WTP-LT-CW');
       
       const isFlowActive = flowTag && flowTag.status === 'connected' && flowIn > 40.0;
@@ -1001,12 +989,12 @@ export const useMqttTagSync = (
 
     // -- Ultra-MIV Rule 7: Water Quality Potability Safety Alert --
     if (section === 'wtp') {
-      const flowIn = latestValues.get('WTP-Flow-IN') || 0;
+      const flowIn = latestValues.get('WTP-Flow-OUT') || 0;
       const ph = latestValues.get('WTP-PH') || 7.0;
       const chlorine = latestValues.get('WTP-CL') || 0.5;
       const turbidity = latestValues.get('WTP-TA') || 1.0;
       
-      const flowTag = tags.find(t => t.id === 'WTP-Flow-IN');
+      const flowTag = tags.find(t => t.id === 'WTP-Flow-OUT');
       const phTag = tags.find(t => t.id === 'WTP-PH');
       const clTag = tags.find(t => t.id === 'WTP-CL');
       const taTag = tags.find(t => t.id === 'WTP-TA');
@@ -1057,7 +1045,7 @@ export const useMqttTagSync = (
         
         // Check if all pumping stations are OFF
         const intakeFlow = latestValues.get('INT-Flow-OUT') ?? latestValues.get('INT-Flow-IN') ?? latestValues.get('INT-Flow') ?? 0;
-        const wtpFlow = latestValues.get('WTP-Flow-IN') || 0;
+        const wtpFlow = latestValues.get('WTP-Flow-OUT') || 0;
         const arePumpsOff = intakeFlow < 2.0 && wtpFlow < 2.0;
         
         if (arePumpsOff && flowTag && flowTag.status === 'connected' && flowIn > 5.0 && flowId.includes('Flow-IN')) {
@@ -1115,10 +1103,10 @@ export const useMqttTagSync = (
 
     // -- Ultra-MIV Rule 10: Chemical Dosing Pump Discrepancy Detector --
     if (section === 'wtp') {
-      const flowIn = latestValues.get('WTP-Flow-IN') || 0;
+      const flowIn = latestValues.get('WTP-Flow-OUT') || 0;
       const chlorine = latestValues.get('WTP-CL') || 0;
       
-      const flowTag = tags.find(t => t.id === 'WTP-Flow-IN');
+      const flowTag = tags.find(t => t.id === 'WTP-Flow-OUT');
       const clTag = tags.find(t => t.id === 'WTP-CL');
       
       const isFlowActive = flowTag && flowTag.status === 'connected' && flowIn > 30.0;
@@ -1209,8 +1197,8 @@ export const useMqttTagSync = (
       checkDryRun('INT-PT1', 'INT-Pump1', intFlowId, 2.0);
       checkDryRun('INT-PT2', 'INT-Pump2', intFlowId, 2.0);
     } else if (section === 'wtp') {
-      checkDryRun('WTP-PT1', 'WTP-Pump1', 'WTP-Flow-IN', 2.0);
-      checkDryRun('WTP-PT2', 'WTP-Pump2', 'WTP-Flow-IN', 2.0);
+      checkDryRun('WTP-PT1', 'WTP-Pump1', 'WTP-Flow-OUT', 2.0);
+      checkDryRun('WTP-PT2', 'WTP-Pump2', 'WTP-Flow-OUT', 2.0);
     }
 
     // -- MIV Rule 2 & 3: Flow active but pressure/level at 0 (Sensor Discrepancy) --
@@ -1263,12 +1251,12 @@ export const useMqttTagSync = (
         alarmActiveSince.current.delete('INT-LTDiscrepancy');
       }
     } else if (section === 'wtp') {
-      const flowVal = latestValues.get('WTP-Flow-IN') || 0;
+      const flowVal = latestValues.get('WTP-Flow-OUT') || 0;
       const pt1 = latestValues.get('WTP-PT1') || 0;
       const pt2 = latestValues.get('WTP-PT2') || 0;
       const level = latestValues.get('WTP-LT-CW') || 0;
 
-      const flowTag = tags.find(t => t.id === 'WTP-Flow-IN');
+      const flowTag = tags.find(t => t.id === 'WTP-Flow-OUT');
       const pt1Tag = tags.find(t => t.id === 'WTP-PT1');
       const pt2Tag = tags.find(t => t.id === 'WTP-PT2');
       const ltTag = tags.find(t => t.id === 'WTP-LT-CW');

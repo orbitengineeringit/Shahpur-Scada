@@ -31,10 +31,10 @@ test('both Shahpur OHTs expose exactly four instruments',()=>{
   assert.equal(readings.find(r=>r.tag_id==='OHT1-Flow').value,0);
   assert.equal(readings.find(r=>r.tag_id==='OHT1-Totalizer').value,1542.12);
 });
-test('WTP saturation, m3/hr flow and zero survive mapping',()=>{
+test('WTP saturation and installed outlet flow survive mapping',()=>{
   const readings=map('wtp',{BW_LT:'100.886',RAW_EFM_FLOW:'0.0999606',CLR_EFM_FLOW:'0'});
   assert.equal(readings.find(r=>r.tag_id==='WTP-LT-BW').value,100);
-  assert.equal(readings.find(r=>r.tag_id==='WTP-Flow-IN').value,0.1);
+  assert.equal(readings.find(r=>r.tag_id==='WTP-Flow-IN'),undefined);
   assert.equal(readings.find(r=>r.tag_id==='WTP-Flow-OUT').quality,'good');
 });
 test('uncalibrated or out-of-range sensor readings sanitize gracefully to 0.0',()=>{
@@ -59,9 +59,14 @@ test('new same-valued packet advances receive time; duplicate packet does not',(
   assert.equal(next.value,40);assert.equal(next.lastDataTime.toISOString(),row.received_at.replace('Z','.000Z'));
   assert.equal(cloud.applyCloudReading(next,row,now),next);
 });
-test('fault preserves last known display value but never says connected',()=>{
+test('fault clears the live display value and never says connected',()=>{
   const next=cloud.applyCloudReading(tag,{value:null,quality:'fault',received_at:'2026-09-19T12:00:09Z'},Date.parse('2026-09-19T12:00:10Z'));
-  assert.equal(next.status,'fault');assert.equal(next.value,40);assert.equal(next.isActive,false);
+  assert.equal(next.status,'fault');assert.equal(next.value,0);assert.equal(next.isActive,false);
+});
+test('stale cloud telemetry cannot be presented as a current process value',()=>{
+  const now=Date.parse('2026-09-19T12:20:00Z');
+  const next=cloud.applyCloudReading({...tag,lastDataTime:undefined},{value:88,quality:'good',received_at:'2026-09-19T12:00:00Z'},now);
+  assert.equal(next.status,'disconnected');assert.equal(next.value,0);assert.equal(next.isActive,false);
 });
 test('shared status thresholds tolerate cellular delays and expire honestly',()=>{
   const connection=load('src/hooks/useTagConnection.ts',{'@/lib/telemetryQuality':quality}).exports.getTagConnection;
@@ -256,8 +261,18 @@ test('Intake PLC active keys, equipment_data extraction, and WTP LOH/ROF ranges 
   assert.equal(intakeReadings.find(r => r.tag_id === 'INT-Pump1')?.value, 1);
 
   const wtpReadings = map('wtp', parsed);
-  assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-LOH-FB1')?.value, 15.3);
+  assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-LOH-FB1')?.value, 61.2);
   assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-ROF-FB1')?.value, 82.59);
+  assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB1')?.unit, '%');
+  assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB1')?.max, 100);
+  assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.unit, 'm³');
+});
+
+test('Intake totalizers combine complete 32-bit register pairs only', () => {
+  const complete = map('intake', { INTotalizer1H: 2, INTotalizer1L: 15, OUTTotalizer1H: 1, OUTToalizer1L: 9 });
+  assert.equal(complete.find(r => r.tag_id === 'INT-Totalizer-IN')?.value, 131087);
+  assert.equal(complete.find(r => r.tag_id === 'INT-Totalizer-OUT')?.value, 65545);
+  assert.equal(map('intake', { INTotalizer1H: 2 }).find(r => r.tag_id === 'INT-Totalizer-IN'), undefined);
 });
 
 test('Direct digital motor status takes precedence over PT derivation in any key order', () => {
@@ -336,4 +351,3 @@ test('OHT-1 payload parses correctly and preserves negative flow', () => {
   assert.equal(quality.sanitizeRtuValue("-10.5181", false), 0.0);
   assert.equal(quality.normalizeTelemetryValue("-10.5181", { min: -50, max: 50 }), -10.5181);
 });
-

@@ -108,23 +108,23 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
 
   const ltSensor = sensors.find(s => s.instrumentType === 'lt');
   const ltTag = ltSensor ? tags.find(t => t.id === ltSensor.id) : null;
-  const ltVal = ltTag?.value || 0;
+  const ltVal = ltTag?.status === 'connected' ? ltTag.value : 0;
 
   const ptSensor = sensors.find(s => s.instrumentType === 'pt');
   const ptTag = ptSensor ? tags.find(t => t.id === ptSensor.id) : null;
-  const ptVal = ptTag?.value || 0;
+  const ptVal = ptTag?.status === 'connected' ? ptTag.value : 0;
 
   const flowSensor = sensors.find(s => s.instrumentType === 'flow');
   const flowTag = flowSensor ? tags.find(t => t.id === flowSensor.id) : null;
-  const flowVal = flowTag?.value || 0;
+  const flowVal = flowTag?.status === 'connected' ? flowTag.value : 0;
 
   const totalizerSensor = sensors.find(s => s.instrumentType === 'totalizer');
   const totTag = totalizerSensor ? tags.find(t => t.id === totalizerSensor.id) : null;
-  const totVal = totTag?.value || 0;
+  const totVal = totTag?.status === 'connected' ? totTag.value : 0;
 
   const fcvTag = tags.find(t => t.id?.toLowerCase().includes('fcv'));
   const hasFcvSensor = sensors.some(s => s.instrumentType === 'fcv' && !s.notInstalled);
-  const fcvVal = fcvTag?.value || 0;
+  const fcvVal = fcvTag?.status === 'connected' ? fcvTag.value : 0;
   const fcvOpen = fcvVal > 0;
 
   const fInVal = flowVal;

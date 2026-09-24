@@ -537,19 +537,20 @@ const InlineHTPump: React.FC<{ x: number; y: number; w: number; h: number; isRun
 const WtpProcessSimulation: React.FC = () => {
   const { wtpTags } = useScada();
   const findTag = (id: string) => wtpTags.find(t => t.id === id);
+  const liveValue = (id: string) => {
+    const tag = findTag(id);
+    return tag?.status === 'connected' ? tag.value : 0;
+  };
 
   // Extract tag values
-  const flowInVal = findTag('WTP-Flow-IN')?.value ?? 0;
-  const flowOutVal = findTag('WTP-Flow-OUT')?.value ?? 0;
-  const ltBwVal = findTag('WTP-LT-BW')?.value ?? 0;
-  const ltCwVal = findTag('WTP-LT-CW')?.value ?? 0;
-  const phInVal = findTag('WTP-PH-IN')?.value ?? 0;
-  const taInVal = findTag('WTP-TA-IN')?.value ?? 0;
-  const phOutVal = findTag('WTP-PH')?.value ?? 0;
-  const clOutVal = findTag('WTP-CL')?.value ?? 0;
-  const taOutVal = findTag('WTP-TA')?.value ?? 0;
-  const totInVal = findTag('WTP-Totalizer-IN')?.value ?? 0;
-  const totVal = findTag('WTP-Totalizer-OUT')?.value ?? 0;
+  const flowOutVal = liveValue('WTP-Flow-OUT');
+  const ltBwVal = liveValue('WTP-LT-BW');
+  const ltCwVal = liveValue('WTP-LT-CW');
+  const taInVal = liveValue('WTP-TA-IN');
+  const phOutVal = liveValue('WTP-PH');
+  const clOutVal = liveValue('WTP-CL');
+  const taOutVal = liveValue('WTP-TA');
+  const totVal = liveValue('WTP-Totalizer-OUT');
   const kwTag = undefined; // WTP-KW not installed
   const kwVal = 0;
   const kwConnection = 'no-data' as const;
@@ -558,23 +559,23 @@ const WtpProcessSimulation: React.FC = () => {
   const rofFb1Tag = findTag('WTP-ROF-FB1');
   const lohFb1Tag = findTag('WTP-LOH-FB1');
   const lohFb2Tag = findTag('WTP-LOH-FB2');
-  const rofFb1Val = rofFb1Tag?.value ?? 0;
-  const lohFb1Val = lohFb1Tag?.value ?? 0;
-  const lohFb2Val = lohFb2Tag?.value ?? 0;
+  const rofFb1Val = rofFb1Tag?.status === 'connected' ? rofFb1Tag.value : 0;
+  const lohFb1Val = lohFb1Tag?.status === 'connected' ? lohFb1Tag.value : 0;
+  const lohFb2Val = lohFb2Tag?.status === 'connected' ? lohFb2Tag.value : 0;
 
   // Trip indicators (new — real PLC data)
   const trip1Tag = findTag('WTP-Trip1');
   const trip2Tag = findTag('WTP-Trip2');
-  const pump1Trip = (trip1Tag?.value ?? 0) >= 1;
-  const pump2Trip = (trip2Tag?.value ?? 0) >= 1;
+  const pump1Trip = trip1Tag?.status === 'connected' && trip1Tag.value >= 1;
+  const pump2Trip = trip2Tag?.status === 'connected' && trip2Tag.value >= 1;
 
   const pt1Tag = findTag('WTP-PT1');
   const pt2Tag = findTag('WTP-PT2');
   const pump1Tag = findTag('WTP-Pump1');
   const pump2Tag = findTag('WTP-Pump2');
-  const pt1Val = pt1Tag?.value ?? 0;
-  const pt2Val = pt2Tag?.value ?? 0;
-  const headerPtVal = findTag('WTP-HeaderPT')?.value ?? 0; // PUMP_HOUSE_PT = Combined Header Pressure
+  const pt1Val = liveValue('WTP-PT1');
+  const pt2Val = liveValue('WTP-PT2');
+  const headerPtVal = liveValue('WTP-HeaderPT'); // PUMP_HOUSE_PT = Combined Header Pressure
 
   // WTP pumps: directly driven by MOTOR1_INDACTOR / MOTOR2_INDACTOR (0 = OFF, 1 = ON)
   // Fallback to PT threshold only if pump tag has no data yet
@@ -598,7 +599,7 @@ const WtpProcessSimulation: React.FC = () => {
   }, [headerPtVal, pump1On, pump2On, pt1Val, pt2Val]);
 
   // Cross-logic
-  const waterFlowing = flowInVal > 0.1 || rofFb1Val > 0.1;
+  const waterFlowing = rofFb1Val > 0.1;
   const chlorinationOn = waterFlowing || anyPumpOn || ltCwVal > 5;
 
   // Visual Constants
@@ -612,7 +613,7 @@ const WtpProcessSimulation: React.FC = () => {
   const SVG_W = 2200, SVG_H = 1570;
 
   const inletPipeY = 200;
-  const efmInX = -90;
+  const inletAnalyzerX = -55;
 
   // Process tanks row - more compact, better connected
   const processY = 280;
@@ -848,85 +849,11 @@ const WtpProcessSimulation: React.FC = () => {
 
           {/* Main inlet pipe - continuous from left edge (rounded for symmetry) */}
           {drawPipe(`M -430 ${inletPipeY} L ${mixerX - 50} ${inletPipeY} Q ${mixerX - 25} ${inletPipeY} ${mixerX - 25} ${inletPipeY + 25} L ${mixerX - 25} ${processY + 120 - 25} Q ${mixerX - 25} ${processY + 120} ${mixerX} ${processY + 120}`, pipeW, true)}
-          {drawWaterFlow(`M -430 ${inletPipeY} L ${mixerX - 50} ${inletPipeY} Q ${mixerX - 25} ${inletPipeY} ${mixerX - 25} ${inletPipeY + 25} L ${mixerX - 25} ${processY + 120 - 25} Q ${mixerX - 25} ${processY + 120} ${mixerX} ${processY + 120}`, flowInVal, flowInVal > 0)}
+          {drawWaterFlow(`M -430 ${inletPipeY} L ${mixerX - 50} ${inletPipeY} Q ${mixerX - 25} ${inletPipeY} ${mixerX - 25} ${inletPipeY + 25} L ${mixerX - 25} ${processY + 120 - 25} Q ${mixerX - 25} ${processY + 120} ${mixerX} ${processY + 120}`, rofFb1Val, waterFlowing)}
 
-          {/* EFM IN */}
-          {(() => {
-            const hTop = inletPipeY - 95;
-            const hW = 90, hH = 55, nW = 24;
-            return (
-              <g>
-                <text x={efmInX} y={hTop - 14} textAnchor="middle" fontSize="15" fontWeight="800" fill="hsl(var(--foreground))">EFM IN</text>
-                <polygon points={`${efmInX - hW / 2 + 5},${hTop} ${efmInX + hW / 2 - 5},${hTop} ${efmInX + hW / 2},${hTop + 12} ${efmInX - hW / 2},${hTop + 12}`}
-                  fill="hsl(199 89% 48% / 0.85)" stroke="hsl(var(--border))" strokeWidth="1" />
-                <rect x={efmInX - hW / 2} y={hTop + 12} width={hW} height={hH} rx={5} fill="hsl(199 89% 48% / 0.9)" stroke="hsl(var(--border))" strokeWidth="1.2" />
-                <rect x={efmInX - 32} y={hTop + 22} width={64} height={30} rx={3} fill="hsl(var(--secondary))" stroke="hsl(var(--border))" strokeWidth="0.8" />
-                <rect x={efmInX - 30} y={hTop + 24} width={60} height={26} rx={2} fill="hsl(142 71% 45% / 0.08)" />
-                <text x={efmInX} y={hTop + 43} textAnchor="middle" fill="hsl(var(--foreground))" style={{ fontSize: '16px', fontFamily: 'ui-monospace, monospace', fontWeight: 800 }}>
-                  {flowInVal.toFixed(2)}
-                </text>
-                {/* Neck connects to pipe */}
-                <rect x={efmInX - nW / 2} y={hTop + 12 + hH} width={nW} height={inletPipeY - (hTop + 12 + hH) - pipeW / 2} fill="#64748b" stroke="#475569" strokeWidth="1" />
-                <rect x={efmInX - nW / 2 - 5} y={inletPipeY - pipeW / 2 - 3} width={nW + 10} height={7} rx={2} fill={pVDark} />
-
-                <rect x={efmInX - 80} y={inletPipeY + 24} width={160} height={44} rx={8} fill="hsl(199 89% 48% / 0.06)" stroke="hsl(199 89% 48% / 0.4)" strokeWidth="1" />
-                <text x={efmInX} y={inletPipeY + 39} textAnchor="middle" fontSize="11" fontWeight="700" fill="hsl(199 89% 55%)" letterSpacing="0.8px">FLOW RATE</text>
-                <text x={efmInX} y={inletPipeY + 58} textAnchor="middle" fontSize="20" fontWeight="900" fill="hsl(var(--foreground))" fontFamily="ui-monospace">
-                  {flowInVal.toFixed(1)} <tspan fontSize="11" fill="hsl(var(--muted-foreground))" fontWeight="600">m³/h</tspan>
-                </text>
-
-                {/* ═══ INLET TOTALIZER ═══ */}
-                {(() => {
-                  const tx = efmInX, ty = inletPipeY + 105;
-                  const digits = Math.floor(totInVal).toString().padStart(8, '0').split('');
-                  const dec = (totInVal % 1).toFixed(2).substring(2);
-                  const dW = 15, dH = 24, gp = 2;
-                  const totW = 10 * dW + 9 * gp + 4 + 20;
-                  return (
-                    <g>
-                      <text x={tx} y={ty - 10} textAnchor="middle" fontSize="13" fontWeight="800" fill="hsl(var(--foreground))">Totalizer (Inlet)</text>
-                      <rect x={tx - totW / 2} y={ty} width={totW} height={dH + 16} rx={5} fill="hsl(var(--secondary) / 0.5)" stroke="hsl(var(--border) / 0.5)" strokeWidth="1" />
-                      {digits.map((d, i) => (
-                        <g key={`in-td${i}`}>
-                          <rect x={tx - totW / 2 + 10 + i * (dW + gp)} y={ty + 8} width={dW} height={dH} rx={3} fill="hsl(var(--card))" stroke="hsl(var(--border))" strokeWidth="1" />
-                          <text x={tx - totW / 2 + 10 + i * (dW + gp) + dW / 2} y={ty + 8 + dH / 2 + 5} textAnchor="middle" fill="hsl(var(--foreground))" style={{ fontSize: '14px', fontFamily: 'ui-monospace, monospace', fontWeight: 800 }}>{d}</text>
-                        </g>
-                      ))}
-                      <circle cx={tx - totW / 2 + 10 + 8 * (dW + gp) + 1} cy={ty + 8 + dH - 2} r={2.5} fill="hsl(var(--primary))" />
-                      {dec.split('').map((d, i) => (
-                        <g key={`in-dd${i}`}>
-                          <rect x={tx - totW / 2 + 10 + 8 * (dW + gp) + 4 + gp + i * (dW + gp)} y={ty + 8} width={dW} height={dH} rx={3} fill="hsl(var(--destructive) / 0.12)" stroke="hsl(var(--destructive) / 0.25)" strokeWidth="1" />
-                          <text x={tx - totW / 2 + 10 + 8 * (dW + gp) + 4 + gp + i * (dW + gp) + dW / 2} y={ty + 8 + dH / 2 + 5} textAnchor="middle" fill="hsl(var(--destructive))" style={{ fontSize: '14px', fontFamily: 'ui-monospace, monospace', fontWeight: 800 }}>{d}</text>
-                        </g>
-                      ))}
-                      <text x={tx} y={ty + dH + 28} textAnchor="middle" fontSize="10" fontWeight="700" fill="hsl(var(--muted-foreground))">m³</text>
-                    </g>
-                  );
-                })()}
-              </g>
-            );
-          })()}
-
-          {/* ─── INLET ANALYZERS: pH & Turbidity right of EFM IN ─── */}
-          {(() => {
-            const phInVal = findTag('WTP-PH-IN')?.value ?? 0;
-            const taInVal = findTag('WTP-TA-IN')?.value ?? 0;
-            // Position: right of EFM IN along inlet pipe
-            const analyzerBaseX = efmInX + 115;
-            const analyzerY = inletPipeY - 155;
-            const aW = 100, aH = 130;
-            return (
-              <g>
-                {/* pH Inlet Analyzer */}
-                <InlinePhAnalyzer x={analyzerBaseX} y={analyzerY} w={aW} h={aH} value={phInVal} label="pH INLET" />
-                {/* Turbidity Inlet Analyzer */}
-                <InlineTaAnalyzer x={analyzerBaseX + aW + 15} y={analyzerY} w={aW} h={aH} value={taInVal} label="TURB.INLET" />
-                {/* Pipe connection nubs */}
-                <rect x={analyzerBaseX + 48} y={inletPipeY - pipeW / 2 - 3} width={6} height={pipeW / 2 + 3} rx={1} fill={pDark} />
-                <rect x={analyzerBaseX + aW + 15 + 48} y={inletPipeY - pipeW / 2 - 3} width={6} height={pipeW / 2 + 3} rx={1} fill={pDark} />
-              </g>
-            );
-          })()}
+          {/* The installed inlet instrument is turbidity only. */}
+          <InlineTaAnalyzer x={inletAnalyzerX} y={inletPipeY - 155} w={100} h={130} value={taInVal} label="TURB.INLET" />
+          <rect x={inletAnalyzerX + 48} y={inletPipeY - pipeW / 2 - 3} width={6} height={pipeW / 2 + 3} rx={1} fill={pDark} />
 
 
         </g>
@@ -1028,7 +955,7 @@ const WtpProcessSimulation: React.FC = () => {
 
           {/* Pipe: Mixer → Flocculator (properly connected boundary to boundary) */}
           {drawPipe(`M ${mixerX + mixerW} ${processY + 120} L ${flocX} ${processY + 120}`, pipeW, false)}
-          {drawWaterFlow(`M ${mixerX + mixerW} ${processY + 120} L ${flocX} ${processY + 120}`, flowInVal, flowInVal > 0)}
+          {drawWaterFlow(`M ${mixerX + mixerW} ${processY + 120} L ${flocX} ${processY + 120}`, rofFb1Val, waterFlowing)}
         </g>
 
         {/* ═══ SECTION 3: CLARIFLOCCULATOR ═══ */}
@@ -1148,7 +1075,7 @@ const WtpProcessSimulation: React.FC = () => {
           <StatusBadge x={flocX + flocW / 2} y={processY + flocH + 78} isOn={waterFlowing} />
           {/* Pipe: Floc → Settling (properly connected boundary to boundary) */}
           {drawPipe(`M ${flocX + flocW} ${processY + 120} L ${settleX} ${processY + 120}`, pipeW, false)}
-          {drawWaterFlow(`M ${flocX + flocW} ${processY + 120} L ${settleX} ${processY + 120}`, flowInVal, flowInVal > 0)}
+          {drawWaterFlow(`M ${flocX + flocW} ${processY + 120} L ${settleX} ${processY + 120}`, rofFb1Val, waterFlowing)}
         </g>
 
         {/* ═══ SECTION 4: SETTLING TANK ═══ */}
@@ -1229,7 +1156,7 @@ const WtpProcessSimulation: React.FC = () => {
           <StatusBadge x={settleX + settleW / 2} y={processY + settleH + 96} isOn={waterFlowing} />
           {/* Pipe: Settling → Filters (properly connected boundary to boundary) */}
           {drawPipe(`M ${settleX + settleW} ${processY + 120} L ${filterX} ${processY + 120}`, pipeW, false)}
-          {drawWaterFlow(`M ${settleX + settleW} ${processY + 120} L ${filterX} ${processY + 120}`, flowInVal, flowInVal > 0)}
+          {drawWaterFlow(`M ${settleX + settleW} ${processY + 120} L ${filterX} ${processY + 120}`, rofFb1Val, waterFlowing)}
         </g>
 
         {/* ═══ SECTION 5: RAPID SAND FILTERS + BACKWASH TANK ═══ */}
@@ -1291,15 +1218,14 @@ const WtpProcessSimulation: React.FC = () => {
             const cX = filterX + filterW / 2 - cW / 2; // 953 (centered at 1065)
             const cY = processY + filterH + 54;        // 484
 
-            // LOH Thresholds (engineering scale 0 to 25m):
-            // Normal (0-18m): Cyan/blue; Warning (18-22m): Amber; Backwash Required (>22m): Red
-            const loh1Color = lohFb1Val > 22 ? 'hsl(var(--destructive))' : lohFb1Val > 18 ? 'hsl(var(--warning))' : 'hsl(199 89% 48%)';
-            const loh2Color = lohFb2Val > 22 ? 'hsl(var(--destructive))' : lohFb2Val > 18 ? 'hsl(var(--warning))' : 'hsl(199 89% 48%)';
+            // LOH is supplied directly as a 0–100% engineering value.
+            const loh1Color = lohFb1Val >= 85 ? 'hsl(var(--destructive))' : lohFb1Val >= 70 ? 'hsl(var(--warning))' : 'hsl(199 89% 48%)';
+            const loh2Color = lohFb2Val >= 85 ? 'hsl(var(--destructive))' : lohFb2Val >= 70 ? 'hsl(var(--warning))' : 'hsl(199 89% 48%)';
             const rofColor = rofFb1Val > 0.1 ? 'hsl(142 71% 45%)' : 'hsl(var(--muted-foreground))';
 
             // Bar percentages
-            const loh1Pct = Math.min(100, Math.max(0, (lohFb1Val / 25) * 100));
-            const loh2Pct = Math.min(100, Math.max(0, (lohFb2Val / 25) * 100));
+            const loh1Pct = Math.min(100, Math.max(0, lohFb1Val));
+            const loh2Pct = Math.min(100, Math.max(0, lohFb2Val));
             const rofPct = Math.min(100, Math.max(0, (rofFb1Val / 150) * 100));
 
             return (
@@ -1367,7 +1293,7 @@ const WtpProcessSimulation: React.FC = () => {
                   )}
                   <text x={cX + 14} y={cY + 65} fontSize="12" fontWeight="900" fill={rofColor} fontFamily="ui-monospace, monospace">
                     {rofFb1Val.toFixed(2)}
-                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> m³/hr</tspan>
+                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> m³</tspan>
                   </text>
                   {/* Micro Flow Meter Bar */}
                   <rect x={cX + 14} y={cY + 68} width={86} height={2.5} rx={1.2} fill="hsl(var(--muted) / 0.4)" />
@@ -1383,9 +1309,9 @@ const WtpProcessSimulation: React.FC = () => {
                   </text>
                   <text x={cX + 14} y={cY + 103} fontSize="12" fontWeight="900" fill={loh1Color} fontFamily="ui-monospace, monospace">
                     {lohFb1Val.toFixed(2)}
-                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> m</tspan>
+                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> %</tspan>
                   </text>
-                  {/* Micro Head Loss Bar (0 to 25m) */}
+                  {/* Micro Head Loss Bar (0 to 100%) */}
                   <rect x={cX + 14} y={cY + 106} width={86} height={3} rx={1.5} fill="hsl(var(--muted) / 0.4)" />
                   <rect x={cX + 14} y={cY + 106} width={Math.max(3, (loh1Pct / 100) * 86)} height={3} rx={1.5} fill={loh1Color} />
                 </g>
@@ -1408,9 +1334,9 @@ const WtpProcessSimulation: React.FC = () => {
                   </text>
                   <text x={cX + cW / 2 + 14} y={cY + 65} fontSize="12" fontWeight="900" fill={loh2Color} fontFamily="ui-monospace, monospace">
                     {lohFb2Val.toFixed(2)}
-                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> m</tspan>
+                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> %</tspan>
                   </text>
-                  {/* Micro Head Loss Bar (0 to 25m) */}
+                  {/* Micro Head Loss Bar (0 to 100%) */}
                   <rect x={cX + cW / 2 + 14} y={cY + 68} width={86} height={3} rx={1.5} fill="hsl(var(--muted) / 0.4)" />
                   <rect x={cX + cW / 2 + 14} y={cY + 68} width={Math.max(3, (loh2Pct / 100) * 86)} height={3} rx={1.5} fill={loh2Color} />
 
@@ -1424,12 +1350,12 @@ const WtpProcessSimulation: React.FC = () => {
                   </text>
                   <g transform={`translate(${cX + cW / 2 + 14}, ${cY + 96})`}>
                     <rect x={0} y={0} width={86} height={13} rx={3}
-                      fill={lohFb2Val > 22 ? 'hsl(var(--destructive) / 0.15)' : 'hsl(var(--success) / 0.15)'}
-                      stroke={lohFb2Val > 22 ? 'hsl(var(--destructive) / 0.4)' : 'hsl(var(--success) / 0.4)'} strokeWidth="0.6" />
-                    <circle cx={6} cy={6.5} r="2" fill={lohFb2Val > 22 ? '#ef4444' : '#10b981'} />
+                      fill={lohFb2Val >= 85 ? 'hsl(var(--destructive) / 0.15)' : 'hsl(var(--success) / 0.15)'}
+                      stroke={lohFb2Val >= 85 ? 'hsl(var(--destructive) / 0.4)' : 'hsl(var(--success) / 0.4)'} strokeWidth="0.6" />
+                    <circle cx={6} cy={6.5} r="2" fill={lohFb2Val >= 85 ? '#ef4444' : '#10b981'} />
                     <text x={12} y={9.5} fontSize="6.5" fontWeight="800"
-                      fill={lohFb2Val > 22 ? 'hsl(var(--destructive))' : 'hsl(var(--success))'} letterSpacing="0.4px">
-                      {lohFb2Val > 22 ? 'WASH REQUIRED' : 'FILTERING ACTIVE'}
+                      fill={lohFb2Val >= 85 ? 'hsl(var(--destructive))' : 'hsl(var(--success))'} letterSpacing="0.4px">
+                      {lohFb2Val >= 85 ? 'WASH REQUIRED' : 'FILTERING ACTIVE'}
                     </text>
                   </g>
                 </g>
@@ -1504,7 +1430,7 @@ const WtpProcessSimulation: React.FC = () => {
           {/* Inflow Pipe: Filter → Chlorination → CWR (Drawn with rounded end for consistency) */}
           {drawPipe(filterToCwrPath, pipeW, true)}
           {drawWaterColumn(filterToCwrPath, pipeW)}
-          {drawWaterFlow(filterToCwrPath, flowInVal, flowInVal > 0)}
+          {drawWaterFlow(filterToCwrPath, rofFb1Val, waterFlowing)}
 
           <rect x={cwrX} y={cwrY} width={cwrW} height={cwrH} rx={4}
             fill="url(#wtp-concrete)" stroke="#334155" strokeWidth="2.5" />
@@ -1880,7 +1806,7 @@ const WtpProcessSimulation: React.FC = () => {
         {/* ═══ STAGE LABELS ═══ */}
         <g>
           {[
-            { sx: efmInX, sy: inletPipeY + 185, text: 'STAGE 1: RAW WATER', color: 'hsl(var(--primary))' },
+            { sx: inletAnalyzerX + 50, sy: inletPipeY + 90, text: 'STAGE 1: RAW WATER', color: 'hsl(var(--primary))' },
             { sx: mixerX + mixerW / 2, sy: processY + mixerH + 78, text: 'STAGE 2: MIXING', color: 'hsl(280 65% 55%)' },
             { sx: flocX + flocW / 2, sy: processY + flocH + 122, text: 'STAGE 3: CLARIFLOCCULATION', color: 'hsl(35 90% 50%)' },
             { sx: settleX + settleW / 2, sy: processY + settleH + 128, text: 'STAGE 4: SEDIMENTATION', color: 'hsl(38 70% 45%)' },

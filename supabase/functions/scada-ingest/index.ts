@@ -99,19 +99,16 @@ const SENSORS: Sensor[] = [
   { id: "WTP-PT1", mqttKey: "PUMP1_PT", label: "HT Pump 1 Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "pt" },
   { id: "WTP-PT2", mqttKey: "PUMP2_PT", label: "HT Pump 2 Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "pt" },
   { id: "WTP-HeaderPT", mqttKey: "PUMP_HOUSE_PT", label: "Combined Header Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "combined_pt" },
-  { id: "WTP-Flow-IN", mqttKey: "RAW_EFM_FLOW", label: "Inlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
-  { id: "WTP-Totalizer-IN", mqttKey: "RAW_EFM", label: "Inlet Totalizer", unit: "m³", min: 0, max: 999999, section: "wtp", instrumentType: "totalizer" },
   { id: "WTP-Flow-OUT", mqttKey: "OUTLET_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
   { id: "WTP-Totalizer-OUT", mqttKey: "TOTALIZER", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "wtp", instrumentType: "totalizer" },
-  { id: "WTP-PH-IN", mqttKey: "RW_PH", label: "Inlet pH", unit: "pH", min: 0, max: 14, section: "wtp", instrumentType: "ph" },
   { id: "WTP-TA-IN", mqttKey: "TURBIDITY_INLET", label: "Inlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
   { id: "WTP-PH", mqttKey: "PUMP_PH", label: "Outlet pH", unit: "pH", min: 0, max: 14, section: "wtp", instrumentType: "ph" },
   { id: "WTP-CL", mqttKey: "PUMP_CHLORINE", label: "Outlet Chlorine", unit: "PPM", min: 0, max: 20, section: "wtp", instrumentType: "chlorine" },
   { id: "WTP-TA", mqttKey: "PUMP_TURBIDITY", label: "Outlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
   { id: "WTP-TEM", mqttKey: "CWR_TEM", label: "Outlet Temperature", unit: "°C", min: 0, max: 60, section: "wtp", instrumentType: "temperature" },
-  { id: "WTP-ROF-FB1", mqttKey: "ROF_FB1", label: "Rate of Flow (Filter Bed 1)", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
-  { id: "WTP-LOH-FB1", mqttKey: "LOH_FB1", label: "Loss of Head (FB1)", unit: "m", min: 0, max: 25, section: "wtp", instrumentType: "lt" },
-  { id: "WTP-LOH-FB2", mqttKey: "LOH_FB2", label: "Loss of Head (FB2)", unit: "m", min: 0, max: 25, section: "wtp", instrumentType: "lt" },
+  { id: "WTP-ROF-FB1", mqttKey: "ROF_FB1", label: "Rate of Flow (Filter Bed 1)", unit: "m³", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
+  { id: "WTP-LOH-FB1", mqttKey: "LOH_FB1", label: "Loss of Head (FB1)", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
+  { id: "WTP-LOH-FB2", mqttKey: "LOH_FB2", label: "Loss of Head (FB2)", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
   { id: "WTP-Pump1", mqttKey: "MOTOR1_INDACTOR", label: "HT Pump 1", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
   { id: "WTP-Pump2", mqttKey: "MOTOR2_INDACTOR", label: "HT Pump 2", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
   { id: "WTP-Trip1", mqttKey: "MOTOR1_TRIP", label: "HT Pump 1 Trip", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
@@ -172,10 +169,7 @@ const MQTT_KEY_ALIASES: Record<string, string[]> = {
   // WTP tags — slave_id=4 outlet EFM
   "OUTLET_FLOW": ["OUTLET_FLOW", "CLR_EFM_FLOW", "FLOW_OUT"],
   "TOTALIZER": ["TOTALIZER", "CLR_EFM", "TOTALIZER_OUT"],
-  // WTP tags — pending commissioning sensors
-  "RAW_EFM_FLOW": ["RAW_EFM_FLOW", "FLOWMETER", "FLOW_IN"],
-  "RAW_EFM": ["RAW_EFM", "TOTALIZER_IN"],
-  "RW_PH": ["RW_PH", "RAW_PH"],
+  // WTP tag — pending commissioning sensor
   "CWR_TEM": ["CWR_TEM"],
 };
 
@@ -427,9 +421,9 @@ function mapReadings(msg: ParsedMessage) {
   // 32-bit combined registers for Intake Totalizers: H * 65536 + L
   if (msg.section === 'intake') {
     const p = msg.payload;
-    if ('INTotalizer1H' in p || 'INTotalizer1L' in p) {
-      const h = Number(p['INTotalizer1H'] ?? 0);
-      const l = Number(p['INTotalizer1L'] ?? 0);
+    if ('INTotalizer1H' in p && 'INTotalizer1L' in p) {
+      const h = Number(p['INTotalizer1H']);
+      const l = Number(p['INTotalizer1L']);
       const tot = sanitizeRtuValue(h * 65536 + l);
       rows.set('INT-Totalizer-IN', {
         tag_id: 'INT-Totalizer-IN', section: 'intake', value: tot, quality: 'good',
@@ -437,9 +431,9 @@ function mapReadings(msg: ParsedMessage) {
       });
     }
     const outLKey = 'OUTToalizer1L' in p ? 'OUTToalizer1L' : 'OUTTotalizer1L';
-    if ('OUTTotalizer1H' in p || outLKey in p) {
-      const h = Number(p['OUTTotalizer1H'] ?? 0);
-      const l = Number(p[outLKey] ?? 0);
+    if ('OUTTotalizer1H' in p && outLKey in p) {
+      const h = Number(p['OUTTotalizer1H']);
+      const l = Number(p[outLKey]);
       const tot = sanitizeRtuValue(h * 65536 + l);
       rows.set('INT-Totalizer-OUT', {
         tag_id: 'INT-Totalizer-OUT', section: 'intake', value: tot, quality: 'good',
@@ -459,7 +453,12 @@ function mapReadings(msg: ParsedMessage) {
     const sensor = sensors.find(s => mqttKeyMatches(s.mqttKey, key));
     if (!sensor) continue;
     const value = raw === '' || raw === null || typeof raw === 'boolean' ? NaN : Number(raw);
-    const normalized = normalizeSensorValue(sensor, value);
+    // Site LOH transmitters use a 0–25 raw scale; persist the calibrated
+    // percentage so live cache, historian and exports share one unit.
+    const engineeringValue = sensor.id.startsWith('WTP-LOH-')
+      ? value * 4
+      : value;
+    const normalized = normalizeSensorValue(sensor, engineeringValue);
     rows.set(sensor.id, {tag_id:sensor.id, section:sensor.section, value:normalized,
       quality:'good', received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
     const pump = PT_TO_PUMP[sensor.id];

@@ -15,6 +15,7 @@ import TotalizerDisplay from './instruments/TotalizerDisplay';
 import IntakePump from './instruments/IntakePump';
 import WtpPump from './instruments/WtpPump';
 import TemperatureDisplay from './instruments/TemperatureDisplay';
+import LossOfHeadIndicator from './instruments/LossOfHeadIndicator';
 import AlarmSettingsModal, { AlarmSettings } from './AlarmSettingsModal';
 import SensorTrendModal from './SensorTrendModal';
 import { Button } from '@/components/ui/button';
@@ -52,6 +53,8 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
   const hasAlarmConfig = tag.alarmEnabled && (tag.highSetpoint !== undefined || tag.lowSetpoint !== undefined);
   const isDigital = sensor.type === 'digital';
   const isTotalizer = sensor.type === 'totalizer';
+  const hasLiveValue = tag.status === 'connected';
+  const shownValue = hasLiveValue ? tag.value : 0;
 
   const renderInstrument = () => {
     const showNotInstalled = sensor.notInstalled || tag.notInstalled;
@@ -71,34 +74,37 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
       case 'pt': {
         const isPt5 = tag.id === 'WTP-PT5';
         const ptSize = isPt5 ? 160 : 130;
-        return <PtGauge value={tag.value} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} size={ptSize} variant={isPt5 ? 'cwph' : 'default'} />;
+        return <PtGauge value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} size={ptSize} variant={isPt5 ? 'cwph' : 'default'} />;
       }
       case 'combined_pt':
         // Combined Header Pressure — amber/orange, bigger gauge
-        return <PtGauge value={tag.value} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} size={175} variant="combined" />;
+        return <PtGauge value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} size={175} variant="combined" />;
       case 'lt':
+        if (sensor.id.startsWith('WTP-LOH-')) {
+          return <LossOfHeadIndicator value={shownValue} label={sensor.label} />;
+        }
         if (section === 'oht') {
-          return <OhtLevelTank value={tag.value} min={tag.min} max={tag.max} unit={tag.unit} />;
+          return <OhtLevelTank value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} />;
         }
         if (section === 'wtp') {
           const wtpVariant = sensor.id.includes('CW') ? 'clearwater' : 'backwash';
-          return <WtpLevelTank value={tag.value} min={tag.min} max={tag.max} unit={tag.unit} variant={wtpVariant} />;
+          return <WtpLevelTank value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} variant={wtpVariant} />;
         }
-        return <LevelBar value={tag.value} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} />;
+        return <LevelBar value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} />;
       case 'flow': {
         const flowDir = sensor.id?.toLowerCase().includes('in') ? 'inlet' as const
           : sensor.id?.toLowerCase().includes('out') ? 'outlet' as const
           : undefined;
-        return <FlowIndicator value={tag.value} unit={tag.unit} max={tag.max} direction={flowDir} />;
+        return <FlowIndicator value={shownValue} unit={tag.unit} max={tag.max} direction={flowDir} />;
       }
       case 'totalizer':
-        return <TotalizerDisplay value={tag.value} unit={tag.unit} />;
+        return <TotalizerDisplay value={shownValue} unit={tag.unit} />;
       case 'valve':
-        return <ValveIcon isOpen={tag.value > 0.5} />;
+        return <ValveIcon isOpen={shownValue > 0.5} />;
       case 'kw':
         return (
           <div className="flex flex-col items-center w-full">
-            <KwBar value={tag.value} max={tag.max} unit={tag.unit} />
+            <KwBar value={shownValue} max={tag.max} unit={tag.unit} />
             {showNotInstalled && (
               <span className="text-[10px] font-semibold text-destructive/70 mt-1">Device Not Installed</span>
             )}
@@ -106,19 +112,19 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
         );
       case 'pump':
         if (pumpComponent === 'wtp') {
-          return <WtpPump isOn={tag.value > 0.5} label={sensor.label} size={100} />;
+          return <WtpPump isOn={shownValue > 0.5} label={sensor.label} size={100} />;
         }
-        return <IntakePump isOn={tag.value > 0.5} label={sensor.label} size={100} />;
+        return <IntakePump isOn={shownValue > 0.5} label={sensor.label} size={100} />;
       case 'temperature':
-        return <TemperatureDisplay value={tag.value} unit={tag.unit} min={tag.min} max={tag.max} />;
+        return <TemperatureDisplay value={shownValue} unit={tag.unit} min={tag.min} max={tag.max} />;
       case 'ph':
-        return <PhAnalyzer value={tag.value} unit={tag.unit} />;
+        return <PhAnalyzer value={shownValue} unit={tag.unit} />;
       case 'turbidity':
-        return <TurbidityAnalyzer value={tag.value} max={tag.max} unit={tag.unit} />;
+        return <TurbidityAnalyzer value={shownValue} max={tag.max} unit={tag.unit} />;
       case 'chlorine':
-        return <ChlorineAnalyzer value={tag.value} max={tag.max} unit={tag.unit} />;
-      case 'fcv':
-        const fcvOpen = tag.value > 1;
+        return <ChlorineAnalyzer value={shownValue} max={tag.max} unit={tag.unit} />;
+      case 'fcv': {
+        const fcvOpen = shownValue > 1;
         return (
           <div className="text-center w-full flex flex-col items-center">
             <div className="relative w-full max-w-[120px] aspect-square mx-auto mb-2">
@@ -127,7 +133,7 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
                 <circle cx="32" cy="32" r="28" fill="none" stroke="hsl(var(--muted))" strokeWidth="5" />
                 {/* Active arc */}
                 <circle cx="32" cy="32" r="28" fill="none" stroke="hsl(var(--primary))" strokeWidth="5"
-                  strokeDasharray={`${(tag.value / 100) * 175.93} 175.93`}
+                  strokeDasharray={`${(shownValue / 100) * 175.93} 175.93`}
                   strokeLinecap="round" transform="rotate(-90 32 32)" className="transition-all duration-500" />
                 {/* Pulsing glow ring when valve is open */}
                 {fcvOpen && (
@@ -145,17 +151,18 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
                   </circle>
                 )}
                 {/* Center value */}
-                <text x="32" y="38" textAnchor="middle" className="fill-foreground text-xl font-mono font-bold">{tag.value.toFixed(0)}%</text>
+                <text x="32" y="38" textAnchor="middle" className="fill-foreground text-xl font-mono font-bold">{shownValue.toFixed(0)}%</text>
               </svg>
             </div>
             <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">FCV Position</span>
           </div>
         );
+      }
       default:
         return (
           <div className="flex items-baseline gap-2">
             <span className={`text-3xl font-mono font-bold scada-value ${isFlickering ? 'value-flicker' : ''}`}>
-              {tag.value.toFixed(2)}
+              {shownValue.toFixed(2)}
             </span>
             <span className="text-xs text-muted-foreground">{tag.unit}</span>
           </div>
@@ -173,7 +180,10 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
       >
         <div className="relative z-10 flex flex-col flex-1">
           <div className="flex items-center justify-between mb-1.5 sm:mb-2">
-            <span className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{sensor.label}</span>
+            <div className="min-w-0">
+              <span className="block text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{sensor.label}</span>
+              {!hasLiveValue && <span className="text-[9px] font-bold uppercase tracking-wide text-destructive">No live data</span>}
+            </div>
           </div>
           <div className="flex-1 flex items-center justify-center">
             {renderInstrument()}
@@ -195,7 +205,12 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
       >
         <div className="relative z-10 flex flex-col flex-1">
           <div className="flex items-center justify-between mb-1.5 sm:mb-2 shrink-0">
-            <span className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{sensor.label}</span>
+            <div className="min-w-0">
+              <span className="block text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{sensor.label}</span>
+              {!hasLiveValue && (
+                <span className="text-[9px] font-bold uppercase tracking-wide text-destructive">No live data</span>
+              )}
+            </div>
             <div className="flex gap-0 sm:gap-0.5 shrink-0">
               <Tooltip delayDuration={150}>
                 <TooltipTrigger asChild>
@@ -223,12 +238,12 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
             {(tag.highSetpoint !== undefined || tag.lowSetpoint !== undefined) && (
               <div className="flex gap-0.5 sm:gap-1 text-xs mt-1">
                 {tag.highSetpoint !== undefined && (
-                  <span className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-mono ${tag.value > tag.highSetpoint ? 'bg-destructive/20 text-destructive' : 'bg-secondary text-muted-foreground'}`}>
+                  <span className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-mono ${hasLiveValue && shownValue > tag.highSetpoint ? 'bg-destructive/20 text-destructive' : 'bg-secondary text-muted-foreground'}`}>
                     H:{tag.highSetpoint}
                   </span>
                 )}
                 {tag.lowSetpoint !== undefined && (
-                  <span className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-mono ${tag.value < tag.lowSetpoint ? 'bg-warning/20 text-warning' : 'bg-secondary text-muted-foreground'}`}>
+                  <span className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-mono ${hasLiveValue && shownValue < tag.lowSetpoint ? 'bg-warning/20 text-warning' : 'bg-secondary text-muted-foreground'}`}>
                     L:{tag.lowSetpoint}
                   </span>
                 )}
@@ -249,7 +264,7 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
       {showTrends && (
         <SensorTrendModal open={showTrends} onOpenChange={setShowTrends}
           tagId={tag.id} label={tag.label} unit={tag.unit} section={section}
-          highSetpoint={tag.highSetpoint} lowSetpoint={tag.lowSetpoint} currentValue={tag.value} />
+          highSetpoint={tag.highSetpoint} lowSetpoint={tag.lowSetpoint} currentValue={shownValue} />
       )}
     </>
   );

@@ -8,6 +8,10 @@ const IntakeProcessSimulation: React.FC = () => {
   const { intakeTags } = useScada();
 
   const findTag = (id: string) => intakeTags.find(t => t.id === id);
+  const liveValue = (id: string) => {
+    const tag = findTag(id);
+    return tag?.status === 'connected' ? tag.value : 0;
+  };
 
   const pt1Tag = findTag('INT-PT1');
   const pt2Tag = findTag('INT-PT2');
@@ -20,12 +24,14 @@ const IntakeProcessSimulation: React.FC = () => {
   const pump2Tag = findTag('INT-Pump2');
   const combinedPtTag = findTag('INT-HeaderPT') || findTag('INT-CombinedPT');
 
-  const pt1Val = pt1Tag?.value ?? 0;
-  const pt2Val = pt2Tag?.value ?? 0;
-  const combinedPtVal = combinedPtTag?.value ?? 0;
-  const ltVal = ltTag?.value ?? 0;
-  const flowVal = (flowOutTag?.value ?? flowInTag?.value) ?? 0;
-  const totalizerVal = (totalizerOutTag?.value ?? totalizerInTag?.value) ?? 0;
+  const pt1Val = liveValue('INT-PT1');
+  const pt2Val = liveValue('INT-PT2');
+  const combinedPtVal = combinedPtTag?.status === 'connected' ? combinedPtTag.value : 0;
+  const ltVal = liveValue('INT-LT');
+  const flowInVal = flowInTag?.status === 'connected' ? flowInTag.value : 0;
+  const flowOutVal = flowOutTag?.status === 'connected' ? flowOutTag.value : 0;
+  const totalizerInVal = totalizerInTag?.status === 'connected' ? totalizerInTag.value : 0;
+  const totalizerOutVal = totalizerOutTag?.status === 'connected' ? totalizerOutTag.value : 0;
 
   const pump1Running = (pt1Tag?.status === 'connected' && pt1Val > 1.5) || (pump1Tag?.status === 'connected' && pump1Tag?.value === 1);
   const pump2Running = (pt2Tag?.status === 'connected' && pt2Val > 1.5) || (pump2Tag?.status === 'connected' && pump2Tag?.value === 1);
@@ -527,7 +533,7 @@ const IntakeProcessSimulation: React.FC = () => {
 
           return (
             <g>
-              <text x={efmSensorX} y={hTop - 12} textAnchor="middle" fontSize="16" fontWeight="800" fill="hsl(var(--foreground))">EFM 01</text>
+              <text x={efmSensorX} y={hTop - 12} textAnchor="middle" fontSize="16" fontWeight="800" fill="hsl(var(--foreground))">EFM OUT</text>
 
               <polygon points={`${efmSensorX - hW / 2 + 5},${hTop} ${efmSensorX + hW / 2 - 5},${hTop} ${efmSensorX + hW / 2},${hTop + 12} ${efmSensorX - hW / 2},${hTop + 12}`} fill="hsl(199 89% 48% / 0.85)" stroke="hsl(var(--border))" strokeWidth="1" />
               <rect x={efmSensorX - hW / 2} y={hTop + 12} width={hW} height={hH} rx={4} fill="hsl(199 89% 48% / 0.9)" stroke="hsl(var(--border))" strokeWidth="1.2" />
@@ -536,7 +542,7 @@ const IntakeProcessSimulation: React.FC = () => {
 
               <rect x={efmSensorX - 26} y={hTop + 18} width={52} height={24} rx={2} fill="hsl(var(--secondary))" stroke="hsl(var(--border))" strokeWidth="0.8" />
               <rect x={efmSensorX - 24} y={hTop + 20} width={48} height={20} rx={1} fill="hsl(142 71% 45% / 0.08)" />
-              <text x={efmSensorX} y={hTop + 34} textAnchor="middle" fill="hsl(var(--foreground))" style={{ fontSize: '13px', fontFamily: "ui-monospace, monospace", fontWeight: 800 }}>{flowVal.toFixed(2)}</text>
+              <text x={efmSensorX} y={hTop + 34} textAnchor="middle" fill="hsl(var(--foreground))" style={{ fontSize: '13px', fontFamily: "ui-monospace, monospace", fontWeight: 800 }}>{flowOutVal.toFixed(2)}</text>
 
               {/* Neck seamlessly touches the pipe and is dark metallic color */}
               <rect x={efmSensorX - nW / 2} y={hTop + 12 + hH} width={nW} height={headerY - (hTop + 12 + hH)} fill="#64748b" stroke="#475569" strokeWidth="1" />
@@ -547,10 +553,10 @@ const IntakeProcessSimulation: React.FC = () => {
                 <rect x={efmCardX - 70} y={headerY + headerH + 24} width={140} height={46} rx={6} fill="hsl(var(--card))" stroke="hsl(var(--border))" strokeWidth="1" />
                 <text x={efmCardX} y={headerY + headerH + 40} textAnchor="middle" fontSize="12" fontWeight="700" fill="hsl(var(--muted-foreground))">Flow Rate</text>
                 <text x={efmCardX} y={headerY + headerH + 58} textAnchor="middle" fontSize="18" fontWeight="800" fill="hsl(var(--foreground))" fontFamily="ui-monospace, monospace">
-                  {flowVal.toFixed(1)}<tspan fontSize="11" fontWeight="500"> m³/h</tspan>
+                  {flowOutVal.toFixed(1)}<tspan fontSize="11" fontWeight="500"> m³/h</tspan>
                 </text>
                 <rect x={efmCardX - 60} y={headerY + headerH + 72} width={120} height={6} rx={3} fill="hsl(var(--secondary))" />
-                <rect x={efmCardX - 60} y={headerY + headerH + 72} width={120 * Math.min(1, flowVal / 200)} height={6} rx={3} fill="hsl(var(--primary))" className="transition-all duration-500 ease-out" />
+                <rect x={efmCardX - 60} y={headerY + headerH + 72} width={120 * Math.min(1, flowOutVal / 200)} height={6} rx={3} fill="hsl(var(--primary))" className="transition-all duration-500 ease-out" />
               </g>
             </g>
           );
@@ -559,14 +565,14 @@ const IntakeProcessSimulation: React.FC = () => {
         {/* TOTALIZER */}
         {(() => {
           const tx = 1240, ty = headerY + headerH + 24;
-          const digits = Math.floor(totalizerVal).toString().padStart(8, '0').split('');
-          const dec = (totalizerVal % 1).toFixed(2).substring(2);
+          const digits = Math.floor(totalizerOutVal).toString().padStart(8, '0').split('');
+          const dec = (totalizerOutVal % 1).toFixed(2).substring(2);
           const dW = 16, dH = 26, gp = 2.5;
           const totW = 10 * dW + 9 * gp + 4 + 22;
 
           return (
             <g>
-              <text x={tx} y={ty - 10} textAnchor="middle" fontSize="13" fontWeight="800" fill="hsl(var(--foreground))">Totalizer</text>
+              <text x={tx} y={ty - 10} textAnchor="middle" fontSize="13" fontWeight="800" fill="hsl(var(--foreground))">Totalizer (Outlet)</text>
               <rect x={tx - totW / 2} y={ty} width={totW} height={dH + 18} rx={6} fill="hsl(var(--secondary) / 0.5)" stroke="hsl(var(--border) / 0.5)" strokeWidth="1" />
               {digits.map((d, i) => (
                 <g key={`td${i}`}>
@@ -584,6 +590,38 @@ const IntakeProcessSimulation: React.FC = () => {
             </g>
           );
         })()}
+
+        {/* INLET EFM — mounted on the raw-water pipe entering the intake sump. */}
+        <g>
+          <path d={`M 12 ${sTop + 145} H ${sL + 16}`} fill="none" stroke={pVDark} strokeWidth="25" strokeLinecap="round" />
+          <path d={`M 12 ${sTop + 145} H ${sL + 16}`} fill="none" stroke={pBody} strokeWidth="20" strokeLinecap="round" />
+          <path d={`M 12 ${sTop + 145} H ${sL + 16}`} fill="none" stroke="#38bdf8" strokeWidth="11" strokeLinecap="round" opacity="0.8" />
+          {flowInVal > 0 && (
+            <path d={`M 12 ${sTop + 145} H ${sL + 16}`} fill="none" stroke="#f0f9ff" strokeWidth="5" strokeLinecap="round" strokeDasharray="28 18">
+              <animate attributeName="stroke-dashoffset" from="46" to="0" dur="1.4s" repeatCount="indefinite" />
+            </path>
+          )}
+          <polygon points={`${sL + 2},${sTop + 137} ${sL + 15},${sTop + 145} ${sL + 2},${sTop + 153}`} fill="#f0f9ff" opacity={flowInVal > 0 ? 0.9 : 0.35} />
+
+          <text x="100" y={sTop + 45} textAnchor="middle" fontSize="14" fontWeight="900" fill="hsl(var(--foreground))">EFM IN</text>
+          <rect x="61" y={sTop + 55} width="78" height="52" rx="6" fill="hsl(199 89% 48% / 0.9)" stroke="hsl(var(--border))" strokeWidth="1.5" />
+          <rect x="72" y={sTop + 68} width="56" height="26" rx="3" fill="hsl(var(--secondary))" stroke="hsl(var(--border))" />
+          <text x="100" y={sTop + 87} textAnchor="middle" fontSize="14" fontWeight="900" fill="hsl(var(--foreground))" fontFamily="ui-monospace, monospace">{flowInVal.toFixed(2)}</text>
+          <rect x="91" y={sTop + 107} width="18" height="27" fill="#64748b" stroke="#475569" />
+          <rect x="82" y={sTop + 132} width="36" height="7" rx="2" fill={pDark} />
+
+          <rect x="25" y={sTop + 172} width="150" height="48" rx="7" fill="hsl(var(--card))" stroke="hsl(var(--border))" />
+          <text x="100" y={sTop + 189} textAnchor="middle" fontSize="10" fontWeight="800" fill="hsl(var(--primary))">INLET FLOW</text>
+          <text x="100" y={sTop + 210} textAnchor="middle" fontSize="18" fontWeight="900" fill="hsl(var(--foreground))" fontFamily="ui-monospace, monospace">
+            {flowInVal.toFixed(1)} <tspan fontSize="10" fill="hsl(var(--muted-foreground))">m³/h</tspan>
+          </text>
+
+          <rect x="17" y={sTop + 231} width="166" height="58" rx="7" fill="hsl(var(--secondary) / 0.55)" stroke="hsl(var(--border))" />
+          <text x="100" y={sTop + 249} textAnchor="middle" fontSize="10" fontWeight="800" fill="hsl(var(--muted-foreground))">INLET TOTALIZER</text>
+          <text x="100" y={sTop + 274} textAnchor="middle" fontSize="18" fontWeight="900" fill="hsl(var(--foreground))" fontFamily="ui-monospace, monospace">
+            {totalizerInVal.toFixed(2)} <tspan fontSize="10" fill="hsl(var(--muted-foreground))">m³</tspan>
+          </text>
+        </g>
 
         {/* Energy Meter removed — INT-KW not installed */}
 

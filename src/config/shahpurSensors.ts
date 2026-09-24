@@ -132,15 +132,10 @@ export const WTP_SENSORS: ShahpurSensor[] = [
   { id: 'WTP-PT1', mqttKey: 'PUMP1_PT', label: 'HT Pump 1 Pressure', unit: 'Bar', min: 0, max: 10, section: 'wtp', type: 'analog', instrumentType: 'pt' },
   { id: 'WTP-PT2', mqttKey: 'PUMP2_PT', label: 'HT Pump 2 Pressure', unit: 'Bar', min: 0, max: 10, section: 'wtp', type: 'analog', instrumentType: 'pt' },
   { id: 'WTP-HeaderPT', mqttKey: 'PUMP_HOUSE_PT', label: 'Combined Header Pressure', unit: 'Bar', min: 0, max: 10, section: 'wtp', type: 'analog', instrumentType: 'combined_pt' },
-  // Raw water / inlet — pending commissioning
-  { id: 'WTP-Flow-IN', mqttKey: 'RAW_EFM_FLOW', label: 'Inlet Flow Meter', unit: 'm³/hr', min: 0, max: 200, section: 'wtp', subsection: 'raw-water', type: 'analog', instrumentType: 'flow', pendingCommissioning: true },
-  { id: 'WTP-Totalizer-IN', mqttKey: 'RAW_EFM', label: 'Inlet Totalizer', unit: 'm³', min: 0, max: 999999, section: 'wtp', subsection: 'raw-water', type: 'totalizer', instrumentType: 'totalizer', pendingCommissioning: true },
   // Outlet — real data from slave_id=4
   { id: 'WTP-Flow-OUT', mqttKey: 'OUTLET_FLOW', label: 'Outlet Flow Meter', unit: 'm³/hr', min: 0, max: 200, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'flow' },
   { id: 'WTP-Totalizer-OUT', mqttKey: 'TOTALIZER', label: 'Outlet Totalizer', unit: 'm³', min: 0, max: 999999, section: 'wtp', subsection: 'outlet', type: 'totalizer', instrumentType: 'totalizer' },
-  // Analyzers — inlet pending, outlet real
-  // Inlet pH — no live data yet (pending commissioning); hidden from cards view
-  { id: 'WTP-PH-IN', mqttKey: 'RW_PH', label: 'Inlet pH', unit: 'pH', min: 0, max: 14, section: 'wtp', subsection: 'raw-water', type: 'analog', instrumentType: 'ph', pendingCommissioning: true, notInstalled: true },
+  // Analyzers — inlet turbidity and outlet instruments are installed.
   { id: 'WTP-TA-IN', mqttKey: 'TURBIDITY_INLET', label: 'Inlet Turbidity', unit: 'NTU', min: 0, max: 100, section: 'wtp', subsection: 'raw-water', type: 'analog', instrumentType: 'turbidity' },
   { id: 'WTP-PH', mqttKey: 'PUMP_PH', label: 'Outlet pH', unit: 'pH', min: 0, max: 14, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'ph' },
   { id: 'WTP-CL', mqttKey: 'PUMP_CHLORINE', label: 'Outlet Chlorine', unit: 'PPM', min: 0, max: 20, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'chlorine' },
@@ -148,9 +143,9 @@ export const WTP_SENSORS: ShahpurSensor[] = [
   // Temperature — no live data yet (pending commissioning); hidden from cards view
   { id: 'WTP-TEM', mqttKey: 'CWR_TEM', label: 'Outlet Temperature', unit: '°C', min: 0, max: 60, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'temperature', pendingCommissioning: true, notInstalled: true },
   // Filter Bed sensors — real data from slave_id=1
-  { id: 'WTP-ROF-FB1', mqttKey: 'ROF_FB1', label: 'Rate of Flow (Filter Bed 1)', unit: 'm³/hr', min: 0, max: 200, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'flow' },
-  { id: 'WTP-LOH-FB1', mqttKey: 'LOH_FB1', label: 'Loss of Head (FB1)', unit: 'm', min: 0, max: 25, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'lt' },
-  { id: 'WTP-LOH-FB2', mqttKey: 'LOH_FB2', label: 'Loss of Head (FB2)', unit: 'm', min: 0, max: 25, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'lt' },
+  { id: 'WTP-ROF-FB1', mqttKey: 'ROF_FB1', label: 'Rate of Flow (Filter Bed 1)', unit: 'm³', min: 0, max: 200, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'flow' },
+  { id: 'WTP-LOH-FB1', mqttKey: 'LOH_FB1', label: 'Loss of Head (FB1)', unit: '%', min: 0, max: 100, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'lt' },
+  { id: 'WTP-LOH-FB2', mqttKey: 'LOH_FB2', label: 'Loss of Head (FB2)', unit: '%', min: 0, max: 100, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'lt' },
   // HT Pumps — now directly driven by PLC digital outputs
   { id: 'WTP-Pump1', mqttKey: 'MOTOR1_INDACTOR', label: 'HT Pump 1', unit: '', min: 0, max: 1, section: 'wtp', type: 'digital', instrumentType: 'pump' },
   { id: 'WTP-Pump2', mqttKey: 'MOTOR2_INDACTOR', label: 'HT Pump 2', unit: '', min: 0, max: 1, section: 'wtp', type: 'digital', instrumentType: 'pump' },
@@ -271,8 +266,8 @@ export const VALID_WTP_KEYS = [
   'MOTOR1_INDACTOR', 'MOTOR1_TRIP', 'MOTOR2_INDACTOR', 'MOTOR2_TRIP',
   // slave_id=4 — outlet EFM (real data)
   'OUTLET_FLOW', 'TOTALIZER',
-  // pending commissioning sensors (kept for future live data)
-  'RAW_EFM_FLOW', 'RAW_EFM', 'RW_PH', 'CWR_TEM',
+  // pending commissioning sensor (kept for future live data)
+  'CWR_TEM',
   // Backward compatibility / alias keys
   'PT_1', 'PT_2', 'PT_3', 'BW_LT', 'BW_LEVEL', 'CWR_LT', 'CWR_LEVEL',
   'CWR_PH', 'CWR_CL', 'CWR_TB', 'CLR_EFM_FLOW', 'CLR_EFM',

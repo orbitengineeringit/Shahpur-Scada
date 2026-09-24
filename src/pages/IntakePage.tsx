@@ -111,6 +111,10 @@ const IntakePage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'cards' | 'process'>('process');
 
   const findTag = (sensorId: string) => intakeTags.find(t => t.id === sensorId);
+  const liveValue = (sensorId: string) => {
+    const tag = findTag(sensorId);
+    return tag?.status === 'connected' ? tag.value : 0;
+  };
 
   const ptSensors = INTAKE_SENSORS.filter(s => s.instrumentType === 'pt' && !s.notInstalled);
   const ltSensor = INTAKE_SENSORS.find(s => s.instrumentType === 'lt' && !s.notInstalled);
@@ -124,10 +128,10 @@ const IntakePage: React.FC = () => {
   const pt2Tag = findTag('INT-PT2');
   const headerPtTag = findTag('INT-HeaderPT');
   const combinedPtTag = findTag('INT-CombinedPT');
-  const pt1Val = pt1Tag?.value ?? 0;
-  const pt2Val = pt2Tag?.value ?? 0;
-  const headerPtVal = headerPtTag?.value ?? 0;
-  const combinedPtVal = combinedPtTag?.value ?? 0;
+  const pt1Val = liveValue('INT-PT1');
+  const pt2Val = liveValue('INT-PT2');
+  const headerPtVal = liveValue('INT-HeaderPT');
+  const combinedPtVal = liveValue('INT-CombinedPT');
 
   const pump1Running = (pt1Tag?.status === 'connected' && pt1Val > 1.5) || (pump1Tag?.status === 'connected' && pump1Tag?.value === 1);
   const pump2Running = (pt2Tag?.status === 'connected' && pt2Val > 1.5) || (pump2Tag?.status === 'connected' && pump2Tag?.value === 1);
@@ -224,7 +228,7 @@ const IntakePage: React.FC = () => {
                     <CombinedPtCard
                       combinedPtValue={combinedPtValue} pt1Val={pt1Val} pt2Val={pt2Val}
                       pump1Running={pump1Running} pump2Running={pump2Running}
-                      tag={{ id: 'INT-CombinedPT', label: 'Combined Pressure (P1+P2)', unit: 'Bar', value: combinedPtValue, min: 0, max: 10, timestamp: new Date(), status: 'ok' }}
+                      tag={{ id: 'INT-CombinedPT', label: 'Combined Pressure (P1+P2)', unit: 'Bar', value: combinedPtValue, min: 0, max: 10, timestamp: headerPtTag?.timestamp ?? new Date(), status: headerPtTag?.status ?? 'unknown' }}
                       section="intake"
                     />
                   </SortableItem>

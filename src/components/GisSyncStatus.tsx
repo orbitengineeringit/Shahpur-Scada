@@ -103,9 +103,7 @@ const rowsFromPayload = (payload: unknown, key: string, deviceId: string): Param
       ]
     : key === 'wtp'
       ? [
-          row('Inlet Flow', 'inletFlow_mld', 'MLD', 'WTP-Flow-IN', 4),
           row('Outlet Flow', 'outletFlow_mld', 'MLD', 'WTP-Flow-OUT', 4),
-          row('Raw pH', 'rawPh', 'pH', 'WTP-PH-IN'),
           row('Raw Turbidity', 'rawTurbidity', 'NTU', 'WTP-TA-IN'),
           row('Treated pH', 'treatedPh', 'pH', 'WTP-PH'),
           row('Treated Turbidity', 'treatedTurbidity', 'NTU', 'WTP-TA'),

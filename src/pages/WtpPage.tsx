@@ -48,7 +48,7 @@ const WtpPage: React.FC = () => {
       content: (
         <div className="mb-8">
           <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-primary" />Raw Water / Inlet</h3>
-          <SortableCardGrid groupKey="wtp-raw-water" sensorIds={rawWaterIds} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6 w-full">
+          <SortableCardGrid groupKey="wtp-raw-water" sensorIds={rawWaterIds} className="grid grid-cols-1 gap-4 sm:gap-6 w-full max-w-md">
             {(orderedIds) => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
           </SortableCardGrid>
         </div>
