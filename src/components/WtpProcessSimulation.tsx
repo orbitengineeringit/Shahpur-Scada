@@ -1281,50 +1281,158 @@ const WtpProcessSimulation: React.FC = () => {
           ))}
           <text x={filterX + filterW / 2} y={processY + filterH - 1} textAnchor="middle" fontSize="7" fill="#64748b" fontWeight="600">UNDERDRAIN</text>
 
-          <text x={filterX + filterW / 2} y={processY + filterH + 20} textAnchor="middle" fontSize="12" fontWeight="800" fill="hsl(var(--foreground))">RAPID SAND FILTERS</text>
-          <StatusBadge x={filterX + filterW / 2} y={processY + filterH + 28} isOn={waterFlowing} />
+          <text x={filterX + filterW / 2} y={processY + filterH + 18} textAnchor="middle" fontSize="12" fontWeight="800" fill="hsl(var(--foreground))">RAPID SAND FILTERS</text>
+          <StatusBadge x={filterX + filterW / 2} y={processY + filterH + 26} isOn={waterFlowing} />
 
-          {/* Filter Bed LCD Readout — ROF & LOH from real PLC data */}
+          {/* ─── DUAL FILTER BED TRANSMITTER STATION (ROF & LOH) ─── */}
           {(() => {
-            const lcdX = filterX + filterW / 2;
-            const lcdY = processY + filterH + 52;
-            const lcdW = filterW + 20;
-            const lcdH = 78;
-            const rofColor = rofFb1Val > 0.1 ? '#22c55e' : '#64748b';
-            const loh1Color = lohFb1Val > 3.5 ? '#ef4444' : lohFb1Val > 2 ? '#f59e0b' : '#22c55e';
-            const loh2Color = lohFb2Val > 3.5 ? '#ef4444' : lohFb2Val > 2 ? '#f59e0b' : '#22c55e';
+            const cW = 224;
+            const cH = 122;
+            const cX = filterX + filterW / 2 - cW / 2; // 953 (centered at 1065)
+            const cY = processY + filterH + 54;        // 484
+
+            // LOH Thresholds (engineering scale 0 to 25m):
+            // Normal (0-18m): Cyan/blue; Warning (18-22m): Amber; Backwash Required (>22m): Red
+            const loh1Color = lohFb1Val > 22 ? 'hsl(var(--destructive))' : lohFb1Val > 18 ? 'hsl(var(--warning))' : 'hsl(199 89% 48%)';
+            const loh2Color = lohFb2Val > 22 ? 'hsl(var(--destructive))' : lohFb2Val > 18 ? 'hsl(var(--warning))' : 'hsl(199 89% 48%)';
+            const rofColor = rofFb1Val > 0.1 ? 'hsl(142 71% 45%)' : 'hsl(var(--muted-foreground))';
+
+            // Bar percentages
+            const loh1Pct = Math.min(100, Math.max(0, (lohFb1Val / 25) * 100));
+            const loh2Pct = Math.min(100, Math.max(0, (lohFb2Val / 25) * 100));
+            const rofPct = Math.min(100, Math.max(0, (rofFb1Val / 150) * 100));
+
             return (
               <g>
-                <rect x={lcdX - lcdW / 2} y={lcdY} width={lcdW} height={lcdH} rx={6}
-                  fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
-                <rect x={lcdX - lcdW / 2 + 3} y={lcdY + 3} width={lcdW - 6} height={lcdH - 6} rx={4}
-                  fill="#0f172a" />
-                {/* Title bar */}
-                <text x={lcdX} y={lcdY + 16} textAnchor="middle" fontSize="8" fontWeight="700"
-                  fill="#94a3b8" fontFamily="ui-monospace, monospace" letterSpacing="1.5px">
-                  FILTER BED MONITOR
+                {/* Stainless Sensor Impulse Conduits from Filter Underdrain down to Transmitter */}
+                <line x1={cX + 42} y1={processY + filterH - 4} x2={cX + 42} y2={cY}
+                  stroke="hsl(var(--muted-foreground))" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" />
+                <circle cx={cX + 42} cy={processY + filterH - 4} r="2" fill="hsl(var(--muted-foreground))" opacity="0.8" />
+                <line x1={cX + cW - 42} y1={processY + filterH - 4} x2={cX + cW - 42} y2={cY}
+                  stroke="hsl(var(--muted-foreground))" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.6" />
+                <circle cx={cX + cW - 42} cy={processY + filterH - 4} r="2" fill="hsl(var(--muted-foreground))" opacity="0.8" />
+
+                {/* Main Transmitter Enclosure Box */}
+                <rect x={cX} y={cY} width={cW} height={cH} rx={8}
+                  fill="hsl(var(--card))" stroke="hsl(var(--border))" strokeWidth="1.5"
+                  style={{ filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.12))' }} />
+
+                {/* Header Bar */}
+                <path d={`M ${cX} ${cY + 8} Q ${cX} ${cY} ${cX + 8} ${cY} L ${cX + cW - 8} ${cY} Q ${cX + cW} ${cY} ${cX + cW} ${cY + 8} L ${cX + cW} ${cY + 22} L ${cX} ${cY + 22} Z`}
+                  fill="hsl(var(--secondary) / 0.7)" stroke="hsl(var(--border))" strokeWidth="0.8" />
+                
+                {/* Corner Hex Bolts */}
+                {[[cX + 5, cY + 5], [cX + cW - 5, cY + 5], [cX + 5, cY + cH - 5], [cX + cW - 5, cY + cH - 5]].map(([bx, by], i) => (
+                  <g key={i}>
+                    <circle cx={bx} cy={by} r="2" fill="hsl(var(--muted))" stroke="hsl(var(--border))" strokeWidth="0.5" />
+                    <line x1={bx - 1} y1={by - 1} x2={bx + 1} y2={by + 1} stroke="hsl(var(--muted-foreground))" strokeWidth="0.5" opacity="0.5" />
+                  </g>
+                ))}
+
+                {/* Header Status & Tag */}
+                <circle cx={cX + 16} cy={cY + 11} r="2.5" fill={waterFlowing ? '#10b981' : '#64748b'}>
+                  {waterFlowing && <animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite" />}
+                </circle>
+                <text x={cX + 24} y={cY + 14.5} fontSize="7.5" fontWeight="800" fill="hsl(var(--foreground))" letterSpacing="0.8px">
+                  FILTER BED TELEMETRY
                 </text>
-                {/* ROF */}
-                <text x={lcdX - lcdW / 2 + 10} y={lcdY + 33} textAnchor="start" fontSize="8"
-                  fill="#64748b" fontFamily="ui-monospace, monospace">ROF:</text>
-                <text x={lcdX + lcdW / 2 - 10} y={lcdY + 33} textAnchor="end" fontSize="10" fontWeight="800"
-                  fill={rofColor} fontFamily="ui-monospace, monospace">
-                  {rofFb1Val.toFixed(2)} <tspan fontSize="7" fill="#94a3b8">m³</tspan>
+                <text x={cX + cW - 12} y={cY + 14.5} textAnchor="end" fontSize="6.5" fontWeight="700" fill="hsl(var(--muted-foreground))" fontFamily="ui-monospace, monospace" letterSpacing="0.5px">
+                  FIT/PDIT • DUAL BED
                 </text>
-                {/* LOH FB1 */}
-                <text x={lcdX - lcdW / 2 + 10} y={lcdY + 50} textAnchor="start" fontSize="8"
-                  fill="#64748b" fontFamily="ui-monospace, monospace">LOH-FB1:</text>
-                <text x={lcdX + lcdW / 2 - 10} y={lcdY + 50} textAnchor="end" fontSize="10" fontWeight="800"
-                  fill={loh1Color} fontFamily="ui-monospace, monospace">
-                  {lohFb1Val.toFixed(2)} <tspan fontSize="7" fill="#94a3b8">m</tspan>
-                </text>
-                {/* LOH FB2 */}
-                <text x={lcdX - lcdW / 2 + 10} y={lcdY + 67} textAnchor="start" fontSize="8"
-                  fill="#64748b" fontFamily="ui-monospace, monospace">LOH-FB2:</text>
-                <text x={lcdX + lcdW / 2 - 10} y={lcdY + 67} textAnchor="end" fontSize="10" fontWeight="800"
-                  fill={loh2Color} fontFamily="ui-monospace, monospace">
-                  {lohFb2Val.toFixed(2)} <tspan fontSize="7" fill="#94a3b8">m</tspan>
-                </text>
+
+                {/* Vertical Divider between FB-01 and FB-02 */}
+                <line x1={cX + cW / 2} y1={cY + 24} x2={cX + cW / 2} y2={cY + cH - 6}
+                  stroke="hsl(var(--border))" strokeWidth="1" strokeDasharray="3 2" />
+
+                {/* ─── LEFT BAY: FILTER BED 1 (ROF + LOH) ─── */}
+                <g>
+                  {/* Bed 1 Badge */}
+                  <rect x={cX + 8} y={cY + 26} width={50} height={12} rx={3} fill="hsl(var(--primary) / 0.12)" stroke="hsl(var(--primary) / 0.3)" strokeWidth="0.6" />
+                  <text x={cX + 33} y={cY + 34.5} textAnchor="middle" fontSize="6.5" fontWeight="800" fill="hsl(var(--primary))" letterSpacing="0.5px">
+                    BED 01
+                  </text>
+
+                  {/* ROF Readout Display */}
+                  <rect x={cX + 8} y={cY + 41} width={98} height={34} rx={4}
+                    fill="hsl(var(--secondary) / 0.5)" stroke="hsl(var(--border) / 0.8)" strokeWidth="0.8" />
+                  <rect x={cX + 10} y={cY + 43} width={94} height={30} rx={3} fill="hsl(var(--background))" />
+                  
+                  <text x={cX + 14} y={cY + 51} fontSize="6" fontWeight="700" fill="hsl(var(--muted-foreground))" letterSpacing="0.5px">
+                    ROF (FLOW RATE)
+                  </text>
+                  {waterFlowing && (
+                    <circle cx={cX + 96} cy={cY + 49} r="2" fill="#10b981">
+                      <animate attributeName="opacity" values="1;0.2;1" dur="1s" repeatCount="indefinite" />
+                    </circle>
+                  )}
+                  <text x={cX + 14} y={cY + 65} fontSize="12" fontWeight="900" fill={rofColor} fontFamily="ui-monospace, monospace">
+                    {rofFb1Val.toFixed(2)}
+                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> m³/hr</tspan>
+                  </text>
+                  {/* Micro Flow Meter Bar */}
+                  <rect x={cX + 14} y={cY + 68} width={86} height={2.5} rx={1.2} fill="hsl(var(--muted) / 0.4)" />
+                  <rect x={cX + 14} y={cY + 68} width={Math.max(3, (rofPct / 100) * 86)} height={2.5} rx={1.2} fill="#10b981" />
+
+                  {/* LOH-FB1 Readout Display */}
+                  <rect x={cX + 8} y={cY + 79} width={98} height={36} rx={4}
+                    fill="hsl(var(--secondary) / 0.5)" stroke="hsl(var(--border) / 0.8)" strokeWidth="0.8" />
+                  <rect x={cX + 10} y={cY + 81} width={94} height={32} rx={3} fill="hsl(var(--background))" />
+                  
+                  <text x={cX + 14} y={cY + 89} fontSize="6" fontWeight="700" fill="hsl(var(--muted-foreground))" letterSpacing="0.5px">
+                    LOH (HEAD LOSS)
+                  </text>
+                  <text x={cX + 14} y={cY + 103} fontSize="12" fontWeight="900" fill={loh1Color} fontFamily="ui-monospace, monospace">
+                    {lohFb1Val.toFixed(2)}
+                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> m</tspan>
+                  </text>
+                  {/* Micro Head Loss Bar (0 to 25m) */}
+                  <rect x={cX + 14} y={cY + 106} width={86} height={3} rx={1.5} fill="hsl(var(--muted) / 0.4)" />
+                  <rect x={cX + 14} y={cY + 106} width={Math.max(3, (loh1Pct / 100) * 86)} height={3} rx={1.5} fill={loh1Color} />
+                </g>
+
+                {/* ─── RIGHT BAY: FILTER BED 2 (LOH + STATUS) ─── */}
+                <g>
+                  {/* Bed 2 Badge */}
+                  <rect x={cX + cW / 2 + 8} y={cY + 26} width={50} height={12} rx={3} fill="hsl(var(--primary) / 0.12)" stroke="hsl(var(--primary) / 0.3)" strokeWidth="0.6" />
+                  <text x={cX + cW / 2 + 33} y={cY + 34.5} textAnchor="middle" fontSize="6.5" fontWeight="800" fill="hsl(var(--primary))" letterSpacing="0.5px">
+                    BED 02
+                  </text>
+
+                  {/* LOH-FB2 Readout Display */}
+                  <rect x={cX + cW / 2 + 8} y={cY + 41} width={98} height={36} rx={4}
+                    fill="hsl(var(--secondary) / 0.5)" stroke="hsl(var(--border) / 0.8)" strokeWidth="0.8" />
+                  <rect x={cX + cW / 2 + 10} y={cY + 43} width={94} height={32} rx={3} fill="hsl(var(--background))" />
+                  
+                  <text x={cX + cW / 2 + 14} y={cY + 51} fontSize="6" fontWeight="700" fill="hsl(var(--muted-foreground))" letterSpacing="0.5px">
+                    LOH (HEAD LOSS)
+                  </text>
+                  <text x={cX + cW / 2 + 14} y={cY + 65} fontSize="12" fontWeight="900" fill={loh2Color} fontFamily="ui-monospace, monospace">
+                    {lohFb2Val.toFixed(2)}
+                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> m</tspan>
+                  </text>
+                  {/* Micro Head Loss Bar (0 to 25m) */}
+                  <rect x={cX + cW / 2 + 14} y={cY + 68} width={86} height={3} rx={1.5} fill="hsl(var(--muted) / 0.4)" />
+                  <rect x={cX + cW / 2 + 14} y={cY + 68} width={Math.max(3, (loh2Pct / 100) * 86)} height={3} rx={1.5} fill={loh2Color} />
+
+                  {/* FB2 Operating Status Card */}
+                  <rect x={cX + cW / 2 + 8} y={cY + 81} width={98} height={34} rx={4}
+                    fill="hsl(var(--secondary) / 0.5)" stroke="hsl(var(--border) / 0.8)" strokeWidth="0.8" />
+                  <rect x={cX + cW / 2 + 10} y={cY + 83} width={94} height={30} rx={3} fill="hsl(var(--background))" />
+                  
+                  <text x={cX + cW / 2 + 14} y={cY + 92} fontSize="6" fontWeight="700" fill="hsl(var(--muted-foreground))" letterSpacing="0.5px">
+                    BED 02 STATUS
+                  </text>
+                  <g transform={`translate(${cX + cW / 2 + 14}, ${cY + 96})`}>
+                    <rect x={0} y={0} width={86} height={13} rx={3}
+                      fill={lohFb2Val > 22 ? 'hsl(var(--destructive) / 0.15)' : 'hsl(var(--success) / 0.15)'}
+                      stroke={lohFb2Val > 22 ? 'hsl(var(--destructive) / 0.4)' : 'hsl(var(--success) / 0.4)'} strokeWidth="0.6" />
+                    <circle cx={6} cy={6.5} r="2" fill={lohFb2Val > 22 ? '#ef4444' : '#10b981'} />
+                    <text x={12} y={9.5} fontSize="6.5" fontWeight="800"
+                      fill={lohFb2Val > 22 ? 'hsl(var(--destructive))' : 'hsl(var(--success))'} letterSpacing="0.4px">
+                      {lohFb2Val > 22 ? 'WASH REQUIRED' : 'FILTERING ACTIVE'}
+                    </text>
+                  </g>
+                </g>
               </g>
             );
           })()}
@@ -1775,8 +1883,8 @@ const WtpProcessSimulation: React.FC = () => {
             { sx: efmInX, sy: inletPipeY + 185, text: 'STAGE 1: RAW WATER', color: 'hsl(var(--primary))' },
             { sx: mixerX + mixerW / 2, sy: processY + mixerH + 78, text: 'STAGE 2: MIXING', color: 'hsl(280 65% 55%)' },
             { sx: flocX + flocW / 2, sy: processY + flocH + 122, text: 'STAGE 3: CLARIFLOCCULATION', color: 'hsl(35 90% 50%)' },
-            { sx: settleX + settleW / 2, sy: processY + settleH + 105, text: 'STAGE 4: SEDIMENTATION', color: 'hsl(38 70% 45%)' },
-            { sx: filterX + filterW / 2, sy: processY + filterH + 65, text: 'STAGE 5: FILTRATION', color: 'hsl(200 70% 45%)' },
+            { sx: settleX + settleW / 2, sy: processY + settleH + 128, text: 'STAGE 4: SEDIMENTATION', color: 'hsl(38 70% 45%)' },
+            { sx: filterX + filterW / 2, sy: processY + filterH + 192, text: 'STAGE 5: FILTRATION', color: 'hsl(200 70% 45%)' },
             { sx: cwrX + cwrW / 2 + 20, sy: cwrY + cwrH + 56, text: 'STAGE 6: STORAGE', color: 'hsl(199 89% 48%)' },
             { sx: (pump1X + pump2X) / 2 + pumpW / 2, sy: pumpRowY + pumpH + 6, text: 'STAGE 7: PUMPING', color: 'hsl(var(--warning))' },
             { sx: totalizerX, sy: mergeY + 185, text: 'STAGE 8: DISTRIBUTION', color: 'hsl(142 71% 45%)' },
