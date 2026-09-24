@@ -29,9 +29,16 @@ const WtpCombinedPtCard: React.FC<{
   const findTag = (id: string) => tags.find((t: any) => t.id === id);
   const pt1Val = findTag(pt1Id)?.value ?? 0;
   const pt2Val = findTag(pt2Id)?.value ?? 0;
-  // HT Pump ON threshold: PT > 1.5 Bar = pump running
-  const pump1Running = pt1Val > 1.5;
-  const pump2Running = pt2Val > 1.5;
+  // HT Pump ON/OFF: read directly from MOTOR1_INDACTOR / MOTOR2_INDACTOR (0=OFF, 1=ON)
+  // Fallback to PT > 1.5 Bar if pump tag has no live data yet
+  const pump1Tag = findTag(pump1Id);
+  const pump2Tag = findTag(pump2Id);
+  const pump1Running = pump1Tag?.status === 'connected'
+    ? (pump1Tag.value ?? 0) >= 1
+    : pt1Val > 1.5;
+  const pump2Running = pump2Tag?.status === 'connected'
+    ? (pump2Tag.value ?? 0) >= 1
+    : pt2Val > 1.5;
 
   const combinedPtValue = useMemo(() => {
     if (pump1Running && pump2Running) return (pt1Val + pt2Val) / 2;
@@ -122,8 +129,6 @@ const WtpPage: React.FC = () => {
     const pairs = [
       { pumpId: 'WTP-Pump1', ptId: 'WTP-PT1' },
       { pumpId: 'WTP-Pump2', ptId: 'WTP-PT2' },
-      { pumpId: 'WTP-Pump3', ptId: 'WTP-PT3' },
-      { pumpId: 'WTP-Pump4', ptId: 'WTP-PT4' },
     ];
     return pairs.filter(p => !sensorMap[p.pumpId]?.notInstalled);
   }, [sensorMap]);
@@ -270,8 +275,9 @@ const WtpPage: React.FC = () => {
 
   const rawWaterIds = useMemo(() => WTP_SENSORS.filter(s => s.subsection === 'raw-water' && !s.notInstalled).map(s => s.id), []);
   const backwashIds = useMemo(() => ['WTP-LT-BW'].filter(id => !sensorMap[id]?.notInstalled), [sensorMap]);
+  const filterBedIds = useMemo(() => ['WTP-ROF-FB1', 'WTP-LOH-FB1', 'WTP-LOH-FB2'].filter(id => !sensorMap[id]?.notInstalled), [sensorMap]);
   const clearWaterIds = useMemo(() => [
-    'WTP-LT-CW', 'WTP-Pump1', 'WTP-Pump2', 'WTP-PT1', 'WTP-PT2', 'WTP-HeaderPT', 'WTP-CombinedPT1',
+    'WTP-LT-CW', 'WTP-Pump1', 'WTP-Pump2', 'WTP-Trip1', 'WTP-Trip2', 'WTP-PT1', 'WTP-PT2', 'WTP-HeaderPT', 'WTP-CombinedPT1',
   ].filter(id => !sensorMap[id]?.notInstalled), [sensorMap]);
   const outletIds = useMemo(() => WTP_SENSORS.filter(s => s.subsection === 'outlet' && !s.notInstalled).map(s => s.id), []);
 
@@ -306,6 +312,17 @@ const WtpPage: React.FC = () => {
       ),
     },
     {
+      id: 'wtp-sec-filter-bed',
+      content: (
+        <div className="mb-8">
+          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500" />Filter Bed</h3>
+          <SortableCardGrid groupKey="wtp-filter-bed" sensorIds={filterBedIds} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 w-full">
+            {(orderedIds) => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
+          </SortableCardGrid>
+        </div>
+      ),
+    },
+    {
       id: 'wtp-sec-clear-water',
       content: (
         <div className="mb-8">
@@ -333,7 +350,7 @@ const WtpPage: React.FC = () => {
         </div>
       ),
     },
-  ], [rawWaterIds, backwashIds, clearWaterIds, outletIds, wtpTags, sensorMap]);
+  ], [rawWaterIds, backwashIds, filterBedIds, clearWaterIds, outletIds, wtpTags, sensorMap]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background grid-pattern">

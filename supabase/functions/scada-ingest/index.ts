@@ -63,7 +63,7 @@ function normalizeSensorValue(sensor: Sensor, value: number): number {
 
 const DEFAULT_TOPICS = {
   INTAKE: "sahpur/intake/plc01/update",
-  WTP: "",
+  WTP: "sahpur/wtp/plc01/update",
   OHT1: "sahpur/oht/plc01/update",
   OHT2: "",
 };
@@ -82,50 +82,61 @@ const ohtSensors = (n: number): Sensor[] => {
 const SENSORS: Sensor[] = [
   // === INTAKE sensors — Shahpur SCADA: RTU Device ID: 02500225110500007982 ===
   // mqttKey values match PLC tags from sahpur/intake/plc01/update
-  { id: "INT-PT1", mqttKey: "INTAKEPT1", label: "VT Pump 1 Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
-  { id: "INT-PT2", mqttKey: "INTAKEPT2", label: "VT Pump 2 Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
-  { id: "INT-HeaderPT", mqttKey: "INTAKEHDPT1", label: "Main Header Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "combined_pt" },
-  { id: "INT-LT", mqttKey: "INTAKERLT", label: "River Level (RLT)", unit: "%", min: 0, max: 100, section: "intake", instrumentType: "lt" },
+  { id: "INT-PT1", mqttKey: "PUMP1_PT1_ACT", label: "VT Pump 1 Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
+  { id: "INT-PT2", mqttKey: "PUMP2_PT2_ACT", label: "VT Pump 2 Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
+  { id: "INT-HeaderPT", mqttKey: "COMMON_HEADER_PT_ACT", label: "Main Header Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "combined_pt" },
+  { id: "INT-LT", mqttKey: "RLT_ACT", label: "River Level (RLT)", unit: "%", min: 0, max: 100, section: "intake", instrumentType: "lt" },
   { id: "INT-Flow-IN", mqttKey: "INFLOW1", label: "Inlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
   { id: "INT-Totalizer-IN", mqttKey: "INTotalizer1H", label: "Inlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
   { id: "INT-Flow-OUT", mqttKey: "OUTFLOW2", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
   { id: "INT-Totalizer-OUT", mqttKey: "OUTTotalizer1H", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
-  { id: "INT-Pump1", mqttKey: "", label: "VT Pump 1", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
-  { id: "INT-Pump2", mqttKey: "", label: "VT Pump 2", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
-  // === WTP sensors — Shahpur SCADA (Scaffolded, awaiting commissioning) ===
-  { id: "WTP-LT-BW", mqttKey: "BW_LT", label: "Backwash Level", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
-  { id: "WTP-LT-CW", mqttKey: "CWR_LT", label: "Clear Water Level", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
-  { id: "WTP-PT1", mqttKey: "PT_1", label: "HT Pump 1 Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "pt" },
-  { id: "WTP-PT2", mqttKey: "PT_2", label: "HT Pump 2 Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "pt" },
-  { id: "WTP-HeaderPT", mqttKey: "PT_3", label: "Combined Header Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "combined_pt" },
+  { id: "INT-Pump1", mqttKey: "MOTOR1_ON", label: "VT Pump 1", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
+  { id: "INT-Pump2", mqttKey: "MOTOR2_ON", label: "VT Pump 2", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
+  // === WTP sensors — slave_id=1 & slave_id=4 (live data) ===
+  { id: "WTP-LT-BW", mqttKey: "BACKWASH_TANK", label: "Backwash Level", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
+  { id: "WTP-LT-CW", mqttKey: "CWT", label: "Clear Water Level", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
+  { id: "WTP-PT1", mqttKey: "PUMP1_PT", label: "HT Pump 1 Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "pt" },
+  { id: "WTP-PT2", mqttKey: "PUMP2_PT", label: "HT Pump 2 Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "pt" },
+  { id: "WTP-HeaderPT", mqttKey: "PUMP_HOUSE_PT", label: "Combined Header Pressure", unit: "Bar", min: 0, max: 10, section: "wtp", instrumentType: "combined_pt" },
   { id: "WTP-Flow-IN", mqttKey: "RAW_EFM_FLOW", label: "Inlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
   { id: "WTP-Totalizer-IN", mqttKey: "RAW_EFM", label: "Inlet Totalizer", unit: "m³", min: 0, max: 999999, section: "wtp", instrumentType: "totalizer" },
-  { id: "WTP-Flow-OUT", mqttKey: "CLR_EFM_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
-  { id: "WTP-Totalizer-OUT", mqttKey: "CLR_EFM", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "wtp", instrumentType: "totalizer" },
+  { id: "WTP-Flow-OUT", mqttKey: "OUTLET_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
+  { id: "WTP-Totalizer-OUT", mqttKey: "TOTALIZER", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "wtp", instrumentType: "totalizer" },
   { id: "WTP-PH-IN", mqttKey: "RW_PH", label: "Inlet pH", unit: "pH", min: 0, max: 14, section: "wtp", instrumentType: "ph" },
-  { id: "WTP-TA-IN", mqttKey: "RW_TB", label: "Inlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
-  { id: "WTP-PH", mqttKey: "CWR_PH", label: "Outlet pH", unit: "pH", min: 0, max: 14, section: "wtp", instrumentType: "ph" },
-  { id: "WTP-CL", mqttKey: "CWR_CL", label: "Outlet Chlorine", unit: "PPM", min: 0, max: 20, section: "wtp", instrumentType: "chlorine" },
-  { id: "WTP-TA", mqttKey: "CWR_TB", label: "Outlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
+  { id: "WTP-TA-IN", mqttKey: "TURBIDITY_INLET", label: "Inlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
+  { id: "WTP-PH", mqttKey: "PUMP_PH", label: "Outlet pH", unit: "pH", min: 0, max: 14, section: "wtp", instrumentType: "ph" },
+  { id: "WTP-CL", mqttKey: "PUMP_CHLORINE", label: "Outlet Chlorine", unit: "PPM", min: 0, max: 20, section: "wtp", instrumentType: "chlorine" },
+  { id: "WTP-TA", mqttKey: "PUMP_TURBIDITY", label: "Outlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
   { id: "WTP-TEM", mqttKey: "CWR_TEM", label: "Outlet Temperature", unit: "°C", min: 0, max: 60, section: "wtp", instrumentType: "temperature" },
-  { id: "WTP-Pump1", mqttKey: "", label: "HT Pump 1", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
-  { id: "WTP-Pump2", mqttKey: "", label: "HT Pump 2", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
+  { id: "WTP-ROF-FB1", mqttKey: "ROF_FB1", label: "Rate of Flow (Filter Bed 1)", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
+  { id: "WTP-LOH-FB1", mqttKey: "LOH_FB1", label: "Loss of Head (FB1)", unit: "m", min: 0, max: 25, section: "wtp", instrumentType: "lt" },
+  { id: "WTP-LOH-FB2", mqttKey: "LOH_FB2", label: "Loss of Head (FB2)", unit: "m", min: 0, max: 25, section: "wtp", instrumentType: "lt" },
+  { id: "WTP-Pump1", mqttKey: "MOTOR1_INDACTOR", label: "HT Pump 1", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
+  { id: "WTP-Pump2", mqttKey: "MOTOR2_INDACTOR", label: "HT Pump 2", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
+  { id: "WTP-Trip1", mqttKey: "MOTOR1_TRIP", label: "HT Pump 1 Trip", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
+  { id: "WTP-Trip2", mqttKey: "MOTOR2_TRIP", label: "HT Pump 2 Trip", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
   // === OHT sensors (Shahpur: 2 OHTs) ===
   ...ohtSensors(1), ...ohtSensors(2),
 ];
 
 const PT_TO_PUMP: Record<string, string> = {
   "INT-PT1": "INT-Pump1", "INT-PT2": "INT-Pump2",
-  "WTP-PT1": "WTP-Pump1", "WTP-PT2": "WTP-Pump2",
+  // WTP pumps are now directly driven by MOTOR1_INDACTOR / MOTOR2_INDACTOR — no PT derivation
 };
 
 // MQTT key aliases: maps legacy/alternative key names to canonical PLC tags
 const MQTT_KEY_ALIASES: Record<string, string[]> = {
   // Intake tags — Shahpur PLC tags
-  "INTAKEPT1": ["INTAKEPT1", "PT_1", "PT1", "INTAKE_PT1"],
-  "INTAKEPT2": ["INTAKEPT2", "PT_2", "PT2", "INTAKE_PT2"],
-  "INTAKEHDPT1": ["INTAKEHDPT1", "PT_3", "PT3", "INTAKE_PT3", "HEADER_PT"],
-  "INTAKERLT": ["INTAKERLT", "RLT", "INTAKE_LT", "LEVEL", "Level"],
+  "INTAKEPT1": ["INTAKEPT1", "PUMP1_PT1_ACT", "PT_1", "PT1"],
+  "PUMP1_PT1_ACT": ["PUMP1_PT1_ACT", "INTAKEPT1", "PT_1", "PT1"],
+  "INTAKEPT2": ["INTAKEPT2", "PUMP2_PT2_ACT", "PT_2", "PT2"],
+  "PUMP2_PT2_ACT": ["PUMP2_PT2_ACT", "INTAKEPT2", "PT_2", "PT2"],
+  "INTAKEHDPT1": ["INTAKEHDPT1", "COMMON_HEADER_PT_ACT", "PT_3", "PT3"],
+  "COMMON_HEADER_PT_ACT": ["COMMON_HEADER_PT_ACT", "INTAKEHDPT1", "PT_3", "PT3"],
+  "INTAKERLT": ["INTAKERLT", "RLT_ACT", "RLT"],
+  "RLT_ACT": ["RLT_ACT", "INTAKERLT", "RLT"],
+  "MOTOR1_ON": ["MOTOR1_ON"],
+  "MOTOR2_ON": ["MOTOR2_ON"],
   "INFLOW1": ["INFLOW1", "EFM_FLOW", "FLOW", "INT_FLOW", "IN_FLOW"],
   "INTotalizer1H": ["INTotalizer1H", "INTOTALIZER1H", "EFM", "INT_TOT"],
   "OUTFLOW2": ["OUTFLOW2", "OUTFLOW1", "OUT_FLOW", "CLR_FLOW"],
@@ -137,21 +148,30 @@ const MQTT_KEY_ALIASES: Record<string, string[]> = {
   "OHT_FLOW": ["OHT_FLOW", "FLOW", "Flow", "EFM_FLOW"],
   "OHT_POSICUMVALUE": ["OHT_POSICUMVALUE", "TOTALIZER", "POSICUMVALUE", "EFM"],
   "OHT_DECPOSICUMVALUE": ["OHT_DECPOSICUMVALUE", "DECPOSICUMVALUE"],
-  // WTP tags
-  "BW_LT": ["BW_LEVEL", "BW_LT"],
-  "CWR_LT": ["CWR_LEVEL", "CWR_LT"],
-  "PT_1": ["PT_1", "CWR_PT1", "PT_01"],
-  "PT_2": ["PT_2", "CWR_PT2", "PT_02"],
-  "PT_3": ["PT_3", "PT_03"],
-  "RAW_EFM_FLOW": ["RAW_EFM_FLOW", "FLOWMETER", "FLOW", "FLOW_IN"],
-  "RAW_EFM": ["RAW_EFM", "TOTALIZER", "TOTALIZER_IN"],
-  "CLR_EFM_FLOW": ["CLR_EFM_FLOW", "CWR_FLOW", "FLOW_OUT"],
-  "CLR_EFM": ["CLR_EFM", "CWR_TOT", "TOTALIZER_OUT"],
+  // WTP tags — slave_id=1 real PLC keys (canonical, self-aliased)
+  "TURBIDITY_INLET": ["TURBIDITY_INLET"],
+  "ROF_FB1": ["ROF_FB1"],
+  "LOH_FB1": ["LOH_FB1"],
+  "LOH_FB2": ["LOH_FB2"],
+  "BACKWASH_TANK": ["BACKWASH_TANK", "BW_LT", "BW_LEVEL"],
+  "CWT": ["CWT", "CWR_LT", "CWR_LEVEL"],
+  "PUMP_HOUSE_PT": ["PUMP_HOUSE_PT", "PT_3"],
+  "PUMP_TURBIDITY": ["PUMP_TURBIDITY", "CWR_TB"],
+  "PUMP_PH": ["PUMP_PH", "CWR_PH"],
+  "PUMP_CHLORINE": ["PUMP_CHLORINE", "CWR_CL"],
+  "PUMP1_PT": ["PUMP1_PT", "PT_1"],
+  "PUMP2_PT": ["PUMP2_PT", "PT_2"],
+  "MOTOR1_INDACTOR": ["MOTOR1_INDACTOR"],
+  "MOTOR1_TRIP": ["MOTOR1_TRIP"],
+  "MOTOR2_INDACTOR": ["MOTOR2_INDACTOR"],
+  "MOTOR2_TRIP": ["MOTOR2_TRIP"],
+  // WTP tags — slave_id=4 outlet EFM
+  "OUTLET_FLOW": ["OUTLET_FLOW", "CLR_EFM_FLOW", "FLOW_OUT"],
+  "TOTALIZER": ["TOTALIZER", "CLR_EFM", "TOTALIZER_OUT"],
+  // WTP tags — pending commissioning sensors
+  "RAW_EFM_FLOW": ["RAW_EFM_FLOW", "FLOWMETER", "FLOW_IN"],
+  "RAW_EFM": ["RAW_EFM", "TOTALIZER_IN"],
   "RW_PH": ["RW_PH", "RAW_PH"],
-  "RW_TB": ["RW_TB", "RAW_TR", "RW_TR"],
-  "CWR_PH": ["CWR_PH", "PH", "CW_PH"],
-  "CWR_CL": ["CWR_CL", "CL"],
-  "CWR_TB": ["CWR_TB", "CWR_TR", "TR", "CW_TR"],
   "CWR_TEM": ["CWR_TEM"],
 };
 
@@ -207,6 +227,15 @@ function parsePayload(payload: string): Record<string, string | number>[] {
   try {
     const parsed = JSON.parse(payload);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      // Handle equipment_data dictionary extraction
+      if ((parsed as any).equipment_data && typeof (parsed as any).equipment_data === "object" && !Array.isArray((parsed as any).equipment_data)) {
+        Object.entries((parsed as any).equipment_data).forEach(([key, val]) => {
+          const parsedVal = typeof val === "number" ? val : (isNaN(Number(val)) || val === "" || val === null ? val : Number(val));
+          results.push({ [key]: parsedVal as any });
+        });
+        if (results.length > 0) return results;
+      }
+
       // Handle params.r_data or direct r_data array
       const rData = (parsed as any).params?.r_data || (parsed as any).r_data;
       if (Array.isArray(rData)) {
@@ -347,7 +376,29 @@ async function collectSnapshot(
     client.on("message", (topic: string, payload: Buffer, packet: { retain?: boolean }) => {
       // Retained packets have no trustworthy acquisition timestamp in these RTUs.
       if (settled || packet.retain) return;
-      const mapped = topicToSection.get(topic) || { section: "unknown" as const };
+      let mapped = topicToSection.get(topic);
+      if (!mapped || mapped.section === "unknown") {
+        const lowerTopic = topic.toLowerCase();
+        if (lowerTopic.includes("wtp")) {
+          mapped = { section: "wtp" };
+        } else if (lowerTopic.includes("intake") || lowerTopic.includes("int")) {
+          mapped = { section: "intake" };
+        } else if (lowerTopic.includes("oht")) {
+          const sub = lowerTopic.includes("02") || lowerTopic.includes("oht2") || lowerTopic.includes("oht-2") ? "OHT-2" : "OHT-1";
+          mapped = { section: "oht", subsection: sub };
+        } else {
+          const payloadStr = payload.toString();
+          if (payloadStr.includes("ROF_FB1") || payloadStr.includes("LOH_FB1") || payloadStr.includes("CWT") || payloadStr.includes("BACKWASH_TANK")) {
+            mapped = { section: "wtp" };
+          } else if (payloadStr.includes("PUMP1_PT1_ACT") || payloadStr.includes("COMMON_HEADER_PT_ACT") || payloadStr.includes("RLT_ACT") || payloadStr.includes("INTAKEPT")) {
+            mapped = { section: "intake" };
+          } else if (payloadStr.includes("OHT_PT_1") || payloadStr.includes("OHT_LT")) {
+            mapped = { section: "oht", subsection: "OHT-1" };
+          } else {
+            mapped = { section: "unknown" as const };
+          }
+        }
+      }
       const combined: Record<string, string | number> = {};
       parsePayload(payload.toString()).forEach(part => Object.assign(combined, part));
       if (Object.keys(combined).length > 0) {
@@ -408,8 +459,12 @@ function mapReadings(msg: ParsedMessage) {
     rows.set(sensor.id, {tag_id:sensor.id, section:sensor.section, value:normalized,
       quality:'good', received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
     const pump = PT_TO_PUMP[sensor.id];
-    if (pump) rows.set(pump, {tag_id:pump,section:sensor.section,value:normalized > 1.5 ? 1 : 0,
+    if (pump && !rows.has(pump)) {
+      const directKey = SENSORS.find(s => s.id === pump)?.mqttKey;
+      const hasDirectTag = directKey && (msg.payload[directKey] !== undefined || (MQTT_KEY_ALIASES[directKey] && MQTT_KEY_ALIASES[directKey].some(a => msg.payload[a] !== undefined)));
+      if (!hasDirectTag) rows.set(pump, {tag_id:pump,section:sensor.section,value:normalized > 1.5 ? 1 : 0,
       quality:'good',received_at:msg.timestamp.toISOString(),mqtt_topic:msg.topic});
+    }
   }
   return [...rows.values()];
 }
@@ -559,6 +614,32 @@ Deno.serve(async (req: Request) => {
 
     for (const entry of Array.from(byTag.values())) {
       const { sensor, value, topic, at } = entry;
+
+      // --- Trip Sensor Special Case (WTP-Trip1 / WTP-Trip2) ---
+      // Digital motor trip indicators. instrumentType='pump' but must NOT be skipped.
+      // value=1 means motor tripped -> Critical alarm fires even on HTTPS via backend job.
+      const isTripSensor = sensor.id === 'WTP-Trip1' || sensor.id === 'WTP-Trip2';
+      if (isTripSensor) {
+        if (value >= 1 && !recentAlarmSet.has(`${sensor.id}-High`)) {
+          const cfg = configs?.find((c: any) => c.tag_id === sensor.id && c.section === sensor.section);
+          alarmsToInsert.push({
+            tag_id: sensor.id,
+            tag_config_id: cfg?.id || null,
+            label: sensor.label,
+            value: 1,
+            unit: '',
+            alarm_type: 'High',
+            message: `CRITICAL: ${sensor.label} — MOTOR TRIPPED (backend:5min detection)`,
+            section: sensor.section,
+            source: 'backend:5min',
+            acknowledged: false,
+            email_sent: false,
+          });
+        }
+        continue; // Skip standard High/Low for trip sensors
+      }
+
+      // Skip all other pump/totalizer sensors for standard alarm evaluation
       if (sensor.instrumentType === "pump" || sensor.instrumentType === "totalizer") continue;
 
       const cfg = configs?.find((c: any) => c.tag_id === sensor.id && c.section === sensor.section);

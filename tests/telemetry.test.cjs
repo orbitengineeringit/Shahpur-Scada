@@ -231,3 +231,62 @@ test('Garud GIS sync enforces uncommissioned station omission and MQTT freshness
   assert.match(gisUiCode, /\(success\s*&&\s*included\)\s*\?\s*'SENT'/);
 });
 
+test('Intake PLC active keys, equipment_data extraction, and WTP LOH/ROF ranges work as expected', () => {
+  const rawPayload = JSON.stringify({
+    equipment_data: {
+      PUMP1_PT1_ACT: 2.45,
+      PUMP2_PT2_ACT: 0.0,
+      COMMON_HEADER_PT_ACT: 2.30,
+      RLT_ACT: 45.5,
+      MOTOR1_ON: 1,
+      MOTOR2_ON: 0,
+      ROF_FB1: 82.59,
+      LOH_FB1: 15.3,
+    }
+  });
+  const parsed = Object.assign({}, ...parsePayload(rawPayload));
+  assert.equal(parsed.PUMP1_PT1_ACT, 2.45);
+  assert.equal(parsed.RLT_ACT, 45.5);
+  assert.equal(parsed.MOTOR1_ON, 1);
+
+  const intakeReadings = map('intake', parsed);
+  assert.equal(intakeReadings.find(r => r.tag_id === 'INT-PT1')?.value, 2.45);
+  assert.equal(intakeReadings.find(r => r.tag_id === 'INT-HeaderPT')?.value, 2.30);
+  assert.equal(intakeReadings.find(r => r.tag_id === 'INT-LT')?.value, 45.5);
+  assert.equal(intakeReadings.find(r => r.tag_id === 'INT-Pump1')?.value, 1);
+
+  const wtpReadings = map('wtp', parsed);
+  assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-LOH-FB1')?.value, 15.3);
+  assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-ROF-FB1')?.value, 82.59);
+});
+
+test('Direct digital motor status takes precedence over PT derivation in any key order', () => {
+  const r1 = map('intake', { MOTOR1_ON: 0, PUMP1_PT1_ACT: 2.85 });
+  assert.equal(r1.find(r => r.tag_id === 'INT-Pump1')?.value, 0);
+
+  const r2 = map('intake', { PUMP1_PT1_ACT: 2.85, MOTOR1_ON: 0 });
+  assert.equal(r2.find(r => r.tag_id === 'INT-Pump1')?.value, 0);
+
+  const r3 = map('intake', { PUMP1_PT1_ACT: 2.85 });
+  assert.equal(r3.find(r => r.tag_id === 'INT-Pump1')?.value, 1);
+});
+
+test('WTP aliases map accurately to sensors in scada-ingest', () => {
+  const wtpAliases = map('wtp', {
+    BW_LT: 65.5,
+    CWR_LT: 80.2,
+    PT_1: 2.1,
+    PT_2: 0.0,
+    PT_3: 3.4,
+    CLR_EFM_FLOW: 45.6,
+    CLR_EFM: 12050,
+  });
+  assert.equal(wtpAliases.find(r => r.tag_id === 'WTP-LT-BW')?.value, 65.5);
+  assert.equal(wtpAliases.find(r => r.tag_id === 'WTP-LT-CW')?.value, 80.2);
+  assert.equal(wtpAliases.find(r => r.tag_id === 'WTP-PT1')?.value, 2.1);
+  assert.equal(wtpAliases.find(r => r.tag_id === 'WTP-HeaderPT')?.value, 3.4);
+  assert.equal(wtpAliases.find(r => r.tag_id === 'WTP-Flow-OUT')?.value, 45.6);
+  assert.equal(wtpAliases.find(r => r.tag_id === 'WTP-Totalizer-OUT')?.value, 12050);
+});
+
+

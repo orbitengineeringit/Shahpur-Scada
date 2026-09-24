@@ -124,7 +124,7 @@ export const useMqttTagSync = (
       const flowVal = getSectionFlowValue('intake', 'INT-Flow-OUT');
       return flowVal < 5.0;
     }
-    if (sensorId.startsWith('WTP-PT') || sensorId.startsWith('WTP-CombinedPT')) {
+    if (sensorId.startsWith('WTP-PT') || sensorId.startsWith('WTP-CombinedPT') || sensorId === 'WTP-HeaderPT') {
       const flowVal = getSectionFlowValue('wtp', 'WTP-Flow-IN');
       return flowVal < 5.0;
     }
@@ -376,6 +376,12 @@ export const useMqttTagSync = (
         s.mqttKey === mqttKey ||
         s.mqttKey.toUpperCase() === mqttKey.toUpperCase() ||
         // Shahpur Intake sensors
+        (mqttKey === 'PUMP1_PT1_ACT' && s.id === 'INT-PT1') ||
+        (mqttKey === 'PUMP2_PT2_ACT' && s.id === 'INT-PT2') ||
+        (mqttKey === 'COMMON_HEADER_PT_ACT' && (s.id === 'INT-HeaderPT' || s.id === 'INT-CombinedPT')) ||
+        (mqttKey === 'RLT_ACT' && s.id === 'INT-LT') ||
+        (mqttKey === 'MOTOR1_ON' && s.id === 'INT-Pump1') ||
+        (mqttKey === 'MOTOR2_ON' && s.id === 'INT-Pump2') ||
         (mqttKey === 'INTAKEPT1' && s.id === 'INT-PT1') ||
         (mqttKey === 'INTAKEPT2' && s.id === 'INT-PT2') ||
         (mqttKey === 'INTAKEHDPT1' && (s.id === 'INT-HeaderPT' || s.id === 'INT-CombinedPT')) ||
@@ -391,10 +397,21 @@ export const useMqttTagSync = (
         (mqttKey === 'OHT_FLOW' && (s.id.endsWith('-Flow') || s.id.endsWith('-Flow-IN'))) ||
         (mqttKey === 'OHT_POSICUMVALUE' && s.id.endsWith('-Totalizer')) ||
         (mqttKey === 'OHT_DECPOSICUMVALUE' && s.id.endsWith('-DecrTotalizer')) ||
+        // Shahpur WTP aliases
+        ((mqttKey === 'BACKWASH_TANK' || mqttKey === 'BW_LT' || mqttKey === 'BW_LEVEL') && s.id === 'WTP-LT-BW') ||
+        ((mqttKey === 'CWT' || mqttKey === 'CWR_LT' || mqttKey === 'CWR_LEVEL') && s.id === 'WTP-LT-CW') ||
+        ((mqttKey === 'PUMP_HOUSE_PT' || mqttKey === 'PT_3') && s.id === 'WTP-HeaderPT') ||
+        ((mqttKey === 'PUMP_TURBIDITY' || mqttKey === 'CWR_TB') && s.id === 'WTP-TA') ||
+        ((mqttKey === 'PUMP_PH' || mqttKey === 'CWR_PH') && s.id === 'WTP-PH') ||
+        ((mqttKey === 'PUMP_CHLORINE' || mqttKey === 'CWR_CL') && s.id === 'WTP-CL') ||
+        ((mqttKey === 'PUMP1_PT' || mqttKey === 'PT_1') && (s.id === 'INT-PT1' || s.id === 'WTP-PT1')) ||
+        ((mqttKey === 'PUMP2_PT' || mqttKey === 'PT_2') && (s.id === 'INT-PT2' || s.id === 'WTP-PT2')) ||
+        ((mqttKey === 'OUTLET_FLOW' || mqttKey === 'CLR_EFM_FLOW') && s.id === 'WTP-Flow-OUT') ||
+        ((mqttKey === 'TOTALIZER' || mqttKey === 'CLR_EFM') && s.id === 'WTP-Totalizer-OUT') ||
+        ((mqttKey === 'RAW_EFM_FLOW' || mqttKey === 'FLOWMETER') && s.id === 'WTP-Flow-IN') ||
+        ((mqttKey === 'RAW_EFM' || mqttKey === 'TOTALIZER_IN') && s.id === 'WTP-Totalizer-IN') ||
+        ((mqttKey === 'RW_PH' || mqttKey === 'RAW_PH') && s.id === 'WTP-PH-IN') ||
         // Fallback / legacy aliases
-        (mqttKey === 'PT_1' && (s.id === 'INT-PT1' || s.id === 'WTP-PT1')) ||
-        (mqttKey === 'PT_2' && (s.id === 'INT-PT2' || s.id === 'WTP-PT2')) ||
-        (mqttKey === 'PT_3' && (s.id === 'INT-HeaderPT' || s.id === 'WTP-HeaderPT')) ||
         (mqttKey === 'RLT' && s.id === 'INT-LT')
       );
       if (!sensor) continue;
@@ -608,8 +625,38 @@ export const useMqttTagSync = (
         }
       }
 
-      // --- Pump State Derivation (Strictly driven by Pressure Transmitter: PT > 1.5 Bar = ON, <= 1.5 Bar = OFF) ---
-      let pumpValue = sensor.instrumentType === 'pt' ? (displayValue > 1.5 ? 1 : 0) : null;
+      // --- Pump State Derivation ---
+      // For sensors with instrumentType==='pump' and a real mqttKey (WTP pumps): value IS the pump state (0 or 1)
+      // For PT sensors: derive pump state via PT_TO_PUMP_MAP (Intake VT pumps)
+      let pumpValue: number | null = null;
+      if (sensor.instrumentType === 'pump' && sensor.mqttKey) {
+        // Direct digital indicator — WTP-Pump1 / WTP-Pump2 (MOTOR1_INDACTOR / MOTOR2_INDACTOR)
+        pumpValue = Math.round(displayValue); // 0 or 1
+      } else if (sensor.instrumentType === 'pt') {
+        pumpValue = displayValue > 1.5 ? 1 : 0;
+      }
+
+      // --- Trip Alarm Logic (WTP-Trip1 / WTP-Trip2, no debounce) ---
+      if (sensor.id === 'WTP-Trip1' || sensor.id === 'WTP-Trip2') {
+        const tripKey = `${sensorId}-TripAlarm`;
+        if (displayValue >= 1) {
+          if (!alarmActiveSince.current.get(tripKey)) {
+            alarmActiveSince.current.set(tripKey, nowTime);
+            addAlarm({
+              tagId: sensorId,
+              tagConfigId: existingTag?.dbId,
+              label: sensor.label,
+              value: 1,
+              unit: '',
+              type: 'High',
+              message: `CRITICAL: ${sensor.label} — MOTOR TRIPPED`,
+              section: 'wtp',
+            });
+          }
+        } else {
+          alarmActiveSince.current.delete(tripKey);
+        }
+      }
 
       // --- Pump Motor Short Cycling Watchdog (MCC Rule 2) ---
       const pumpId = PT_TO_PUMP_MAP[sensorId];
@@ -646,12 +693,22 @@ export const useMqttTagSync = (
       setter(prev => {
         return prev.map(t => {
           if (t.id === sensorId) {
+            // For pump sensors with real mqttKey (WTP-Pump1/2), value IS the pump state
+            const tagValue = sensor.instrumentType === 'pump' && sensor.mqttKey
+              ? (pumpValue ?? displayValue)
+              : displayValue;
             return {
-              ...t, value: displayValue, timestamp: receivedAt, source: 'mqtt' as const,
+              ...t, value: tagValue, timestamp: receivedAt, source: 'mqtt' as const,
               mqttTopic: topic, isActive: true, lastDataTime: receivedAt, status: 'connected' as const
             };
           }
-          if (pumpId && t.id === pumpId && pumpValue !== null) {
+          // PT_TO_PUMP_MAP: Intake VT pumps derived from PT sensor reading (only if no direct motor tag in payload)
+          const pumpSensor = sensors.find(s => s.id === pumpId);
+          const hasDirectPumpTag = pumpSensor?.mqttKey && (
+            effectivePayload[pumpSensor.mqttKey] !== undefined ||
+            effectivePayload[pumpSensor.mqttKey.toUpperCase()] !== undefined
+          );
+          if (pumpId && t.id === pumpId && pumpValue !== null && sensor.instrumentType === 'pt' && !hasDirectPumpTag) {
             return {
               ...t, value: pumpValue, timestamp: receivedAt, source: 'mqtt' as const,
               mqttTopic: topic, isActive: true, lastDataTime: receivedAt, status: 'connected' as const
@@ -661,6 +718,7 @@ export const useMqttTagSync = (
         });
       });
     }
+
 
     // ==========================================
     // --- 9. Multi-Sensor Cross-Validation (MIV & Ultra-MIV) ---
@@ -746,9 +804,9 @@ export const useMqttTagSync = (
     // -- Ultra-MIV Rule 2: Pipeline Burst Check --
     if (section === 'wtp') {
       const flowIn = latestValues.get('WTP-Flow-IN') || 0;
-      const combinedPT = latestValues.get('WTP-CombinedPT1') || 0;
+      const combinedPT = latestValues.get('WTP-HeaderPT') || 0;
       const flowTag = tags.find(t => t.id === 'WTP-Flow-IN');
-      const ptTag = tags.find(t => t.id === 'WTP-CombinedPT1');
+      const ptTag = tags.find(t => t.id === 'WTP-HeaderPT');
       
       const isFlowActive = flowTag && flowTag.status === 'connected' && flowIn > 120.0;
       const isPressureLow = ptTag && ptTag.status === 'connected' && combinedPT < 0.6;
@@ -761,7 +819,7 @@ export const useMqttTagSync = (
         } else if (nowTime - burstStart > 45000) {
           const msg = `Critical Process Alert: Major Pipeline Burst / Leakage suspected (Flow: ${flowIn.toFixed(1)} m³/hr, pressure: ${combinedPT.toFixed(2)} Bar)`;
           addAlarm({
-            tagId: 'WTP-CombinedPT1', tagConfigId: ptTag.dbId, label: 'Combined Pressure',
+            tagId: 'WTP-HeaderPT', tagConfigId: ptTag.dbId, label: 'Combined Header Pressure',
             value: combinedPT, unit: 'Bar', type: 'Low', message: msg,
             section: 'wtp',
           });
@@ -1221,7 +1279,7 @@ export const useMqttTagSync = (
         } else if (nowTime - ptDiscStart > 30000) {
           const msg = `Sensor Fault: WTP Discharge Pressures Discrepancy (Flow active ${flowVal.toFixed(1)} m³/hr, but both pressures read < 0.2 Bar)`;
           addAlarm({
-            tagId: 'WTP-CombinedPT1', tagConfigId: pt1Tag.dbId, label: 'Combined Pressure',
+            tagId: 'WTP-HeaderPT', tagConfigId: pt1Tag.dbId, label: 'Combined Header Pressure',
             value: 0, unit: 'Bar', type: 'Low', message: msg,
             section: 'wtp',
           });

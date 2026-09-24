@@ -39,12 +39,10 @@ interface MqttContextType {
 }
 
 const getDefaultBrokerUrl = () => {
-  let url = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MQTT_BROKER_URL) || 'ws://mqtt.orbitengineerings.com:8080';
-  const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
-  if (isSecure && url.startsWith('ws://')) {
-    url = url.replace('ws://', 'wss://');
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    return 'wss://mqtt.orbitengineerings.com';
   }
-  return url;
+  return (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MQTT_BROKER_URL) || 'ws://mqtt.orbitengineerings.com:80';
 };
 
 const defaultUsername = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MQTT_USERNAME) || '';
@@ -112,10 +110,27 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
 
         if (data) {
           let brokerUrl = data.broker_url || getDefaultBrokerUrl();
+          // In the browser, raw TCP (mqtt:// or port 1883/8080) cannot be dialed directly.
+          // Sanitize to the active WebSocket endpoint.
+          if (
+            (!brokerUrl.startsWith('ws://') && !brokerUrl.startsWith('wss://')) ||
+            brokerUrl.includes(':1883') ||
+            brokerUrl.includes(':8080')
+          ) {
+            brokerUrl = getDefaultBrokerUrl();
+          }
           const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
-          if (isSecure && brokerUrl.startsWith('ws://')) {
-            brokerUrl = brokerUrl.replace('ws://', 'wss://');
-            if (brokerUrl.includes('broker.hivemq.com:8000')) brokerUrl = brokerUrl.replace(':8000', ':8884');
+          if (isSecure) {
+            if (brokerUrl.includes('mqtt.orbitengineerings.com')) {
+              brokerUrl = 'wss://mqtt.orbitengineerings.com';
+            } else if (brokerUrl.startsWith('ws://')) {
+              brokerUrl = brokerUrl.replace('ws://', 'wss://');
+              if (brokerUrl.includes('broker.hivemq.com:8000')) brokerUrl = brokerUrl.replace(':8000', ':8884');
+            }
+          } else {
+            if (brokerUrl.includes('mqtt.orbitengineerings.com')) {
+              brokerUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MQTT_BROKER_URL) || 'ws://mqtt.orbitengineerings.com:80';
+            }
           }
           const dbTopics = {
             OHT1: data.oht_topic || DEFAULT_MQTT_TOPICS.OHT1,
@@ -172,6 +187,14 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
     try {
       const parsed = JSON.parse(payload);
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        if (parsed.equipment_data && typeof parsed.equipment_data === 'object' && !Array.isArray(parsed.equipment_data)) {
+          Object.entries(parsed.equipment_data).forEach(([key, val]) => {
+            const parsedVal = typeof val === 'number' ? val : (isNaN(Number(val)) || val === '' || val === null ? val : Number(val));
+            results.push({ [key]: parsedVal });
+          });
+          return results;
+        }
+
         // Handle params.r_data format (e.g. { params: { r_data: [ { name: "PT_01", value: "10" } ] } })
         const rData = parsed.params?.r_data || parsed.r_data;
         if (Array.isArray(rData)) {
@@ -262,9 +285,9 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
 
     // Payload tag inspection fallback
     if (payloadStr) {
-      if (payloadStr.includes('02500225110500007982') || payloadStr.includes('INTAKEPT') || payloadStr.includes('INFLOW') || payloadStr.includes('INT_')) return { section: 'intake' };
+      if (payloadStr.includes('02500225110500007982') || payloadStr.includes('INTAKEPT') || payloadStr.includes('INFLOW') || payloadStr.includes('INT_') || payloadStr.includes('PUMP1_PT1_ACT') || payloadStr.includes('COMMON_HEADER_PT_ACT') || payloadStr.includes('RLT_ACT')) return { section: 'intake' };
       if (payloadStr.includes('02500225110500007512') || payloadStr.includes('OHT_PT_') || payloadStr.includes('OHT_LT') || payloadStr.includes('OHT_FLOW')) return { section: 'oht', subsection: 'OHT-1' };
-      if (payloadStr.includes('RAW_PH') || payloadStr.includes('RAW_EFM') || payloadStr.includes('CWR_') || payloadStr.includes('BW_LT')) return { section: 'wtp' };
+      if (payloadStr.includes('RAW_PH') || payloadStr.includes('RAW_EFM') || payloadStr.includes('CWR_') || payloadStr.includes('BW_LT') || payloadStr.includes('ROF_FB1') || payloadStr.includes('LOH_FB1')) return { section: 'wtp' };
     }
 
     return { section: 'unknown' };
@@ -272,9 +295,6 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
 
   const connect = useCallback(async () => {
     if (isConnectingRef.current || clientRef.current?.connected) return;
-    // This broker's 8080 listener has no working TLS websocket endpoint.
-    // HTTPS dashboards receive the server TCP collector via Supabase Realtime.
-    if (window.location.protocol === 'https:' && config.brokerUrl.includes('mqtt.orbitengineerings.com:8080')) return;
     isConnectingRef.current = true;
     setIsConnecting(true);
     setLastError(null);

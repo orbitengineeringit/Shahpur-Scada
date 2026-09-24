@@ -554,17 +554,38 @@ const WtpProcessSimulation: React.FC = () => {
   const kwVal = 0;
   const kwConnection = 'no-data' as const;
 
+  // Filter Bed tags (new — real PLC data)
+  const rofFb1Tag = findTag('WTP-ROF-FB1');
+  const lohFb1Tag = findTag('WTP-LOH-FB1');
+  const lohFb2Tag = findTag('WTP-LOH-FB2');
+  const rofFb1Val = rofFb1Tag?.value ?? 0;
+  const lohFb1Val = lohFb1Tag?.value ?? 0;
+  const lohFb2Val = lohFb2Tag?.value ?? 0;
+
+  // Trip indicators (new — real PLC data)
+  const trip1Tag = findTag('WTP-Trip1');
+  const trip2Tag = findTag('WTP-Trip2');
+  const pump1Trip = (trip1Tag?.value ?? 0) >= 1;
+  const pump2Trip = (trip2Tag?.value ?? 0) >= 1;
+
   const pt1Tag = findTag('WTP-PT1');
   const pt2Tag = findTag('WTP-PT2');
   const pump1Tag = findTag('WTP-Pump1');
   const pump2Tag = findTag('WTP-Pump2');
   const pt1Val = pt1Tag?.value ?? 0;
   const pt2Val = pt2Tag?.value ?? 0;
-  const headerPtVal = findTag('WTP-HeaderPT')?.value ?? 0; // PT_3 = Combined Header Pressure
+  const headerPtVal = findTag('WTP-HeaderPT')?.value ?? 0; // PUMP_HOUSE_PT = Combined Header Pressure
 
-  const pump1On = (pt1Tag?.status === 'connected' && pt1Val > 1.5) || (pump1Tag?.status === 'connected' && pump1Tag?.value === 1);
-  const pump2On = (pt2Tag?.status === 'connected' && pt2Val > 1.5) || (pump2Tag?.status === 'connected' && pump2Tag?.value === 1);
+  // WTP pumps: directly driven by MOTOR1_INDACTOR / MOTOR2_INDACTOR (0 = OFF, 1 = ON)
+  // Fallback to PT threshold only if pump tag has no data yet
+  const pump1On = pump1Tag?.status === 'connected'
+    ? (pump1Tag.value ?? 0) >= 1
+    : (pt1Tag?.status === 'connected' && pt1Val > 1.5);
+  const pump2On = pump2Tag?.status === 'connected'
+    ? (pump2Tag.value ?? 0) >= 1
+    : (pt2Tag?.status === 'connected' && pt2Val > 1.5);
   const anyPumpOn = pump1On || pump2On;
+
 
   // Combined header pressure: use direct PLC reading (PT_3/WTP-HeaderPT) if available,
   // otherwise derive from individual pump PT readings
@@ -577,7 +598,7 @@ const WtpProcessSimulation: React.FC = () => {
   }, [headerPtVal, pump1On, pump2On, pt1Val, pt2Val]);
 
   // Cross-logic
-  const waterFlowing = flowInVal > 0.1;
+  const waterFlowing = flowInVal > 0.1 || rofFb1Val > 0.1;
   const chlorinationOn = waterFlowing || anyPumpOn || ltCwVal > 5;
 
   // Visual Constants
@@ -1263,6 +1284,51 @@ const WtpProcessSimulation: React.FC = () => {
           <text x={filterX + filterW / 2} y={processY + filterH + 20} textAnchor="middle" fontSize="12" fontWeight="800" fill="hsl(var(--foreground))">RAPID SAND FILTERS</text>
           <StatusBadge x={filterX + filterW / 2} y={processY + filterH + 28} isOn={waterFlowing} />
 
+          {/* Filter Bed LCD Readout — ROF & LOH from real PLC data */}
+          {(() => {
+            const lcdX = filterX + filterW / 2;
+            const lcdY = processY + filterH + 52;
+            const lcdW = filterW + 20;
+            const lcdH = 78;
+            const rofColor = rofFb1Val > 0.1 ? '#22c55e' : '#64748b';
+            const loh1Color = lohFb1Val > 3.5 ? '#ef4444' : lohFb1Val > 2 ? '#f59e0b' : '#22c55e';
+            const loh2Color = lohFb2Val > 3.5 ? '#ef4444' : lohFb2Val > 2 ? '#f59e0b' : '#22c55e';
+            return (
+              <g>
+                <rect x={lcdX - lcdW / 2} y={lcdY} width={lcdW} height={lcdH} rx={6}
+                  fill="#0f172a" stroke="#334155" strokeWidth="1.5" />
+                <rect x={lcdX - lcdW / 2 + 3} y={lcdY + 3} width={lcdW - 6} height={lcdH - 6} rx={4}
+                  fill="#0f172a" />
+                {/* Title bar */}
+                <text x={lcdX} y={lcdY + 16} textAnchor="middle" fontSize="8" fontWeight="700"
+                  fill="#94a3b8" fontFamily="ui-monospace, monospace" letterSpacing="1.5px">
+                  FILTER BED MONITOR
+                </text>
+                {/* ROF */}
+                <text x={lcdX - lcdW / 2 + 10} y={lcdY + 33} textAnchor="start" fontSize="8"
+                  fill="#64748b" fontFamily="ui-monospace, monospace">ROF:</text>
+                <text x={lcdX + lcdW / 2 - 10} y={lcdY + 33} textAnchor="end" fontSize="10" fontWeight="800"
+                  fill={rofColor} fontFamily="ui-monospace, monospace">
+                  {rofFb1Val.toFixed(2)} <tspan fontSize="7" fill="#94a3b8">m³</tspan>
+                </text>
+                {/* LOH FB1 */}
+                <text x={lcdX - lcdW / 2 + 10} y={lcdY + 50} textAnchor="start" fontSize="8"
+                  fill="#64748b" fontFamily="ui-monospace, monospace">LOH-FB1:</text>
+                <text x={lcdX + lcdW / 2 - 10} y={lcdY + 50} textAnchor="end" fontSize="10" fontWeight="800"
+                  fill={loh1Color} fontFamily="ui-monospace, monospace">
+                  {lohFb1Val.toFixed(2)} <tspan fontSize="7" fill="#94a3b8">m</tspan>
+                </text>
+                {/* LOH FB2 */}
+                <text x={lcdX - lcdW / 2 + 10} y={lcdY + 67} textAnchor="start" fontSize="8"
+                  fill="#64748b" fontFamily="ui-monospace, monospace">LOH-FB2:</text>
+                <text x={lcdX + lcdW / 2 - 10} y={lcdY + 67} textAnchor="end" fontSize="10" fontWeight="800"
+                  fill={loh2Color} fontFamily="ui-monospace, monospace">
+                  {lohFb2Val.toFixed(2)} <tspan fontSize="7" fill="#94a3b8">m</tspan>
+                </text>
+              </g>
+            );
+          })()}
+
           {/* Backwash Tank — positioned above filter (unchanged) */}
           <rect x={bwTankX} y={bwTankY} width={bwTankW} height={bwTankH} rx={4}
             fill="url(#wtp-concrete)" stroke="#334155" strokeWidth="2" />
@@ -1556,6 +1622,29 @@ const WtpProcessSimulation: React.FC = () => {
           <text key={i} x={px + pumpW / 2} y={pumpRowY + pumpH + 16} textAnchor="middle" fontSize="11" fontWeight="900"
             fill={pumpOns[i] ? '#22c55e' : '#ef4444'}>● {pumpOns[i] ? 'ON' : 'OFF'}</text>
         ))}
+
+        {/* HT Pump Trip Indicator Badges */}
+        {pump1Trip && (
+          <g>
+            <rect x={pump1X + pumpW / 2 - 32} y={pumpRowY - 32} width={64} height={20} rx={10}
+              fill="hsl(0 85% 50% / 0.9)" stroke="hsl(0 90% 35%)" strokeWidth="1.5">
+              <animate attributeName="opacity" values="1;0.4;1" dur="0.7s" repeatCount="indefinite" />
+            </rect>
+            <text x={pump1X + pumpW / 2} y={pumpRowY - 17} textAnchor="middle" fontSize="9" fontWeight="900"
+              fill="white" letterSpacing="1px">⚠ TRIP</text>
+          </g>
+        )}
+        {pump2Trip && (
+          <g>
+            <rect x={pump2X + pumpW / 2 - 32} y={pumpRowY - 32} width={64} height={20} rx={10}
+              fill="hsl(0 85% 50% / 0.9)" stroke="hsl(0 90% 35%)" strokeWidth="1.5">
+              <animate attributeName="opacity" values="1;0.4;1" dur="0.7s" repeatCount="indefinite" />
+            </rect>
+            <text x={pump2X + pumpW / 2} y={pumpRowY - 17} textAnchor="middle" fontSize="9" fontWeight="900"
+              fill="white" letterSpacing="1px">⚠ TRIP</text>
+          </g>
+        )}
+
 
         {/* ═══ INDIVIDUAL PT GAUGES (below each pump) ═══ */}
         <g>
