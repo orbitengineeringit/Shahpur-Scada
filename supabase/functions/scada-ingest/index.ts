@@ -106,7 +106,7 @@ const SENSORS: Sensor[] = [
   { id: "WTP-CL", mqttKey: "PUMP_CHLORINE", label: "Outlet Chlorine", unit: "PPM", min: 0, max: 20, section: "wtp", instrumentType: "chlorine" },
   { id: "WTP-TA", mqttKey: "PUMP_TURBIDITY", label: "Outlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
   { id: "WTP-TEM", mqttKey: "CWR_TEM", label: "Outlet Temperature", unit: "°C", min: 0, max: 60, section: "wtp", instrumentType: "temperature" },
-  { id: "WTP-ROF-FB1", mqttKey: "ROF_FB1", label: "Rate of Flow (Filter Bed 1)", unit: "m³", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
+  { id: "WTP-ROF-FB1", mqttKey: "ROF_FB1", label: "Rate of Flow (Filter Bed 1)", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "flow" },
   { id: "WTP-LOH-FB1", mqttKey: "LOH_FB1", label: "Loss of Head (FB1)", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
   { id: "WTP-LOH-FB2", mqttKey: "LOH_FB2", label: "Loss of Head (FB2)", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
   { id: "WTP-Pump1", mqttKey: "MOTOR1_INDACTOR", label: "HT Pump 1", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },

@@ -1226,7 +1226,7 @@ const WtpProcessSimulation: React.FC = () => {
             // Bar percentages
             const loh1Pct = Math.min(100, Math.max(0, lohFb1Val));
             const loh2Pct = Math.min(100, Math.max(0, lohFb2Val));
-            const rofPct = Math.min(100, Math.max(0, (rofFb1Val / 150) * 100));
+            const rofPct = Math.min(100, Math.max(0, rofFb1Val));
 
             return (
               <g>
@@ -1293,7 +1293,7 @@ const WtpProcessSimulation: React.FC = () => {
                   )}
                   <text x={cX + 14} y={cY + 65} fontSize="12" fontWeight="900" fill={rofColor} fontFamily="ui-monospace, monospace">
                     {rofFb1Val.toFixed(2)}
-                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> m³</tspan>
+                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> %</tspan>
                   </text>
                   {/* Micro Flow Meter Bar */}
                   <rect x={cX + 14} y={cY + 68} width={86} height={2.5} rx={1.2} fill="hsl(var(--muted) / 0.4)" />

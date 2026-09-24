@@ -272,7 +272,8 @@ test('Intake PLC active keys, equipment_data extraction, and WTP LOH/ROF ranges 
   assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB2')?.mqttKey, 'LOH_FB2');
   assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB1')?.unit, '%');
   assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB1')?.max, 100);
-  assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.unit, 'm³');
+  assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.unit, '%');
+  assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.max, 100);
 });
 
 test('Intake totalizers combine complete 32-bit register pairs only', () => {

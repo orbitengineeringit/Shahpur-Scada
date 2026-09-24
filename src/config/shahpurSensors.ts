@@ -143,7 +143,7 @@ export const WTP_SENSORS: ShahpurSensor[] = [
   // Temperature — no live data yet (pending commissioning); hidden from cards view
   { id: 'WTP-TEM', mqttKey: 'CWR_TEM', label: 'Outlet Temperature', unit: '°C', min: 0, max: 60, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'temperature', pendingCommissioning: true, notInstalled: true },
   // Filter Bed sensors — real data from slave_id=1
-  { id: 'WTP-ROF-FB1', mqttKey: 'ROF_FB1', label: 'Rate of Flow (Filter Bed 1)', unit: 'm³', min: 0, max: 200, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'flow' },
+  { id: 'WTP-ROF-FB1', mqttKey: 'ROF_FB1', label: 'Rate of Flow (Filter Bed 1)', unit: '%', min: 0, max: 100, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'flow' },
   { id: 'WTP-LOH-FB1', mqttKey: 'LOH_FB1', label: 'Loss of Head (FB1)', unit: '%', min: 0, max: 100, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'lt' },
   { id: 'WTP-LOH-FB2', mqttKey: 'LOH_FB2', label: 'Loss of Head (FB2)', unit: '%', min: 0, max: 100, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'lt' },
   // HT Pumps — now directly driven by PLC digital outputs
