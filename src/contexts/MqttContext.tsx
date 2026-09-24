@@ -90,7 +90,7 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
         let vaultTopics: Record<string, string> | undefined = undefined;
         try {
           const { data: session } = await supabase.auth.getSession();
-          if (session?.session?.access_token) {
+          if (session?.session?.user && session?.session?.access_token) {
             const { data: creds, error: credErr } = await supabase.functions.invoke('get-mqtt-credentials');
             if (!credErr && creds) {
               if (creds.username) mqttUsername = creds.username;
@@ -99,13 +99,13 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
                 vaultTopics = creds.topics;
                 setTopicsFromDb(creds.topics);
               }
-              logInfo('MqttContext', 'MQTT credentials & topics loaded from Vault');
+              logDebug('MqttContext', 'MQTT credentials & topics loaded from Vault');
             } else {
-              logWarn('MqttContext', 'Could not load MQTT credentials from Vault — using default broker credentials');
+              logDebug('MqttContext', 'Using standard broker configuration');
             }
           }
         } catch (credFetchErr) {
-          logWarn('MqttContext', 'MQTT credentials fetch skipped: ' + String(credFetchErr));
+          logDebug('MqttContext', 'MQTT credentials fetch: ' + String(credFetchErr));
         }
 
         if (data) {
@@ -336,7 +336,7 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
         const topicsToSub = Array.from(new Set([...ALL_MQTT_TOPICS, ...defaultTopicList, 'sahpur/#', 'sahpur/wtp']));
         client.subscribe(topicsToSub, (err) => {
           if (err) { logError('MqttContext.subscribe', err); }
-          else logInfo('MQTT', `Subscribed to ${topicsToSub.length} topics: ${topicsToSub.join(', ')}`);
+          else logDebug('MQTT', `Subscribed to ${topicsToSub.length} topics`);
         });
         if (configRef.current.id) {
           supabase.from('mqtt_config').update({ is_connected: true, last_connected_at: new Date().toISOString() }).eq('id', configRef.current.id).then(() => {});

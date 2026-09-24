@@ -53,8 +53,11 @@ export const logWarn = (context: string, message: string, details?: unknown) => 
 };
 
 /**
- * Safe info logging - always shows context, details only in dev
+ * Safe info logging - only logged in development mode to prevent leaking internal details in production
  */
 export const logInfo = (context: string, message: string) => {
-  console.info(`[${context}] ${message}`);
+  if (isDevelopment) {
+    console.info(`[${context}] ${message}`);
+  }
 };
+
