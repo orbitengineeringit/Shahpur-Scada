@@ -245,8 +245,9 @@ test('Intake PLC active keys, equipment_data extraction, and WTP LOH/ROF ranges 
       RLT_ACT: 45.5,
       MOTOR1_ON: 1,
       MOTOR2_ON: 0,
-      ROF_FB1: 82.59,
-      LOH_FB1: 15.3,
+      ROF_FB1: 82.6520,
+      LOH_FB1: 16.6369,
+      LOH_FB2: 12.5902,
     }
   });
   const parsed = Object.assign({}, ...parsePayload(rawPayload));
@@ -261,8 +262,14 @@ test('Intake PLC active keys, equipment_data extraction, and WTP LOH/ROF ranges 
   assert.equal(intakeReadings.find(r => r.tag_id === 'INT-Pump1')?.value, 1);
 
   const wtpReadings = map('wtp', parsed);
-  assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-LOH-FB1')?.value, 61.2);
-  assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-ROF-FB1')?.value, 82.59);
+  assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-ROF-FB1')?.value, 82.65);
+  assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-LOH-FB1')?.value, 16.64);
+  assert.equal(wtpReadings.find(r => r.tag_id === 'WTP-LOH-FB2')?.value, 12.59);
+  assert.equal(wtpReadings.filter(r => r.tag_id.startsWith('WTP-LOH-')).length, 2);
+  assert.equal(map('wtp', { LOH_FB2: 12.5902 }).map(r => r.tag_id).join(','), 'WTP-LOH-FB2');
+  assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.mqttKey, 'ROF_FB1');
+  assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB1')?.mqttKey, 'LOH_FB1');
+  assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB2')?.mqttKey, 'LOH_FB2');
   assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB1')?.unit, '%');
   assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB1')?.max, 100);
   assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.unit, 'm³');

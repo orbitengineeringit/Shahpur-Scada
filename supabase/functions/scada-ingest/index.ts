@@ -453,12 +453,9 @@ function mapReadings(msg: ParsedMessage) {
     const sensor = sensors.find(s => mqttKeyMatches(s.mqttKey, key));
     if (!sensor) continue;
     const value = raw === '' || raw === null || typeof raw === 'boolean' ? NaN : Number(raw);
-    // Site LOH transmitters use a 0–25 raw scale; persist the calibrated
-    // percentage so live cache, historian and exports share one unit.
-    const engineeringValue = sensor.id.startsWith('WTP-LOH-')
-      ? value * 4
-      : value;
-    const normalized = normalizeSensorValue(sensor, engineeringValue);
+    // equipment_data values are already in their instrument engineering units.
+    // LOH_FB1/LOH_FB2 are percentages, so preserve the PLC value as published.
+    const normalized = normalizeSensorValue(sensor, value);
     rows.set(sensor.id, {tag_id:sensor.id, section:sensor.section, value:normalized,
       quality:'good', received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
     const pump = PT_TO_PUMP[sensor.id];

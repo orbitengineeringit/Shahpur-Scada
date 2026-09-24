@@ -401,11 +401,9 @@ export const useMqttTagSync = (
       // are converted to clean numbers. Negative values are preserved ONLY for sensors that support it (OHT1 flow).
       const allowNegative = sensor.min < 0 || sensor.id === 'OHT1-Flow';
       const sanitizedValue = sanitizeRtuValue(rawValue, allowNegative);
-      // The LOH transmitters publish on their original 0–25 engineering scale.
-      // Store and display the calibrated 0–100 percentage requested by operations.
-      const value = sensor.id.startsWith('WTP-LOH-')
-        ? Math.min(100, sanitizedValue * 4)
-        : sanitizedValue;
+      // WTP equipment_data already contains engineering values. In particular,
+      // LOH_FB1 and LOH_FB2 are direct percentages and must not be rescaled.
+      const value = sanitizedValue;
 
       const sensorId = sensor.id;
       const existingTag = tags.find(t => t.id === sensorId);
