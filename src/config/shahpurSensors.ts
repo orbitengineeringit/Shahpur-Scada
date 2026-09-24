@@ -139,12 +139,14 @@ export const WTP_SENSORS: ShahpurSensor[] = [
   { id: 'WTP-Flow-OUT', mqttKey: 'OUTLET_FLOW', label: 'Outlet Flow Meter', unit: 'm³/hr', min: 0, max: 200, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'flow' },
   { id: 'WTP-Totalizer-OUT', mqttKey: 'TOTALIZER', label: 'Outlet Totalizer', unit: 'm³', min: 0, max: 999999, section: 'wtp', subsection: 'outlet', type: 'totalizer', instrumentType: 'totalizer' },
   // Analyzers — inlet pending, outlet real
-  { id: 'WTP-PH-IN', mqttKey: 'RW_PH', label: 'Inlet pH', unit: 'pH', min: 0, max: 14, section: 'wtp', subsection: 'raw-water', type: 'analog', instrumentType: 'ph', pendingCommissioning: true },
+  // Inlet pH — no live data yet (pending commissioning); hidden from cards view
+  { id: 'WTP-PH-IN', mqttKey: 'RW_PH', label: 'Inlet pH', unit: 'pH', min: 0, max: 14, section: 'wtp', subsection: 'raw-water', type: 'analog', instrumentType: 'ph', pendingCommissioning: true, notInstalled: true },
   { id: 'WTP-TA-IN', mqttKey: 'TURBIDITY_INLET', label: 'Inlet Turbidity', unit: 'NTU', min: 0, max: 100, section: 'wtp', subsection: 'raw-water', type: 'analog', instrumentType: 'turbidity' },
   { id: 'WTP-PH', mqttKey: 'PUMP_PH', label: 'Outlet pH', unit: 'pH', min: 0, max: 14, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'ph' },
   { id: 'WTP-CL', mqttKey: 'PUMP_CHLORINE', label: 'Outlet Chlorine', unit: 'PPM', min: 0, max: 20, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'chlorine' },
   { id: 'WTP-TA', mqttKey: 'PUMP_TURBIDITY', label: 'Outlet Turbidity', unit: 'NTU', min: 0, max: 100, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'turbidity' },
-  { id: 'WTP-TEM', mqttKey: 'CWR_TEM', label: 'Outlet Temperature', unit: '°C', min: 0, max: 60, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'temperature', pendingCommissioning: true },
+  // Temperature — no live data yet (pending commissioning); hidden from cards view
+  { id: 'WTP-TEM', mqttKey: 'CWR_TEM', label: 'Outlet Temperature', unit: '°C', min: 0, max: 60, section: 'wtp', subsection: 'outlet', type: 'analog', instrumentType: 'temperature', pendingCommissioning: true, notInstalled: true },
   // Filter Bed sensors — real data from slave_id=1
   { id: 'WTP-ROF-FB1', mqttKey: 'ROF_FB1', label: 'Rate of Flow (Filter Bed 1)', unit: 'm³/hr', min: 0, max: 200, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'flow' },
   { id: 'WTP-LOH-FB1', mqttKey: 'LOH_FB1', label: 'Loss of Head (FB1)', unit: 'm', min: 0, max: 25, section: 'wtp', subsection: 'filter', type: 'analog', instrumentType: 'lt' },
