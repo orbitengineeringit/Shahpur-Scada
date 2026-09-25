@@ -137,7 +137,7 @@ const OhtAnalyticsCard: React.FC = memo(() => {
       const prefix = `OHT${num}`;
       const findVal = (key: string) => ohtTags.find(t => t.id === `${prefix}-${key}`)?.value ?? 0;
       return {
-        label: num === 1 ? 'OHT - 1 Bus Station' : 'OHT - 2 (Pending Commissioning)',
+        label: num === 1 ? 'OHT - 1 Bus Station' : 'OHT - 2 (Pending)',
         level: findVal('LT'),
         flow: findVal('Flow') || findVal('Flow-IN'),
         pressure: findVal('PT'),

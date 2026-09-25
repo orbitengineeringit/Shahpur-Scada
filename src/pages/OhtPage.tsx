@@ -109,9 +109,9 @@ const OhtPage: React.FC = () => {
       groupKey: 'oht-1',
     },
     {
-      title: 'OHT - 2 (Pending Commissioning)', label: '#2', color: 'bg-accent', colorHsl: '38 92% 50%',
+      title: 'OHT - 2 (Pending)', label: '#2', color: 'bg-accent', colorHsl: '38 92% 50%',
       borderColor: 'border-accent/20', bgColor: 'bg-accent/[0.03]', iconBg: 'bg-accent/10',
-      sensors: OHT2_SENSORS, startIndex: 4, capacity: 'Pending Commissioning • 4 instruments scaffolded',
+      sensors: OHT2_SENSORS, startIndex: 4, capacity: 'OHT-2 • Pending',
       groupKey: 'oht-2',
     },
   ];
@@ -137,7 +137,7 @@ const OhtPage: React.FC = () => {
             </div>
             <div className="min-w-0">
               <h2 className="text-xl leading-tight md:text-2xl font-bold text-foreground">Overhead Tanks (OHT)</h2>
-              <p className="text-sm text-muted-foreground">2 OHT units • Bus Station OHT (Live) & OHT-2 (Pending Commissioning)</p>
+              <p className="text-sm text-muted-foreground">2 OHT units • Bus Station OHT (Live) & OHT-2 (Pending)</p>
             </div>
           </div>
           <div className="flex w-full flex-wrap items-center gap-2 sm:gap-3 sm:w-auto sm:flex-nowrap sm:justify-end">

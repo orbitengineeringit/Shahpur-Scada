@@ -126,7 +126,7 @@ const getDisplaySection = (section: string, tagId: string): string => {
     if (m) {
       const num = m[1];
       if (num === '1') return 'OHT - 1 Bus Station';
-      if (num === '2') return 'OHT - 2 (Pending Commissioning)';
+      if (num === '2') return 'OHT - 2 (Pending)';
       return `OHT-${num}`;
     }
     return 'OHT';

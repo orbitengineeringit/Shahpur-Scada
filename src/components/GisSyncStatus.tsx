@@ -40,7 +40,7 @@ const DEVICES = [
   { key: 'intake', id: 'SHA_INTK_001', label: 'INTAKE WELL', commissioned: true },
   { key: 'wtp', id: 'SHA_WTP_001', label: 'WATER TREATMENT PLANT (WTP)', commissioned: true },
   { key: 'oht1', id: 'SHA_OHT_001', label: 'OHT - 1 Bus Station', commissioned: true },
-  { key: 'oht2', id: 'SHA_OHT_002', label: 'OHT - 2 (Pending Commissioning)', commissioned: false },
+  { key: 'oht2', id: 'SHA_OHT_002', label: 'OHT - 2 (Pending)', commissioned: false },
 ] as const;
 
 const stationDeliveryFromPayload = (payload: unknown, key: string, deviceId: string) => {
@@ -334,7 +334,7 @@ const GisSyncStatus = () => {
           <div>
             <div className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-2 mb-2">
               <h3 className="text-xs font-bold tracking-wider text-foreground">SENSOR SYNC BOARD</h3>
-              <span className="text-[10px] sm:text-[11px] text-muted-foreground">(Intake & OHT-1 active • WTP & OHT-2 pending commissioning)</span>
+              <span className="text-[10px] sm:text-[11px] text-muted-foreground">(Intake, WTP & OHT-1 Live • OHT-2 Pending)</span>
             </div>
             <div className="overflow-x-auto pb-2 -mx-1 px-1">
               <div className="flex gap-3 min-w-min">
@@ -531,7 +531,7 @@ const StationCard = ({ label, deviceId, commissioned = true, success, unknown: u
         ) : (
           <div className="rounded-lg bg-muted/50 px-2.5 py-3 text-[10px] text-muted-foreground text-center">
             {!commissioned
-              ? 'Station pending commissioning — excluded from GIS transmission.'
+              ? 'Station pending telemetry — excluded from GIS transmission.'
               : skipped
                 ? 'No fresh telemetry received from MQTT for this station.'
                 : 'No station payload is available for this attempt.'}
