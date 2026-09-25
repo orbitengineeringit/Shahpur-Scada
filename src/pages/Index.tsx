@@ -354,7 +354,7 @@ const Index = () => {
                   <UserCheck className="w-4 h-4 text-violet-500" />
                 </div>
                 <div className="mt-2">
-                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">M/s. IELMCPPLJV</p>
+                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">M/s. IEL & MCPPLJV</p>
                   <p className="text-[10px] font-semibold text-muted-foreground/80 mt-0.5">Pvt. Ltd.</p>
                 </div>
               </div>

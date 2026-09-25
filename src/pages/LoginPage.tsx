@@ -174,7 +174,7 @@ const LoginPage = () => {
           {/* Plant / Project Headings */}
           <div className="text-center mb-3">
             <h1 className="text-[14.5px] sm:text-[15px] font-extrabold text-[#0a1931] uppercase tracking-wide leading-tight">
-              IELMCPPLJV PVT. LTD.
+              IEL & MCPPLJV PVT. LTD.
             </h1>
             <p className="text-[10.5px] sm:text-[11px] font-medium text-[#4b5563] mt-1 leading-snug">
               Improvement of Water Supply Scheme

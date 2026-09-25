@@ -4,7 +4,7 @@
  * Project: Improvement of Water Supply in Shahpur, Dist- Sagar, Madhya Pradesh (Package-6i)
  * Client: Madhya Pradesh Urban Development Company Limited (MPUDCL)
  * Capacity: 1.75 MLD
- * Contractor: M/s. IELMCPPLJV Pvt. Ltd.
+ * Contractor: M/s. IEL & MCPPLJV Pvt. Ltd.
  * System Integrator: M/s Orbit Engineering Solutions
  * 
  * MQTT topic paths are loaded securely from the database at runtime.
