@@ -1,6 +1,6 @@
 # Shahpur SCADA - Water Supply Scheme Monitoring System
 
-**Package-61 · MPUDCL · 1.75 MLD · Distt. Sagar, M.P.**  
+**Package-6i · MPUDCL · 1.75 MLD · Distt. Sagar, M.P.**  
 **Contractor:** M/s. CMPV Engineering Pvt. Ltd.  
 **System Integrator:** Orbit Engineering Solutions  
 

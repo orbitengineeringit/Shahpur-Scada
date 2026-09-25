@@ -295,7 +295,7 @@ const Index = () => {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
             {/* Left Side: Main Title & SCADA Branding */}
             <div className="lg:col-span-7 text-left space-y-4">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 dark:bg-blue-500/20 border border-blue-500/20 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 font-extrabold text-[10px] sm:text-xs uppercase tracking-widest">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 dark:bg-blue-500/20 border border-blue-500/20 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 font-extrabold text-[10px] sm:text-xs tracking-widest">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                 Package-6i · MPUDCL
               </div>
@@ -433,7 +433,7 @@ const Index = () => {
           {[
             { label: 'Design Capacity', value: '1.75 MLD', color: 'primary', icon: '💧' },
             { label: 'Monitored Stations', value: '3 Units', color: 'success', icon: '🏭' },
-            { label: 'Contract Package', value: 'Pkg-61', color: 'accent', icon: '🏛️' },
+            { label: 'Contract Package', value: 'Pkg-6i', color: 'accent', icon: '🏛️' },
           ].map((stat, i) => (
             <div key={stat.label}
               className="premium-card stat-shine rounded-xl p-3 sm:p-5 text-center opacity-0 animate-fade-in"
