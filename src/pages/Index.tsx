@@ -297,7 +297,7 @@ const Index = () => {
             <div className="lg:col-span-7 text-left space-y-4">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 dark:bg-blue-500/20 border border-blue-500/20 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 font-extrabold text-[10px] sm:text-xs uppercase tracking-widest">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                Package-61 · MPUDCL
+                Package-6i · MPUDCL
               </div>
               
               <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-slate-800 dark:text-white leading-tight tracking-tight">
@@ -354,7 +354,7 @@ const Index = () => {
                   <UserCheck className="w-4 h-4 text-violet-500" />
                 </div>
                 <div className="mt-2">
-                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">M/s. CMPV Engineering</p>
+                  <p className="text-xs sm:text-sm font-bold text-foreground leading-snug">M/s. IELMCPPLJV</p>
                   <p className="text-[10px] font-semibold text-muted-foreground/80 mt-0.5">Pvt. Ltd.</p>
                 </div>
               </div>

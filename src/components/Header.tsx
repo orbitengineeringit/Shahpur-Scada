@@ -61,7 +61,7 @@ const Header = memo(forwardRef<HTMLElement>((_, ref) => {
               <div className="flex flex-col items-start leading-none gap-0.5 sm:gap-1">
                 <span className="text-[6px] sm:text-[8px] font-black tracking-[0.2em] text-cyan-600 dark:text-cyan-400 uppercase px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 dark:bg-cyan-400/10 dark:border-cyan-400/20">M/S</span>
                 <span className="text-[9px] sm:text-xs md:text-sm font-black tracking-wider bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-600 dark:from-cyan-400 dark:via-teal-400 dark:to-emerald-400 bg-clip-text text-transparent drop-shadow-sm uppercase font-sans">
-                  CMPV Engineering
+                  IELMCPPLJV
                 </span>
               </div>
             </div>
@@ -73,7 +73,7 @@ const Header = memo(forwardRef<HTMLElement>((_, ref) => {
             </div>
             <h1 className="text-[11px] sm:text-sm md:text-lg lg:text-2xl font-bold text-foreground tracking-tight whitespace-nowrap truncate min-w-0">
               Shahpur <span className="text-gradient-primary">SCADA</span>
-              <span className="hidden md:inline text-[10px] lg:text-xs font-normal text-muted-foreground ml-2">Package-61</span>
+              <span className="hidden md:inline text-[10px] lg:text-xs font-normal text-muted-foreground ml-2">Package-6i</span>
             </h1>
           </div>
 

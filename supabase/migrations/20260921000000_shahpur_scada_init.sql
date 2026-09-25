@@ -1,5 +1,5 @@
 -- ============================================================
--- Shahpur SCADA - Initialization Migration (Package-61, MPUDCL)
+-- Shahpur SCADA - Initialization Migration (Package-6i, MPUDCL)
 -- Sets plant configuration, MQTT broker topics, GIS station IDs,
 -- registers Shahpur sensor tags in tag_config, and schedules
 -- all cron jobs to target the new Supabase project oizfikvgvwumhcllufqu.

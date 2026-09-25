@@ -836,7 +836,7 @@ const WtpProcessSimulation: React.FC = () => {
           WATER TREATMENT PLANT — PROCESS FLOW
         </text>
         <text x={850} y={52} textAnchor="middle" fontSize="16" fontWeight="600" fill="hsl(var(--muted-foreground))">
-          Shahpur WTP | Package-61 | Process Mimic
+          Shahpur WTP | Package-6i | Process Mimic
         </text>
 
         {/* ═══ GROUND ═══ */}

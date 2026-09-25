@@ -1,10 +1,10 @@
 /**
  * SHAHPUR SCADA - COMPLETE SENSOR CONFIGURATION
  * 
- * Project: Improvement of Water Supply in Shahpur, Dist- Sagar, Madhya Pradesh (Package-61)
+ * Project: Improvement of Water Supply in Shahpur, Dist- Sagar, Madhya Pradesh (Package-6i)
  * Client: Madhya Pradesh Urban Development Company Limited (MPUDCL)
  * Capacity: 1.75 MLD
- * Contractor: M/s. CMPV Engineering Pvt. Ltd.
+ * Contractor: M/s. IELMCPPLJV Pvt. Ltd.
  * System Integrator: M/s Orbit Engineering Solutions
  * 
  * MQTT topic paths are loaded securely from the database at runtime.
