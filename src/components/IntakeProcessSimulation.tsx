@@ -565,8 +565,9 @@ const IntakeProcessSimulation: React.FC = () => {
         {/* TOTALIZER */}
         {(() => {
           const tx = 1240, ty = headerY + headerH + 24;
-          const digits = Math.floor(totalizerOutVal).toString().padStart(8, '0').split('');
-          const dec = (totalizerOutVal % 1).toFixed(2).substring(2);
+          const safeVal = Math.max(0, Number.isFinite(totalizerOutVal) ? totalizerOutVal : 0);
+          const digits = Math.floor(safeVal).toString().padStart(8, '0').split('');
+          const dec = (safeVal % 1).toFixed(2).substring(2);
           const dW = 16, dH = 26, gp = 2.5;
           const totW = 10 * dW + 9 * gp + 4 + 22;
 

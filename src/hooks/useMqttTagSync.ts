@@ -314,18 +314,37 @@ export const useMqttTagSync = (
     lastMessageTime.current.set(section, nowTime);
 
     // Intake 32-bit totalizer word pre-combination: ((65535 × H) + L) / 100
+    // Supports real RTU PLC tags (INLETTOTLIZER1/2, OUTLETTOTLIZER1/2) and legacy aliases
     const effectivePayload: Record<string, string | number> = { ...payload };
     if (section === 'intake') {
-      if (payload['INTotalizer1H'] !== undefined && payload['INTotalizer1L'] !== undefined) {
-        const high = Math.max(0, sanitizeRtuValue(payload['INTotalizer1H']));
-        const low = Math.max(0, sanitizeRtuValue(payload['INTotalizer1L']));
+      const getVal = (...keys: string[]): number | undefined => {
+        for (const k of keys) {
+          if (payload[k] !== undefined && payload[k] !== '' && payload[k] !== null) {
+            const n = Number(payload[k]);
+            if (!isNaN(n)) return n;
+          }
+          const match = Object.keys(payload).find(pk => pk.toUpperCase() === k.toUpperCase());
+          if (match !== undefined && payload[match] !== undefined && payload[match] !== '' && payload[match] !== null) {
+            const n = Number(payload[match]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return undefined;
+      };
+
+      const inH = getVal('INLETTOTLIZER1', 'INLETTOTALIZER1', 'INTotalizer1H', 'INTOTALIZER1H');
+      const inL = getVal('INLETTOTLIZER2', 'INLETTOTALIZER2', 'INTotalizer1L', 'INTOTALIZER1L');
+      if (inH !== undefined && inL !== undefined) {
+        const high = Math.max(0, sanitizeRtuValue(inH));
+        const low = Math.max(0, sanitizeRtuValue(inL));
         effectivePayload['INT_TOTALIZER_IN_COMBINED'] = ((65535 * high) + low) / 100;
       }
 
-      const outLRaw = payload['OUTToalizer1L'] !== undefined ? payload['OUTToalizer1L'] : payload['OUTTotalizer1L'];
-      if (payload['OUTTotalizer1H'] !== undefined && outLRaw !== undefined) {
-        const high = Math.max(0, sanitizeRtuValue(payload['OUTTotalizer1H']));
-        const low = Math.max(0, sanitizeRtuValue(outLRaw));
+      const outH = getVal('OUTLETTOTLIZER1', 'OUTLETTOTALIZER1', 'OUTTotalizer1H', 'OUTTOTALIZER1H');
+      const outL = getVal('OUTLETTOTLIZER2', 'OUTLETTOTALIZER2', 'OUTTotalizer1L', 'OUTToalizer1L', 'OUTTOTALIZER1L');
+      if (outH !== undefined && outL !== undefined) {
+        const high = Math.max(0, sanitizeRtuValue(outH));
+        const low = Math.max(0, sanitizeRtuValue(outL));
         effectivePayload['INT_TOTALIZER_OUT_COMBINED'] = ((65535 * high) + low) / 100;
       }
     }
@@ -345,9 +364,14 @@ export const useMqttTagSync = (
       }
 
       // Skip raw totalizer 16-bit register parts so they do NOT directly update INT-Totalizer-IN/OUT
+      const upperMqttKey = mqttKey.toUpperCase();
       if (
-        mqttKey === 'INTotalizer1H' || mqttKey === 'INTotalizer1L' ||
-        mqttKey === 'OUTTotalizer1H' || mqttKey === 'OUTToalizer1L' || mqttKey === 'OUTTotalizer1L'
+        upperMqttKey === 'INLETTOTLIZER1' || upperMqttKey === 'INLETTOTLIZER2' ||
+        upperMqttKey === 'INLETTOTALIZER1' || upperMqttKey === 'INLETTOTALIZER2' ||
+        upperMqttKey === 'INTOTALIZER1H' || upperMqttKey === 'INTOTALIZER1L' ||
+        upperMqttKey === 'OUTLETTOTLIZER1' || upperMqttKey === 'OUTLETTOTLIZER2' ||
+        upperMqttKey === 'OUTLETTOTALIZER1' || upperMqttKey === 'OUTLETTOTALIZER2' ||
+        upperMqttKey === 'OUTTOTALIZER1H' || upperMqttKey === 'OUTTOALIZER1L' || upperMqttKey === 'OUTTOTALIZER1L'
       ) {
         continue;
       }
@@ -367,9 +391,9 @@ export const useMqttTagSync = (
         (mqttKey === 'INTAKEPT2' && s.id === 'INT-PT2') ||
         (mqttKey === 'INTAKEHDPT1' && (s.id === 'INT-HeaderPT' || s.id === 'INT-CombinedPT')) ||
         (mqttKey === 'INTAKERLT' && s.id === 'INT-LT') ||
-        (mqttKey === 'INFLOW1' && (s.id === 'INT-Flow-IN' || s.id === 'INT-Flow')) ||
+        ((upperMqttKey === 'INLETFLOW' || upperMqttKey === 'INFLOW1') && (s.id === 'INT-Flow-IN' || s.id === 'INT-Flow')) ||
         (mqttKey === 'INT_TOTALIZER_IN_COMBINED' && (s.id === 'INT-Totalizer-IN' || s.id === 'INT-Totalizer')) ||
-        (mqttKey === 'OUTFLOW2' && (s.id === 'INT-Flow-OUT' || s.id === 'INT-Flow')) ||
+        ((upperMqttKey === 'OUTLETFLOW' || upperMqttKey === 'OUTFLOW2' || upperMqttKey === 'OUTFLOW1') && (s.id === 'INT-Flow-OUT' || s.id === 'INT-Flow')) ||
         (mqttKey === 'INT_TOTALIZER_OUT_COMBINED' && (s.id === 'INT-Totalizer-OUT' || s.id === 'INT-Totalizer')) ||
         // Shahpur OHT sensors
         (mqttKey === 'OHT1_PT_ACT' && (s.id === 'OHT1-PT' || s.id.endsWith('-PT'))) ||

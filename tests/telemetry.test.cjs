@@ -213,17 +213,16 @@ test('Garud GIS sync enforces uncommissioned station omission and MQTT freshness
   const gisCode = fs.readFileSync('supabase/functions/gis-sync/index.ts', 'utf8');
 
   // Verify WTP and OHT-2 are marked as non-commissioned and excluded
-  assert.match(gisCode, /skippedStations\.push\("oht2"\)/);
+  assert.match(gisCode, /skippedStations\.push\(stationName\)/);
   assert.match(gisCode, /skippedStations\.push\("wtp"\)/);
-  assert.doesNotMatch(gisCode, /freshOhts\.push\(.*OHT2/);
 
   // Verify Intake and OHT-1 transmit only if fresh MQTT data received
   assert.match(gisCode, /if\s*\(hasFreshData\(intakeIds\)\)/);
-  assert.match(gisCode, /if\s*\(hasFreshData\(oht1Ids\)\)/);
+  assert.match(gisCode, /if\s*\(hasFreshData\(ohtIds\)\)/);
 
   // Verify 0.00 fallback for uncalibrated / zero readings
   assert.match(gisCode, /v\(TAG\.intake\.lt\)\s*\?\?\s*0\.0/);
-  assert.match(gisCode, /v\(oht1Tags\.flow\)\s*\?\?\s*0\.0/);
+  assert.match(gisCode, /v\(ohtTags\.flow\)\s*\?\?\s*0\.0/);
 
   // Verify when no fresh data arrived from MQTT, POST to Garud is skipped with 204
   assert.match(gisCode, /if\s*\(includedStations\.length\s*===\s*0\)/);
@@ -272,14 +271,32 @@ test('Intake PLC active keys, equipment_data extraction, and WTP LOH/ROF ranges 
   assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB2')?.mqttKey, 'LOH_FB2');
   assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB1')?.unit, '%');
   assert.equal(SENSORS.find(s => s.id === 'WTP-LOH-FB1')?.max, 100);
-  assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.unit, '%');
-  assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.max, 100);
+  assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.unit, 'm³/hr');
+  assert.equal(SENSORS.find(s => s.id === 'WTP-ROF-FB1')?.max, 200);
 });
 
-test('Intake totalizers combine complete 32-bit register pairs only', () => {
-  const complete = map('intake', { INTotalizer1H: 2, INTotalizer1L: 15, OUTTotalizer1H: 1, OUTToalizer1L: 9 });
-  assert.equal(complete.find(r => r.tag_id === 'INT-Totalizer-IN')?.value, 131087);
-  assert.equal(complete.find(r => r.tag_id === 'INT-Totalizer-OUT')?.value, 65545);
+test('Intake totalizers combine complete 32-bit register pairs using ((65535 * H) + L) / 100', () => {
+  // 1. Test with user exact RTU keys and values
+  const rtuData = map('intake', {
+    INLETFLOW: 45.2,
+    INLETTOTLIZER1: 16,
+    INLETTOTLIZER2: 36297,
+    OUTLETFLOW: 12.8,
+    OUTLETTOTLIZER1: 4,
+    OUTLETTOTLIZER2: 11353,
+  });
+  assert.equal(rtuData.find(r => r.tag_id === 'INT-Flow-IN')?.value, 45.2);
+  assert.equal(rtuData.find(r => r.tag_id === 'INT-Flow-OUT')?.value, 12.8);
+  // Formula: ((65535 * 16) + 36297) / 100 = (1048560 + 36297) / 100 = 10848.57
+  assert.equal(rtuData.find(r => r.tag_id === 'INT-Totalizer-IN')?.value, 10848.57);
+  // Formula: ((65535 * 4) + 11353) / 100 = (262140 + 11353) / 100 = 2734.93
+  assert.equal(rtuData.find(r => r.tag_id === 'INT-Totalizer-OUT')?.value, 2734.93);
+
+  // 2. Test with legacy register aliases
+  const legacyData = map('intake', { INTotalizer1H: 2, INTotalizer1L: 15, OUTTotalizer1H: 1, OUTToalizer1L: 9 });
+  assert.equal(legacyData.find(r => r.tag_id === 'INT-Totalizer-IN')?.value, 1310.85);
+  assert.equal(legacyData.find(r => r.tag_id === 'INT-Totalizer-OUT')?.value, 655.44);
+  assert.equal(map('intake', { INLETTOTLIZER1: 16 }).find(r => r.tag_id === 'INT-Totalizer-IN'), undefined);
   assert.equal(map('intake', { INTotalizer1H: 2 }).find(r => r.tag_id === 'INT-Totalizer-IN'), undefined);
 });
 

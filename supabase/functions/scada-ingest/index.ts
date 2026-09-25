@@ -1,4 +1,4 @@
-﻿/// <reference path="./deno.d.ts" />
+/// <reference path="./deno.d.ts" />
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import mqtt from "npm:mqtt@5.10.4";
 
@@ -87,10 +87,10 @@ const SENSORS: Sensor[] = [
   { id: "INT-PT2", mqttKey: "PUMP2_PT2_ACT", label: "VT Pump 2 Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
   { id: "INT-HeaderPT", mqttKey: "COMMON_HEADER_PT_ACT", label: "Main Header Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "combined_pt" },
   { id: "INT-LT", mqttKey: "RLT_ACT", label: "River Level (RLT)", unit: "%", min: 0, max: 100, section: "intake", instrumentType: "lt" },
-  { id: "INT-Flow-IN", mqttKey: "INFLOW1", label: "Inlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
-  { id: "INT-Totalizer-IN", mqttKey: "INTotalizer1H", label: "Inlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
-  { id: "INT-Flow-OUT", mqttKey: "OUTFLOW2", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
-  { id: "INT-Totalizer-OUT", mqttKey: "OUTTotalizer1H", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
+  { id: "INT-Flow-IN", mqttKey: "INLETFLOW", label: "Inlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
+  { id: "INT-Totalizer-IN", mqttKey: "INLETTOTLIZER1", label: "Inlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
+  { id: "INT-Flow-OUT", mqttKey: "OUTLETFLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: 0, max: 200, section: "intake", instrumentType: "flow" },
+  { id: "INT-Totalizer-OUT", mqttKey: "OUTLETTOTLIZER1", label: "Outlet Totalizer", unit: "m³", min: 0, max: 999999, section: "intake", instrumentType: "totalizer" },
   { id: "INT-Pump1", mqttKey: "MOTOR1_ON", label: "VT Pump 1", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
   { id: "INT-Pump2", mqttKey: "MOTOR2_ON", label: "VT Pump 2", unit: "", min: 0, max: 1, section: "intake", instrumentType: "pump" },
   // === WTP sensors — slave_id=1 & slave_id=4 (live data) ===
@@ -135,10 +135,14 @@ const MQTT_KEY_ALIASES: Record<string, string[]> = {
   "RLT_ACT": ["RLT_ACT", "INTAKERLT", "RLT"],
   "MOTOR1_ON": ["MOTOR1_ON"],
   "MOTOR2_ON": ["MOTOR2_ON"],
-  "INFLOW1": ["INFLOW1", "EFM_FLOW", "FLOW", "INT_FLOW", "IN_FLOW"],
-  "INTotalizer1H": ["INTotalizer1H", "INTOTALIZER1H", "EFM", "INT_TOT"],
-  "OUTFLOW2": ["OUTFLOW2", "OUTFLOW1", "OUT_FLOW", "CLR_FLOW"],
-  "OUTTotalizer1H": ["OUTTotalizer1H", "OUTTOTALIZER1H", "OUT_TOT"],
+  "INLETFLOW": ["INLETFLOW", "INFLOW1", "EFM_FLOW", "FLOW", "INT_FLOW", "IN_FLOW", "INLET_FLOW"],
+  "INFLOW1": ["INFLOW1", "INLETFLOW", "EFM_FLOW", "FLOW", "INT_FLOW", "IN_FLOW", "INLET_FLOW"],
+  "INLETTOTLIZER1": ["INLETTOTLIZER1", "INLETTOTALIZER1", "INTotalizer1H", "INTOTALIZER1H", "EFM", "INT_TOT"],
+  "INTotalizer1H": ["INTotalizer1H", "INLETTOTLIZER1", "INLETTOTALIZER1", "INTOTALIZER1H", "EFM", "INT_TOT"],
+  "OUTLETFLOW": ["OUTLETFLOW", "OUTFLOW2", "OUTFLOW1", "OUT_FLOW", "CLR_FLOW", "OUTLET_FLOW"],
+  "OUTFLOW2": ["OUTFLOW2", "OUTLETFLOW", "OUTFLOW1", "OUT_FLOW", "CLR_FLOW", "OUTLET_FLOW"],
+  "OUTLETTOTLIZER1": ["OUTLETTOTLIZER1", "OUTLETTOTALIZER1", "OUTTotalizer1H", "OUTTOTALIZER1H", "OUT_TOT"],
+  "OUTTotalizer1H": ["OUTTotalizer1H", "OUTLETTOTLIZER1", "OUTLETTOTALIZER1", "OUTTOTALIZER1H", "OUT_TOT"],
   // OHT tags — Shahpur tags
   "OHT1_PT_ACT": ["OHT1_PT_ACT", "OHT_PT_1", "PT_1", "PT1", "PT_01", "PT"],
   "OHT1_LT_ACT": ["OHT1_LT_ACT", "OHT_LT", "LT", "LEVEL"],
@@ -419,22 +423,44 @@ function mapReadings(msg: ParsedMessage) {
   const rows = new Map<string, {tag_id: string; section: Section; value: number | null; quality: string; received_at: string; mqtt_topic: string}>();
 
   // 32-bit combined registers for Intake Totalizers: ((65535 x H) + L) / 100
+  // Real PLC RTU sends:
+  //   Inlet: INLETTOTLIZER1 (High) and INLETTOTLIZER2 (Low)
+  //   Outlet: OUTLETTOTLIZER1 (High) and OUTLETTOTLIZER2 (Low)
+  // Also supports INLETTOTALIZER1/2, INTotalizer1H/L, OUTTotalizer1H/L
   if (msg.section === 'intake') {
     const p = msg.payload;
-    if ('INTotalizer1H' in p && 'INTotalizer1L' in p) {
-      const h = Number(p['INTotalizer1H']);
-      const l = Number(p['INTotalizer1L']);
-      const tot = sanitizeRtuValue(((65535 * h) + l) / 100);
+
+    const findVal = (...keys: string[]): number | undefined => {
+      for (const k of keys) {
+        if (k in p && p[k] !== undefined && p[k] !== '' && p[k] !== null) {
+          const n = Number(p[k]);
+          if (!isNaN(n)) return n;
+        }
+        const match = Object.keys(p).find(pk => pk.toUpperCase() === k.toUpperCase());
+        if (match !== undefined && p[match] !== undefined && p[match] !== '' && p[match] !== null) {
+          const n = Number(p[match]);
+          if (!isNaN(n)) return n;
+        }
+      }
+      return undefined;
+    };
+
+    // Inlet Totalizer: High word (INLETTOTLIZER1 / INTotalizer1H) & Low word (INLETTOTLIZER2 / INTotalizer1L)
+    const inH = findVal('INLETTOTLIZER1', 'INLETTOTALIZER1', 'INTotalizer1H', 'INTOTALIZER1H');
+    const inL = findVal('INLETTOTLIZER2', 'INLETTOTALIZER2', 'INTotalizer1L', 'INTOTALIZER1L');
+    if (inH !== undefined && inL !== undefined) {
+      const tot = sanitizeRtuValue(((65535 * inH) + inL) / 100);
       rows.set('INT-Totalizer-IN', {
         tag_id: 'INT-Totalizer-IN', section: 'intake', value: tot, quality: 'good',
         received_at: msg.timestamp.toISOString(), mqtt_topic: msg.topic
       });
     }
-    const outLKey = 'OUTToalizer1L' in p ? 'OUTToalizer1L' : 'OUTTotalizer1L';
-    if ('OUTTotalizer1H' in p && outLKey in p) {
-      const h = Number(p['OUTTotalizer1H']);
-      const l = Number(p[outLKey]);
-      const tot = sanitizeRtuValue(((65535 * h) + l) / 100);
+
+    // Outlet Totalizer: High word (OUTLETTOTLIZER1 / OUTTotalizer1H) & Low word (OUTLETTOTLIZER2 / OUTTotalizer1L)
+    const outH = findVal('OUTLETTOTLIZER1', 'OUTLETTOTALIZER1', 'OUTTotalizer1H', 'OUTTOTALIZER1H');
+    const outL = findVal('OUTLETTOTLIZER2', 'OUTLETTOTALIZER2', 'OUTTotalizer1L', 'OUTToalizer1L', 'OUTTOTALIZER1L');
+    if (outH !== undefined && outL !== undefined) {
+      const tot = sanitizeRtuValue(((65535 * outH) + outL) / 100);
       rows.set('INT-Totalizer-OUT', {
         tag_id: 'INT-Totalizer-OUT', section: 'intake', value: tot, quality: 'good',
         received_at: msg.timestamp.toISOString(), mqtt_topic: msg.topic
@@ -444,9 +470,14 @@ function mapReadings(msg: ParsedMessage) {
 
   for (const [key, raw] of Object.entries(msg.payload)) {
     // Skip raw 16-bit totalizer words so they do not overwrite the combined 32-bit totalizers
+    const upperKey = key.toUpperCase();
     if (
-      key === 'INTotalizer1H' || key === 'INTotalizer1L' ||
-      key === 'OUTTotalizer1H' || key === 'OUTToalizer1L' || key === 'OUTTotalizer1L'
+      upperKey === 'INLETTOTLIZER1' || upperKey === 'INLETTOTLIZER2' ||
+      upperKey === 'INLETTOTALIZER1' || upperKey === 'INLETTOTALIZER2' ||
+      upperKey === 'INTOTALIZER1H' || upperKey === 'INTOTALIZER1L' ||
+      upperKey === 'OUTLETTOTLIZER1' || upperKey === 'OUTLETTOTLIZER2' ||
+      upperKey === 'OUTLETTOTALIZER1' || upperKey === 'OUTLETTOTALIZER2' ||
+      upperKey === 'OUTTOTALIZER1H' || upperKey === 'OUTTOALIZER1L' || upperKey === 'OUTTOTALIZER1L'
     ) {
       continue;
     }

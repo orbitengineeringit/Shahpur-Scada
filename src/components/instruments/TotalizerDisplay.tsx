@@ -6,8 +6,9 @@ interface TotalizerDisplayProps {
 }
 
 const TotalizerDisplay: React.FC<TotalizerDisplayProps> = ({ value, unit }) => {
-  const digits = Math.floor(value).toString().padStart(8, '0').split('');
-  const decimal = (value % 1).toFixed(2).substring(2);
+  const safeVal = Math.max(0, Number.isFinite(value) ? value : 0);
+  const digits = Math.floor(safeVal).toString().padStart(8, '0').split('');
+  const decimal = (safeVal % 1).toFixed(2).substring(2);
 
   return (
     <div className="flex flex-col items-center gap-2 w-full overflow-hidden">

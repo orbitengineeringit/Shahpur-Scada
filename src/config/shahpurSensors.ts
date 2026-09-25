@@ -107,16 +107,16 @@ export const ALL_OHT_SENSORS = [...OHT1_SENSORS, ...OHT2_SENSORS];
 
 // ==================== INTAKE SENSORS ====================
 // Intake PLC: sahpur/intake/plc01/update (Device ID: 02500225110500007982)
-// Totalizers are received as high/low 16-bit words: H × 65536 + L
+// Totalizers are received as high/low 16-bit words: ((65535 × High) + Low) / 100
 export const INTAKE_SENSORS: ShahpurSensor[] = [
   { id: 'INT-PT1', mqttKey: 'PUMP1_PT1_ACT', label: 'VT Pump 1 Pressure', unit: 'Bar', min: 0, max: 10, section: 'intake', type: 'analog', instrumentType: 'pt' },
   { id: 'INT-PT2', mqttKey: 'PUMP2_PT2_ACT', label: 'VT Pump 2 Pressure', unit: 'Bar', min: 0, max: 10, section: 'intake', type: 'analog', instrumentType: 'pt' },
   { id: 'INT-HeaderPT', mqttKey: 'COMMON_HEADER_PT_ACT', label: 'Main Header Pressure', unit: 'Bar', min: 0, max: 10, section: 'intake', type: 'analog', instrumentType: 'combined_pt' },
   { id: 'INT-LT', mqttKey: 'RLT_ACT', label: 'River Level (RLT)', unit: '%', min: 0, max: 100, section: 'intake', type: 'analog', instrumentType: 'lt' },
-  { id: 'INT-Flow-IN', mqttKey: 'INFLOW1', label: 'Inlet Flow Meter', unit: 'm³/hr', min: 0, max: 200, section: 'intake', type: 'analog', instrumentType: 'flow' },
-  { id: 'INT-Totalizer-IN', mqttKey: 'INTotalizer1H', label: 'Inlet Totalizer', unit: 'm³', min: 0, max: 999999, section: 'intake', type: 'totalizer', instrumentType: 'totalizer' },
-  { id: 'INT-Flow-OUT', mqttKey: 'OUTFLOW2', label: 'Outlet Flow Meter', unit: 'm³/hr', min: 0, max: 200, section: 'intake', type: 'analog', instrumentType: 'flow' },
-  { id: 'INT-Totalizer-OUT', mqttKey: 'OUTTotalizer1H', label: 'Outlet Totalizer', unit: 'm³', min: 0, max: 999999, section: 'intake', type: 'totalizer', instrumentType: 'totalizer' },
+  { id: 'INT-Flow-IN', mqttKey: 'INLETFLOW', label: 'Inlet Flow Meter', unit: 'm³/hr', min: 0, max: 200, section: 'intake', type: 'analog', instrumentType: 'flow' },
+  { id: 'INT-Totalizer-IN', mqttKey: 'INLETTOTLIZER1', label: 'Inlet Totalizer', unit: 'm³', min: 0, max: 999999, section: 'intake', type: 'totalizer', instrumentType: 'totalizer' },
+  { id: 'INT-Flow-OUT', mqttKey: 'OUTLETFLOW', label: 'Outlet Flow Meter', unit: 'm³/hr', min: 0, max: 200, section: 'intake', type: 'analog', instrumentType: 'flow' },
+  { id: 'INT-Totalizer-OUT', mqttKey: 'OUTLETTOTLIZER1', label: 'Outlet Totalizer', unit: 'm³', min: 0, max: 999999, section: 'intake', type: 'totalizer', instrumentType: 'totalizer' },
   { id: 'INT-Pump1', mqttKey: 'MOTOR1_ON', label: 'VT Pump 1', unit: '', min: 0, max: 1, section: 'intake', type: 'digital', instrumentType: 'pump', derivedFromPt: 'INT-PT1' },
   { id: 'INT-Pump2', mqttKey: 'MOTOR2_ON', label: 'VT Pump 2', unit: '', min: 0, max: 1, section: 'intake', type: 'digital', instrumentType: 'pump', derivedFromPt: 'INT-PT2' },
 ];
@@ -251,6 +251,8 @@ export const VALID_INTAKE_KEYS = [
   'PUMP1_PT1_ACT', 'PUMP2_PT2_ACT', 'COMMON_HEADER_PT_ACT', 'RLT_ACT',
   'MOTOR1_ON', 'MOTOR1_TRIP', 'MOTOR2_ON', 'MOTOR2_TRIP',
   'INTAKEPT1', 'INTAKEPT2', 'INTAKEHDPT1', 'INTAKERLT',
+  'INLETFLOW', 'INLETTOTLIZER1', 'INLETTOTLIZER2', 'INLETTOTALIZER1', 'INLETTOTALIZER2',
+  'OUTLETFLOW', 'OUTLETTOTLIZER1', 'OUTLETTOTLIZER2', 'OUTLETTOTALIZER1', 'OUTLETTOTALIZER2',
   'INFLOW1', 'INTotalizer1H', 'INTotalizer1L',
   'OUTFLOW2', 'OUTTotalizer1H', 'OUTToalizer1L', 'OUTTotalizer1L',
   // Backward compatibility / aliases

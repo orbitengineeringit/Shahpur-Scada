@@ -260,6 +260,7 @@ Deno.serve(async (req) => {
       requestPayload.intake = compact({
         intakWell_Device_id: cfg.intake_device_id,
         intakeWellLevel_mtr: num(v(TAG.intake.lt) ?? 0.0),
+        inletFlow_mld: mld(v(TAG.intake.inFlow) ?? 0.0),
         outletFlow_mld: mld(v(TAG.intake.outFlow) ?? v(TAG.intake.inFlow) ?? 0.0),
         headerDesignPressure: 3.0,
         headerActualPressure: num(v(TAG.intake.header) ?? 0.0),
