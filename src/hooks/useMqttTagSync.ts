@@ -313,20 +313,20 @@ export const useMqttTagSync = (
     const nowTime = Date.now();
     lastMessageTime.current.set(section, nowTime);
 
-    // Intake 32-bit totalizer word pre-combination: H × 65536 + L
+    // Intake 32-bit totalizer word pre-combination: ((65535 × H) + L) / 100
     const effectivePayload: Record<string, string | number> = { ...payload };
     if (section === 'intake') {
       if (payload['INTotalizer1H'] !== undefined && payload['INTotalizer1L'] !== undefined) {
         const high = Math.max(0, sanitizeRtuValue(payload['INTotalizer1H']));
         const low = Math.max(0, sanitizeRtuValue(payload['INTotalizer1L']));
-        effectivePayload['INT_TOTALIZER_IN_COMBINED'] = high * 65536 + low;
+        effectivePayload['INT_TOTALIZER_IN_COMBINED'] = ((65535 * high) + low) / 100;
       }
 
       const outLRaw = payload['OUTToalizer1L'] !== undefined ? payload['OUTToalizer1L'] : payload['OUTTotalizer1L'];
       if (payload['OUTTotalizer1H'] !== undefined && outLRaw !== undefined) {
         const high = Math.max(0, sanitizeRtuValue(payload['OUTTotalizer1H']));
         const low = Math.max(0, sanitizeRtuValue(outLRaw));
-        effectivePayload['INT_TOTALIZER_OUT_COMBINED'] = high * 65536 + low;
+        effectivePayload['INT_TOTALIZER_OUT_COMBINED'] = ((65535 * high) + low) / 100;
       }
     }
 

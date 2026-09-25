@@ -599,7 +599,7 @@ const WtpProcessSimulation: React.FC = () => {
   }, [headerPtVal, pump1On, pump2On, pt1Val, pt2Val]);
 
   // Cross-logic
-  const waterFlowing = rofFb1Val > 0.1;
+  const waterFlowing = rofFb1Val > 0.5; // ROF now in m³/hr
   const chlorinationOn = waterFlowing || anyPumpOn || ltCwVal > 5;
 
   // Visual Constants
@@ -1221,12 +1221,13 @@ const WtpProcessSimulation: React.FC = () => {
             // LOH is supplied directly as a 0–100% engineering value.
             const loh1Color = lohFb1Val >= 85 ? 'hsl(var(--destructive))' : lohFb1Val >= 70 ? 'hsl(var(--warning))' : 'hsl(199 89% 48%)';
             const loh2Color = lohFb2Val >= 85 ? 'hsl(var(--destructive))' : lohFb2Val >= 70 ? 'hsl(var(--warning))' : 'hsl(199 89% 48%)';
-            const rofColor = rofFb1Val > 0.1 ? 'hsl(142 71% 45%)' : 'hsl(var(--muted-foreground))';
+            const rofColor = rofFb1Val > 0.5 ? 'hsl(142 71% 45%)' : 'hsl(var(--muted-foreground))';
 
             // Bar percentages
             const loh1Pct = Math.min(100, Math.max(0, lohFb1Val));
             const loh2Pct = Math.min(100, Math.max(0, lohFb2Val));
-            const rofPct = Math.min(100, Math.max(0, rofFb1Val));
+            // ROF is now in m³/hr (0–200), convert to percentage for bar display
+            const rofPct = Math.min(100, Math.max(0, (rofFb1Val / 200) * 100));
 
             return (
               <g>
@@ -1293,7 +1294,7 @@ const WtpProcessSimulation: React.FC = () => {
                   )}
                   <text x={cX + 14} y={cY + 65} fontSize="12" fontWeight="900" fill={rofColor} fontFamily="ui-monospace, monospace">
                     {rofFb1Val.toFixed(2)}
-                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> %</tspan>
+                    <tspan fontSize="7" fontWeight="600" fill="hsl(var(--muted-foreground))"> M³/hr</tspan>
                   </text>
                   {/* Micro Flow Meter Bar */}
                   <rect x={cX + 14} y={cY + 68} width={86} height={2.5} rx={1.2} fill="hsl(var(--muted) / 0.4)" />

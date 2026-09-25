@@ -1,4 +1,4 @@
-/// <reference path="./deno.d.ts" />
+﻿/// <reference path="./deno.d.ts" />
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import mqtt from "npm:mqtt@5.10.4";
 
@@ -106,7 +106,7 @@ const SENSORS: Sensor[] = [
   { id: "WTP-CL", mqttKey: "PUMP_CHLORINE", label: "Outlet Chlorine", unit: "PPM", min: 0, max: 20, section: "wtp", instrumentType: "chlorine" },
   { id: "WTP-TA", mqttKey: "PUMP_TURBIDITY", label: "Outlet Turbidity", unit: "NTU", min: 0, max: 100, section: "wtp", instrumentType: "turbidity" },
   { id: "WTP-TEM", mqttKey: "CWR_TEM", label: "Outlet Temperature", unit: "°C", min: 0, max: 60, section: "wtp", instrumentType: "temperature" },
-  { id: "WTP-ROF-FB1", mqttKey: "ROF_FB1", label: "Rate of Flow (Filter Bed 1)", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "flow" },
+  { id: "WTP-ROF-FB1", mqttKey: "ROF_FB1", label: "Rate of Flow (Filter Bed 1)", unit: "m³/hr", min: 0, max: 200, section: "wtp", instrumentType: "flow" },
   { id: "WTP-LOH-FB1", mqttKey: "LOH_FB1", label: "Loss of Head (FB1)", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
   { id: "WTP-LOH-FB2", mqttKey: "LOH_FB2", label: "Loss of Head (FB2)", unit: "%", min: 0, max: 100, section: "wtp", instrumentType: "lt" },
   { id: "WTP-Pump1", mqttKey: "MOTOR1_INDACTOR", label: "HT Pump 1", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
@@ -418,13 +418,13 @@ function mapReadings(msg: ParsedMessage) {
   const sensors = SENSORS.filter(s => s.section === msg.section && (!s.subsection || s.subsection === msg.subsection) && s.mqttKey);
   const rows = new Map<string, {tag_id: string; section: Section; value: number | null; quality: string; received_at: string; mqtt_topic: string}>();
 
-  // 32-bit combined registers for Intake Totalizers: H * 65536 + L
+  // 32-bit combined registers for Intake Totalizers: ((65535 x H) + L) / 100
   if (msg.section === 'intake') {
     const p = msg.payload;
     if ('INTotalizer1H' in p && 'INTotalizer1L' in p) {
       const h = Number(p['INTotalizer1H']);
       const l = Number(p['INTotalizer1L']);
-      const tot = sanitizeRtuValue(h * 65536 + l);
+      const tot = sanitizeRtuValue(((65535 * h) + l) / 100);
       rows.set('INT-Totalizer-IN', {
         tag_id: 'INT-Totalizer-IN', section: 'intake', value: tot, quality: 'good',
         received_at: msg.timestamp.toISOString(), mqtt_topic: msg.topic
@@ -434,7 +434,7 @@ function mapReadings(msg: ParsedMessage) {
     if ('OUTTotalizer1H' in p && outLKey in p) {
       const h = Number(p['OUTTotalizer1H']);
       const l = Number(p[outLKey]);
-      const tot = sanitizeRtuValue(h * 65536 + l);
+      const tot = sanitizeRtuValue(((65535 * h) + l) / 100);
       rows.set('INT-Totalizer-OUT', {
         tag_id: 'INT-Totalizer-OUT', section: 'intake', value: tot, quality: 'good',
         received_at: msg.timestamp.toISOString(), mqtt_topic: msg.topic
