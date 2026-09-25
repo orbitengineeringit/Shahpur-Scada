@@ -38,7 +38,7 @@ const VENDOR_KEY = 'UADDORESREG022';
 
 const DEVICES = [
   { key: 'intake', id: 'SHA_INTK_001', label: 'INTAKE WELL', commissioned: true },
-  { key: 'wtp', id: 'SHA_WTP_001', label: 'WATER TREATMENT PLANT (WTP)', commissioned: false },
+  { key: 'wtp', id: 'SHA_WTP_001', label: 'WATER TREATMENT PLANT (WTP)', commissioned: true },
   { key: 'oht1', id: 'SHA_OHT_001', label: 'OHT - 1 Bus Station', commissioned: true },
   { key: 'oht2', id: 'SHA_OHT_002', label: 'OHT - 2 (Pending Commissioning)', commissioned: false },
 ] as const;
@@ -104,6 +104,7 @@ const rowsFromPayload = (payload: unknown, key: string, deviceId: string): Param
     : key === 'wtp'
       ? [
           row('Outlet Flow', 'outletFlow_mld', 'MLD', 'WTP-Flow-OUT', 4),
+          row('Inlet Flow (ROF)', 'inletFlow_mld', 'MLD', 'WTP-ROF-FB1', 4),
           row('Raw Turbidity', 'rawTurbidity', 'NTU', 'WTP-TA-IN'),
           row('Treated pH', 'treatedPh', 'pH', 'WTP-PH'),
           row('Treated Turbidity', 'treatedTurbidity', 'NTU', 'WTP-TA'),

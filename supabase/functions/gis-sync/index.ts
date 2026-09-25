@@ -24,7 +24,7 @@ const TAG = {
     lt: "INT-LT", inFlow: "INT-Flow-IN", outFlow: "INT-Flow-OUT",
   },
   wtp: {
-    outFlow: "WTP-Flow-OUT", rawTr: "WTP-TA-IN",
+    inFlow: "WTP-ROF-FB1", outFlow: "WTP-Flow-OUT", rawTr: "WTP-TA-IN",
     trPh: "WTP-PH", trTr: "WTP-TA", cl: "WTP-CL",
     cwr: "WTP-LT-CW", bw: "WTP-LT-BW", header: "WTP-HeaderPT",
     pt1: "WTP-PT1", pt2: "WTP-PT2",
@@ -39,7 +39,8 @@ const VALID_RANGE: Record<string, { min: number; max: number }> = {
   "INT-PT1": { min: 0, max: 10 }, "INT-PT2": { min: 0, max: 10 },
   "INT-HeaderPT": { min: 0, max: 10 }, "INT-LT": { min: 0, max: 100 },
   "INT-Flow-IN": { min: 0, max: 200 }, "INT-Flow-OUT": { min: 0, max: 200 },
-  "WTP-Flow-OUT": { min: 0, max: 200 }, "WTP-PH": { min: 0, max: 14 },
+  "WTP-ROF-FB1": { min: 0, max: 200 }, "WTP-Flow-OUT": { min: 0, max: 200 },
+  "WTP-PH": { min: 0, max: 14 },
   "WTP-TA-IN": { min: 0, max: 100 }, "WTP-TA": { min: 0, max: 100 },
   "WTP-CL": { min: 0, max: 20 }, "WTP-LT-CW": { min: 0, max: 100 },
   "WTP-LT-BW": { min: 0, max: 100 }, "WTP-HeaderPT": { min: 0, max: 10 },
@@ -87,8 +88,10 @@ const compact = (value: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined));
 
 const configuredFreshnessMinutes = Number(Deno.env.get("GIS_FRESHNESS_MINUTES") || "15");
+// Real-time freshness requirement: only fresh telemetry from the last 15 minutes is transmitted to Garud.
+// If the site stops sending data, transmission is halted immediately so stale/cached data is never pushed.
 const freshnessMinutes = Number.isFinite(configuredFreshnessMinutes) && configuredFreshnessMinutes > 0
-  ? configuredFreshnessMinutes
+  ? Math.min(configuredFreshnessMinutes, 15)
   : 15;
 const freshnessMs = freshnessMinutes * 60 * 1000;
 
@@ -186,12 +189,14 @@ Deno.serve(async (req) => {
     if (cfgErr || !cfg) throw new Error(cfgErr?.message || "gis_config row missing");
     endpoint = cfg.base_url;
 
-    // 2) Collect needed tag ids for commissioned stations (Intake and OHT-1)
+    // 2) Collect needed tag ids for all stations (Intake, WTP, OHT-1, OHT-2)
     const intakeIds = Object.values(TAG.intake);
     const oht1Tags = TAG.oht(1);
     const oht1Ids = Object.values(oht1Tags);
+    const oht2Tags = TAG.oht(2);
+    const oht2Ids = Object.values(oht2Tags);
     const wtpIds = Object.values(TAG.wtp);
-    const allIds = [...intakeIds, ...oht1Ids, ...wtpIds];
+    const allIds = [...intakeIds, ...oht1Ids, ...oht2Ids, ...wtpIds];
 
     const { data: rows, error: hErr } = await supabase
       .from("telemetry_latest")
@@ -245,8 +250,8 @@ Deno.serve(async (req) => {
       auth: { token: cfg.api_token, vendorKey: cfg.vendor_key },
     };
 
-    // --- Intake Well (Commissioned) ---
-    // If telemetry data is arriving via MQTT, transmit fresh values (even if 0.00).
+    // --- Intake Well (Real-time telemetry) ---
+    // If telemetry data is arriving via MQTT, transmit fresh values.
     // If not arriving, do not send sensor readings.
     if (hasFreshData(intakeIds)) {
       const sourceAt = stationTimestamp(intakeIds)!;
@@ -274,48 +279,73 @@ Deno.serve(async (req) => {
       requestPayload.intakePumps = [];
     }
 
-    // --- OHT Stations ---
-    // OHT-1 is commissioned: transmit only if telemetry data is arriving via MQTT.
-    // OHT-2 is NOT commissioned yet: do NOT transmit.
+    // --- OHT Stations (Real-time telemetry) ---
+    // Transmit OHT only if fresh telemetry data is arriving via MQTT.
+    // If not arriving, the OHT is omitted so stale data is never pushed.
     const freshOhts: Record<string, unknown>[] = [];
-    if (hasFreshData(oht1Ids)) {
-      const sourceAt = stationTimestamp(oht1Ids)!;
-      sourceLatestAt.oht1 = sourceAt;
-      includedStations.push("oht1");
-      freshOhts.push(compact({
-        ohT_Device_id: cfg.oht1_device_id || "SHA_OHT_001",
-        inletFlow_mld: mld(v(oht1Tags.flow) ?? 0.0),
-        waterLevel_mld: num(v(oht1Tags.lt) ?? 0.0),
-        inletPressure: num(v(oht1Tags.pt1) ?? v(oht1Tags.pt2) ?? 0.0),
-        recordDateTime: toIstString(sourceAt),
-      }));
-    } else {
-      skippedStations.push("oht1");
+    for (const n of [1, 2]) {
+      const ohtTags = TAG.oht(n);
+      const ohtIds = Object.values(ohtTags);
+      const stationName = `oht${n}`;
+      const deviceId = (n === 1 ? cfg.oht1_device_id : cfg.oht2_device_id) || `SHA_OHT_00${n}`;
+      if (hasFreshData(ohtIds)) {
+        const sourceAt = stationTimestamp(ohtIds)!;
+        sourceLatestAt[stationName] = sourceAt;
+        includedStations.push(stationName);
+        freshOhts.push(compact({
+          ohT_Device_id: deviceId,
+          inletFlow_mld: mld(v(ohtTags.flow) ?? 0.0),
+          waterLevel_mld: num(v(ohtTags.lt) ?? 0.0),
+          inletPressure: num(v(ohtTags.pt1) ?? v(ohtTags.pt2) ?? 0.0),
+          recordDateTime: toIstString(sourceAt),
+        }));
+      } else {
+        skippedStations.push(stationName);
+      }
     }
 
-    // OHT-2: Not commissioned yet at Shahpur — omitted from transmission
-    skippedStations.push("oht2");
-
-    // --- WTP Station ---
-    // WTP is NOT commissioned yet at Shahpur plant — omit process telemetry.
-    // Garud's ASP.NET schema validator strictly requires WtpUnits[0].Wtp and Pumps array.
-    // We send only the station identity envelope with NO process sensor values.
-    skippedStations.push("wtp");
-    const lastSeenWtp = stationLastSeenTimestamp(wtpIds) || new Date().toISOString();
-    const wtpUnit: Record<string, unknown> = {
-      wtp: {
+    // --- WTP Station (Real-time telemetry) ---
+    // Transmit WTP telemetry if fresh data is arriving via MQTT.
+    // If not arriving, send identity envelope with last seen timestamp, no process sensor values.
+    const wtpUnit: Record<string, unknown> = {};
+    if (hasFreshData(wtpIds)) {
+      const sourceAt = stationTimestamp(wtpIds)!;
+      sourceLatestAt.wtp = sourceAt;
+      includedStations.push("wtp");
+      wtpUnit.wtp = compact({
         wtP_Device_id: cfg.wtp_device_id,
-        recordDateTime: toIstString(lastSeenWtp),
-      },
-      pumps: [],
-      ohts: freshOhts,
-    };
+        inletFlow_mld: mld(v(TAG.wtp.inFlow) ?? 0.0),
+        outletFlow_mld: mld(v(TAG.wtp.outFlow) ?? 0.0),
+        backwashLevel: num(v(TAG.wtp.bw) ?? 0.0),
+        cwrLevel: num(v(TAG.wtp.cwr) ?? 0.0),
+        rawTurbidity: num(v(TAG.wtp.rawTr) ?? 0.0),
+        treatedPh: num(v(TAG.wtp.trPh) ?? 0.0),
+        chlorine: num(v(TAG.wtp.cl) ?? 0.0),
+        treatedTurbidity: num(v(TAG.wtp.trTr) ?? 0.0),
+        headerDesignPressure: 4.0,
+        headerActualPressure: num(v(TAG.wtp.header) ?? 0.0),
+        recordDateTime: toIstString(sourceAt),
+      });
+      wtpUnit.pumps = [
+        { pumpNumber: 1, ratedPressure: 5.0, actualPressure: num(v(TAG.wtp.pt1) ?? 0.0) },
+        { pumpNumber: 2, ratedPressure: 5.0, actualPressure: num(v(TAG.wtp.pt2) ?? 0.0) },
+      ].map(compact).filter((pump) => pump.actualPressure !== undefined);
+    } else {
+      skippedStations.push("wtp");
+      const lastSeenAt = stationLastSeenTimestamp(wtpIds) || new Date().toISOString();
+      wtpUnit.wtp = {
+        wtP_Device_id: cfg.wtp_device_id,
+        recordDateTime: toIstString(lastSeenAt),
+      };
+      wtpUnit.pumps = [];
+    }
+    wtpUnit.ohts = freshOhts;
     requestPayload.wtpUnits = [wtpUnit];
 
-    // If telemetry data is NOT arriving from MQTT for any commissioned station (both Intake and OHT-1 offline/stale),
+    // If telemetry data is NOT arriving from MQTT for any station (Intake / WTP / OHT),
     // do NOT transmit to Garud portal.
     if (includedStations.length === 0) {
-      const skipMessage = `No fresh telemetry received from MQTT for commissioned stations (Intake / OHT-1) within ${freshnessMinutes} minutes; Garud transmission skipped.`;
+      const skipMessage = `No fresh telemetry received from MQTT for any station (Intake / WTP / OHT) within ${freshnessMinutes} minutes; Garud transmission skipped.`;
       console.log(skipMessage);
 
       // Audit log the skipped attempt
