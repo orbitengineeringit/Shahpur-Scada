@@ -621,9 +621,15 @@ const HistoryPage: React.FC = () => {
       // if data didn't exist for the full selected period — e.g. plant started later).
       let actualStr = '';
       if (processed.length > 0) {
-        const times = processed.map(l => new Date(l.timestamp).getTime());
-        const minT = new Date(Math.min(...times));
-        const maxT = new Date(Math.max(...times));
+        let minTimestamp = Infinity;
+        let maxTimestamp = -Infinity;
+        for (const log of processed) {
+          const timestamp = new Date(log.timestamp).getTime();
+          if (timestamp < minTimestamp) minTimestamp = timestamp;
+          if (timestamp > maxTimestamp) maxTimestamp = timestamp;
+        }
+        const minT = new Date(minTimestamp);
+        const maxT = new Date(maxTimestamp);
         const aS = format(minT, 'd MMM yyyy');
         const aE = format(maxT, 'd MMM yyyy');
         const rangeMismatch =
@@ -647,7 +653,7 @@ const HistoryPage: React.FC = () => {
       // Row 4: Header
       const headerRow = ws.getRow(4);
       const headers = ['⏱  5-min interval', '🏭  Section', '🔧  Sensor Type', '🏷  Label / Tag', '📈  Value', '⚠  Unit', 'Received at (IST)'];
-      const headerColors = ['FF2563EB', 'FFDC2626', 'FF7C3AED', 'FF059669', 'FFEA580C', 'FFCA8A04'];
+      const headerColors = ['FF2563EB', 'FFDC2626', 'FF7C3AED', 'FF059669', 'FFEA580C', 'FFCA8A04', 'FF0891B2'];
       headers.forEach((h, i) => {
         const c = headerRow.getCell(i + 1);
         c.value = h;
