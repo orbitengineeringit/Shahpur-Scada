@@ -34,7 +34,8 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import { logError } from '@/lib/errorLogger';
+import { logError, logWarn } from '@/lib/errorLogger';
+import { ALL_SENSORS } from '@/config/shahpurSensors';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -90,6 +91,7 @@ export const matchesSelectedAssets = (log: { tag_id: string; section?: string },
   });
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const applyAssetFiltersToQuery = (query: any, assets: AssetFilter[]) => {
   if (assets.includes('all')) return query;
 
@@ -146,6 +148,79 @@ const getSectionOrder = (section: string, tagId: string): number => {
   }
   return 99;
 };
+
+export interface ExportProgressState {
+  open: boolean;
+  phase: 'estimating' | 'fetching' | 'building' | 'done';
+  fetched: number;
+  total: number;
+  buildCurrent: number;
+  buildTotal: number;
+  estSec: number;
+  startedAt: number;
+}
+
+/** Network retry helper with exponential backoff and jitter */
+async function fetchWithRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelayMs = 600
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      lastError = err;
+      if (attempt === maxRetries) break;
+      const delay = baseDelayMs * Math.pow(1.8, attempt) + Math.random() * 200;
+      await new Promise(res => setTimeout(res, delay));
+    }
+  }
+  throw lastError;
+}
+
+/** Fail-safe clean CSV download fallback if browser runs out of memory on astronomical datasets */
+function downloadCsvFallback(rows: HistorianLog[], fileName: string, plant: string) {
+  const header = ['Timestamp (IST)', 'Section', 'Sensor Type', 'Label / Tag', 'Value', 'Unit', 'Received At (IST)'];
+  const lines: string[] = [
+    `# Plant: ${plant || 'SCADA'} - Historical Data Export\r\n`,
+    header.join(',') + '\r\n',
+  ];
+  for (let i = 0; i < rows.length; i++) {
+    const log = rows[i];
+    if (!log) continue;
+    const isPump = log.tag_id.includes('Pump');
+    const label = log.tag_config?.label || log.tag_id;
+    const normalized = (label + ' ' + log.tag_id).toLowerCase();
+    let sensorType = 'Other';
+    if (normalized.includes('pump')) sensorType = 'Pump';
+    else if (normalized.includes('level') || normalized.includes('-lt')) sensorType = 'Level';
+    else if (normalized.includes('pressure') || normalized.includes('-pt')) sensorType = 'Pressure';
+    else if (normalized.includes('totalizer')) sensorType = 'Totalizer';
+    else if (normalized.includes('flow') || normalized.includes('-ft')) sensorType = 'Flow';
+    else if (normalized.includes('ph')) sensorType = 'pH';
+    else if (normalized.includes('turbidity')) sensorType = 'Turbidity';
+    else if (normalized.includes('chlorine')) sensorType = 'Chlorine';
+    else if (normalized.includes('kw') || normalized.includes('energy')) sensorType = 'Energy';
+
+    const valueOut = isPump ? (Number(log.value) >= 1 ? 'ON' : 'OFF') : Number(log.value);
+    const ts = format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss');
+    const sec = getDisplaySection(log.section, log.tag_id);
+    const rec = log.received_at ? format(new Date(log.received_at), 'yyyy-MM-dd HH:mm:ss') : '';
+    const safeLabel = `"${String(label).replace(/"/g, '""')}"`;
+    const safeUnit = `"${String(log.tag_config?.unit || '').replace(/"/g, '""')}"`;
+    lines.push(`${ts},"${sec}",${sensorType},${safeLabel},${valueOut},${safeUnit},${rec}\r\n`);
+  }
+  const blob = new Blob(lines, { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = fileName.replace(/\.xlsx$/i, '.csv');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
 
 interface HistorianLog {
   id: string;
@@ -339,14 +414,16 @@ const HistoryPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState<{
-    open: boolean;
-    phase: 'estimating' | 'fetching' | 'building' | 'done';
-    fetched: number;
-    total: number;
-    estSec: number;
-    startedAt: number;
-  }>({ open: false, phase: 'estimating', fetched: 0, total: 0, estSec: 0, startedAt: 0 });
+  const [exportProgress, setExportProgress] = useState<ExportProgressState>({
+    open: false,
+    phase: 'estimating',
+    fetched: 0,
+    total: 0,
+    buildCurrent: 0,
+    buildTotal: 0,
+    estSec: 0,
+    startedAt: 0,
+  });
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [exportInterval, setExportInterval] = useState<ExportInterval>('all');
   const [pageSizeOverride, setPageSizeOverride] = useState<number | null>(null);
@@ -450,8 +527,8 @@ const HistoryPage: React.FC = () => {
       setLogs(deduplicated);
       setCurrentPage(page);
       if (page === 1) toast({ title: 'Data Loaded', description: `Loaded ${deduplicated.length} records on this page (${total.toLocaleString()} total found).` });
-    } catch (error: any) {
-      if (error?.name === 'AbortError') return;
+    } catch (error: unknown) {
+      if ((error as { name?: string })?.name === 'AbortError') return;
       logError('History.fetchLogs', error);
       toast({ title: 'Error', description: 'Failed to fetch historical data.', variant: 'destructive' });
     } finally {
@@ -474,28 +551,80 @@ const HistoryPage: React.FC = () => {
     if (!globalFilters.startDate || !globalFilters.endDate) return;
     setIsExporting(true);
     const startedAt = Date.now();
-    setExportProgress({ open: true, phase: 'estimating', fetched: 0, total: 0, estSec: 0, startedAt });
+    setExportProgress({
+      open: true,
+      phase: 'estimating',
+      fetched: 0,
+      total: 0,
+      buildCurrent: 0,
+      buildTotal: 0,
+      estSec: 0,
+      startedAt,
+    });
+
     try {
       const startTime = startOfDay(globalFilters.startDate).toISOString();
       const endTime = endOfDay(globalFilters.endDate).toISOString();
-      const sectionFilters = getSectionFilters();
+      const startMs = startOfDay(globalFilters.startDate).getTime();
+      const endMs = endOfDay(globalFilters.endDate).getTime();
 
+      // 1. Pre-fetch tag configs and merge with static sensors
+      // Eliminates expensive nested PostgREST joins on 100k+ rows
+      const staticMap = new Map<string, { label: string; unit: string }>(
+        ALL_SENSORS.map(s => [s.id, { label: s.label, unit: s.unit }])
+      );
+      const tagConfigMap = new Map<string, { label: string; unit: string }>();
+      try {
+        const { data: tagConfigs } = await supabase
+          .from('tag_config')
+          .select('id, tag_id, label, unit');
+        if (tagConfigs) {
+          for (const tc of tagConfigs) {
+            if (tc.tag_id) tagConfigMap.set(tc.tag_id, { label: tc.label || tc.tag_id, unit: tc.unit || '' });
+            if (tc.id) tagConfigMap.set(tc.id, { label: tc.label || tc.tag_id, unit: tc.unit || '' });
+          }
+        }
+      } catch (tcErr) {
+        logWarn('History.exportExcel', 'Failed to pre-fetch tag_config map, falling back to static sensor config', tcErr);
+      }
+
+      const getLabelAndUnit = (tagId: string, tagConfigId?: string | null) => {
+        const fromDb = (tagConfigId && tagConfigMap.get(tagConfigId)) || tagConfigMap.get(tagId);
+        if (fromDb) return fromDb;
+        const fromStatic = staticMap.get(tagId);
+        if (fromStatic) return fromStatic;
+        return { label: tagId, unit: '' };
+      };
+
+      // 2. Count & Estimate Phase (with retry & asset-aware fallback estimation)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const applyFilters = (q: any) => {
-        let r = q.gte('timestamp', startTime).lte('timestamp', endTime)
+        const r = q.gte('timestamp', startTime).lte('timestamp', endTime)
           .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
           .or('source.like.%5min%,source.is.null');
         return applyAssetFiltersToQuery(r, globalFilters.assets);
       };
 
-      // Phase 1: count + estimate
-      let countQ = supabase.from('historian_logs').select('*', { count: 'exact', head: true });
-      countQ = applyFilters(countQ);
-      const { count: total, error: countErr } = await countQ;
-      if (countErr) throw countErr;
-      const totalCountVal = total || 0;
-      // Estimate: ~3500 rows/sec end-to-end on average connection
-      const estSec = Math.max(2, Math.ceil(totalCountVal / 3500));
-      setExportProgress(p => ({ ...p, phase: 'fetching', total: totalCountVal, estSec }));
+      let totalCountVal = 0;
+      try {
+        const { count, error: countErr } = await fetchWithRetry(async () => {
+          let countQ = supabase.from('historian_logs').select('*', { count: 'exact', head: true });
+          countQ = applyFilters(countQ);
+          return await countQ;
+        }, 2, 500);
+        if (countErr) throw countErr;
+        totalCountVal = count || 0;
+      } catch (countErr) {
+        logWarn('History.exportExcel', 'Exact count failed or timed out, estimating total rows', countErr);
+        const days = Math.max(1, Math.ceil((endMs - startMs) / (24 * 3600 * 1000)));
+        const tagMultiplier = globalFilters.assets.includes('all') ? 35 : (
+          (globalFilters.assets.includes('intake') ? 6 : 0) +
+          (globalFilters.assets.includes('wtp') ? 21 : 0) +
+          (globalFilters.assets.includes('oht-1') ? 4 : 0) +
+          (globalFilters.assets.includes('oht-2') ? 4 : 0)
+        ) || 35;
+        totalCountVal = days * tagMultiplier * 288;
+      }
 
       if (totalCountVal === 0) {
         setExportProgress(p => ({ ...p, open: false }));
@@ -503,56 +632,125 @@ const HistoryPage: React.FC = () => {
         return;
       }
 
-      // Phase 2: parallel paginated fetch (8 pages concurrent)
-      const PAGE = 1000;
-      const totalPages = Math.ceil(totalCountVal / PAGE);
-      const CONCURRENCY = 6;
-      const allData: HistorianLog[] = new Array(totalCountVal);
-      let fetchedSoFar = 0;
-      let nextPage = 0;
+      const estSec = Math.max(3, Math.ceil(totalCountVal / 3500));
+      setExportProgress(p => ({
+        ...p,
+        phase: 'fetching',
+        total: totalCountVal,
+        estSec,
+      }));
 
-      const worker = async () => {
+      // 3. Time-Slice Partitioning:
+      // Break the date range into 1-day (24h) windows.
+      // In PostgreSQL, querying a 1-day slice keeps maximum offset < 10,000 rows,
+      // completely eliminating deep-offset (OFFSET 80,000+) degradation and statement timeouts!
+      const SLICE_DURATION_MS = 24 * 60 * 60 * 1000;
+      interface TimeSlice {
+        sliceStartIso: string;
+        sliceEndIso: string;
+        isLast: boolean;
+      }
+
+      const slices: TimeSlice[] = [];
+      for (let t = endMs; t > startMs; t -= SLICE_DURATION_MS) {
+        const sStart = Math.max(startMs, t - SLICE_DURATION_MS);
+        slices.push({
+          sliceStartIso: new Date(sStart).toISOString(),
+          sliceEndIso: new Date(t).toISOString(),
+          isLast: t === endMs,
+        });
+      }
+
+      // 4. Parallel Slices Fetching & In-stream Deduplication
+      const DEDUP_BUCKET_MS = 5 * 60 * 1000;
+      const latestPerTagBucket = new Map<string, HistorianLog>();
+      let fetchedSoFar = 0;
+      let nextSliceIdx = 0;
+      const SLICE_CONCURRENCY = 3;
+      const PAGE = 1000;
+
+      const sliceWorker = async () => {
         while (true) {
-          const pageIdx = nextPage++;
-          if (pageIdx >= totalPages) return;
-          const from = pageIdx * PAGE;
-          const to = from + PAGE - 1;
-          let q = supabase.from('historian_logs')
-            .select(`id, tag_id, section, value, timestamp, received_at, tag_config:tag_config_id (label, unit)`)
-            .order('timestamp', { ascending: false })
-            .order('tag_id', { ascending: true })
-            .order('id', { ascending: true })
-            .range(from, to);
-          q = applyFilters(q);
-          const { data, error } = await q;
-          if (error) throw error;
-          if (data) {
-            for (let i = 0; i < data.length; i++) allData[from + i] = data[i] as unknown as HistorianLog;
-            fetchedSoFar += data.length;
-            setExportProgress(p => ({ ...p, fetched: fetchedSoFar }));
+          const sliceIdx = nextSliceIdx++;
+          if (sliceIdx >= slices.length) return;
+          const slice = slices[sliceIdx];
+
+          let offset = 0;
+          while (true) {
+            const from = offset;
+            const to = from + PAGE - 1;
+
+            const pageRows = await fetchWithRetry(async () => {
+              let q = supabase
+                .from('historian_logs')
+                .select('id, tag_id, section, value, timestamp, received_at, tag_config_id')
+                .gte('timestamp', slice.sliceStartIso);
+
+              if (slice.isLast) {
+                q = q.lte('timestamp', slice.sliceEndIso);
+              } else {
+                q = q.lt('timestamp', slice.sliceEndIso);
+              }
+
+              q = q
+                .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
+                .or('source.like.%5min%,source.is.null')
+                .order('timestamp', { ascending: false })
+                .order('tag_id', { ascending: true })
+                .range(from, to);
+
+              q = applyAssetFiltersToQuery(q, globalFilters.assets);
+              const { data, error } = await q;
+              if (error) throw error;
+              return data || [];
+            }, 3, 500);
+
+            if (!pageRows || pageRows.length === 0) break;
+
+            for (let r = 0; r < pageRows.length; r++) {
+              const raw = pageRows[r];
+              if (!matchesSelectedAssets(raw, globalFilters.assets)) continue;
+
+              const cfg = getLabelAndUnit(raw.tag_id, raw.tag_config_id);
+              const log: HistorianLog = {
+                id: raw.id,
+                tag_id: raw.tag_id,
+                section: raw.section,
+                value: raw.value,
+                timestamp: raw.timestamp,
+                received_at: raw.received_at,
+                tag_config: cfg,
+              };
+
+              // Stream directly into deduplication map to save memory
+              const bucketTs = Math.floor(new Date(log.timestamp).getTime() / DEDUP_BUCKET_MS);
+              const key = `${log.tag_id}|${bucketTs}`;
+              const existing = latestPerTagBucket.get(key);
+              if (!existing || new Date(existing.timestamp).getTime() < new Date(log.timestamp).getTime()) {
+                latestPerTagBucket.set(key, log);
+              }
+            }
+
+            fetchedSoFar += pageRows.length;
+            setExportProgress(p => ({
+              ...p,
+              fetched: fetchedSoFar,
+              total: Math.max(p.total, fetchedSoFar),
+            }));
+
+            if (pageRows.length < PAGE) break;
+            offset += PAGE;
           }
         }
       };
-      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
-      // Phase 3a: Deduplicate — keep exactly 1 record per tag_id per 5-min snapshot bucket.
-      // This mirrors the same dedup applied in the screen fetchLogs path. Without this, the
-      // Excel export shows 2x / 4x / 10x duplicate rows when the DB contains both a
-      // backend:5min snapshot AND event-driven browser writes for the same tag at the same time.
-      const DEDUP_BUCKET_MS = 5 * 60 * 1000;
-      const latestPerTagBucket = new Map<string, HistorianLog>();
-      for (const log of allData.filter(Boolean) as HistorianLog[]) {
-        const bucketTs = Math.floor(new Date(log.timestamp).getTime() / DEDUP_BUCKET_MS);
-        const key = `${log.tag_id}|${bucketTs}`;
-        const existing = latestPerTagBucket.get(key);
-        // Keep the record with the latest actual timestamp within the bucket
-        if (!existing || new Date(existing.timestamp).getTime() < new Date(log.timestamp).getTime()) {
-          latestPerTagBucket.set(key, log);
-        }
-      }
-      let processed: HistorianLog[] = Array.from(latestPerTagBucket.values()).filter(log => matchesSelectedAssets(log, globalFilters.assets));
+      await Promise.all(
+        Array.from({ length: Math.min(SLICE_CONCURRENCY, slices.length) }, () => sliceWorker())
+      );
 
-      // Phase 3b: Further downsample by user-chosen export interval (30m / 1h / 1d etc.)
+      // 5. Asset Filtering & Interval Downsampling
+      let processed: HistorianLog[] = Array.from(latestPerTagBucket.values());
+
       if (exportInterval !== 'all') {
         const bucketMs = INTERVAL_MS[exportInterval];
         const latestByBucket = new Map<string, HistorianLog>();
@@ -568,23 +766,61 @@ const HistoryPage: React.FC = () => {
         processed = Array.from(latestByBucket.values());
       }
 
-      // Phase 3b: timestamp-first grouping — latest time on top, and within each
-      // 5-minute timestamp bucket order by Intake → WTP → OHT-1/2 → tag.
-      processed.sort((a, b) => {
-        const BUCKET_MS = 5 * 60 * 1000;
-        const ta = Math.floor(new Date(a.timestamp).getTime() / BUCKET_MS);
-        const tb = Math.floor(new Date(b.timestamp).getTime() / BUCKET_MS);
-        if (ta !== tb) return tb - ta;
-        const oa = getSectionOrder(a.section, a.tag_id);
-        const ob = getSectionOrder(b.section, b.tag_id);
-        if (oa !== ob) return oa - ob;
-        return a.tag_id.localeCompare(b.tag_id);
+      // Sort: timestamp descending, section order, tag_id
+      // Pre-calculate bucketTs and section order for lightning-fast sort without millions of Date allocations
+      const processedWithSortKeys = processed.map(log => ({
+        log,
+        bucketTs: Math.floor(new Date(log.timestamp).getTime() / DEDUP_BUCKET_MS),
+        secOrder: getSectionOrder(log.section, log.tag_id),
+      }));
+
+      processedWithSortKeys.sort((a, b) => {
+        if (a.bucketTs !== b.bucketTs) return b.bucketTs - a.bucketTs;
+        if (a.secOrder !== b.secOrder) return a.secOrder - b.secOrder;
+        return a.log.tag_id.localeCompare(b.log.tag_id);
       });
 
-      const exportCount = processed.length;
+      processed = processedWithSortKeys.map(x => x.log);
 
-      // Phase 3: build workbook
-      setExportProgress(p => ({ ...p, phase: 'building' }));
+      const exportCount = processed.length;
+      if (exportCount === 0) {
+        setExportProgress(p => ({ ...p, open: false }));
+        toast({ title: 'No Records', description: 'No data to export after applying filters.' });
+        return;
+      }
+
+      const intervalSuffix = exportInterval === 'all' ? '' : `_${exportInterval}`;
+      const fileStart = format(globalFilters.startDate!, 'd MMM yyyy');
+      const fileEnd = format(globalFilters.endDate!, 'd MMM yyyy');
+      const safePlant = (plantName || 'SCADA').replace(/[\\/:*?"<>|]/g, '');
+      const downloadFileName = `${safePlant} Scada History ${fileStart} to ${fileEnd}${intervalSuffix}.xlsx`;
+
+      // 6. Excel Row Limit & Memory Guard (Excel hard limit is 1,048,576 rows per worksheet)
+      if (exportCount > 1000000) {
+        setExportProgress(p => ({
+          ...p,
+          phase: 'building',
+          buildCurrent: exportCount,
+          buildTotal: exportCount,
+        }));
+        downloadCsvFallback(processed, downloadFileName, plantName);
+        setExportProgress(p => ({ ...p, phase: 'done' }));
+        setTimeout(() => setExportProgress(p => ({ ...p, open: false })), 1200);
+        toast({
+          title: 'Exported as CSV (Excel Row Limit)',
+          description: `Dataset has ${exportCount.toLocaleString()} records (>10 lakh Excel limit) and was cleanly exported as CSV.`,
+        });
+        return;
+      }
+
+      // 7. Memory-Optimized Excel Generation
+      setExportProgress(p => ({
+        ...p,
+        phase: 'building',
+        buildCurrent: 0,
+        buildTotal: exportCount,
+      }));
+
       const wb = new ExcelJS.Workbook();
       wb.creator = plantName;
       wb.created = new Date();
@@ -594,7 +830,7 @@ const HistoryPage: React.FC = () => {
 
       ws.columns = [
         { key: 'ts', width: 22 },
-        { key: 'section', width: 14 },
+        { key: 'section', width: 16 },
         { key: 'sensor', width: 14 },
         { key: 'label', width: 32 },
         { key: 'value', width: 14 },
@@ -611,14 +847,12 @@ const HistoryPage: React.FC = () => {
       titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0E7490' } };
       ws.getRow(1).height = 38;
 
-      // Row 2: Period / records / generated info
+      // Row 2: Info banner
       ws.mergeCells('A2:G2');
       const infoCell = ws.getCell('A2');
       const startStr = format(globalFilters.startDate, 'd MMM yyyy');
       const endStr = format(globalFilters.endDate, 'd MMM yyyy');
       const genStr = format(new Date(), 'd MMM yyyy HH:mm');
-      // Compute actual data range from processed rows (may differ from selected range
-      // if data didn't exist for the full selected period — e.g. plant started later).
       let actualStr = '';
       if (processed.length > 0) {
         let minTimestamp = Infinity;
@@ -632,22 +866,20 @@ const HistoryPage: React.FC = () => {
         const maxT = new Date(maxTimestamp);
         const aS = format(minT, 'd MMM yyyy');
         const aE = format(maxT, 'd MMM yyyy');
-        const rangeMismatch =
-          aS !== startStr || aE !== endStr;
-        actualStr = rangeMismatch
-          ? `  •  📂 Data Available: ${aS}  →  ${aE}`
-          : '';
+        if (aS !== startStr || aE !== endStr) {
+          actualStr = `  •  📂 Data Available: ${aS}  →  ${aE}`;
+        }
       }
       const recordsStr = exportInterval === 'all'
         ? `📊 Records: ${exportCount.toLocaleString()}`
-        : `📊 ${exportCount.toLocaleString()} of ${totalCountVal.toLocaleString()} records  •  Interval: ${INTERVAL_LABEL[exportInterval]}`;
+        : `📊 ${exportCount.toLocaleString()} records  •  Interval: ${INTERVAL_LABEL[exportInterval]}`;
       infoCell.value = `📅 Selected: ${startStr}  →  ${endStr}${actualStr}     ${recordsStr}     🕒 Generated: ${genStr}`;
       infoCell.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FF1F2937' } };
       infoCell.alignment = { horizontal: 'center', vertical: 'middle' };
       infoCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF9C3' } };
       ws.getRow(2).height = 26;
 
-      // Row 3 spacer
+      // Row 3: Spacer
       ws.getRow(3).height = 6;
 
       // Row 4: Header
@@ -657,7 +889,7 @@ const HistoryPage: React.FC = () => {
       headers.forEach((h, i) => {
         const c = headerRow.getCell(i + 1);
         c.value = h;
-        c.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FF' + headerColors[i].slice(2) } };
+        c.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: headerColors[i] } };
         c.alignment = { horizontal: i === 4 ? 'right' : 'left', vertical: 'middle' };
         c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF064E3B' } };
         c.border = {
@@ -668,20 +900,33 @@ const HistoryPage: React.FC = () => {
       headerRow.height = 26;
       ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: 7 } };
 
-      // Data rows
-      const sectionFill: Record<string, string> = {
-        oht: 'FFECFDF5',
-        intake: 'FFEFF6FF',
-        wtp: 'FFFFFBEB',
-      };
-      const sectionFont: Record<string, string> = {
-        oht: 'FF047857',
-        intake: 'FF1D4ED8',
-        wtp: 'FFB45309',
+      // Shared style constants (reused by reference across all rows)
+      const STYLES = {
+        fontBase: { name: 'Segoe UI', size: 10, color: { argb: 'FF1F2937' } },
+        fontNum: { name: 'Consolas', size: 11, bold: true, color: { argb: 'FF111827' } },
+        fontPumpOn: { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF059669' } },
+        fontPumpOff: { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFDC2626' } },
+        fontUnit: { name: 'Segoe UI', size: 9, italic: true, color: { argb: 'FF6B7280' } },
+        fontOht: { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF047857' } },
+        fontIntake: { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1D4ED8' } },
+        fontWtp: { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFB45309' } },
+        fontDefaultSec: { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF334155' } },
+        borderHair: { bottom: { style: 'hair' as const, color: { argb: 'FFE5E7EB' } } },
+        alignLeft: { vertical: 'middle' as const, horizontal: 'left' as const },
+        alignRight: { vertical: 'middle' as const, horizontal: 'right' as const },
+        fillOht: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFECFDF5' } },
+        fillIntake: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFEFF6FF' } },
+        fillWtp: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFFBEB' } },
+        fillEven: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFF8FAFC' } },
+        fillOdd: { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFFFFFFF' } },
       };
 
-      processed.forEach((log, idx) => {
-        if (!log) return;
+      const isLargeExport = exportCount > 35000;
+      const CHUNK_SIZE = 2000;
+
+      for (let i = 0; i < exportCount; i++) {
+        const log = processed[i];
+        if (!log) continue;
         const isPump = log.tag_id.includes('Pump');
         const label = log.tag_config?.label || log.tag_id;
         const normalized = (label + ' ' + log.tag_id).toLowerCase();
@@ -697,78 +942,108 @@ const HistoryPage: React.FC = () => {
         else if (normalized.includes('kw') || normalized.includes('energy')) sensorType = 'Energy';
 
         const valueOut = isPump ? (Number(log.value) >= 1 ? 'ON' : 'OFF') : Number(log.value);
+        const tsFormatted = format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss');
+        const secDisplay = getDisplaySection(log.section, log.tag_id);
+        const recFormatted = log.received_at ? format(new Date(log.received_at), 'yyyy-MM-dd HH:mm:ss') : '';
 
-        const row = ws.addRow({
-          ts: format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss'),
-          section: getDisplaySection(log.section, log.tag_id),
-          sensor: sensorType,
+        // Add row via array of values (fastest in ExcelJS)
+        const row = ws.addRow([
+          tsFormatted,
+          secDisplay,
+          sensorType,
           label,
-          value: valueOut,
-          unit: log.tag_config?.unit || '',
-          received: log.received_at ? format(new Date(log.received_at), 'yyyy-MM-dd HH:mm:ss') : '',
-        });
+          valueOut,
+          log.tag_config?.unit || '',
+          recFormatted,
+        ]);
 
-        const sec = log.section.toLowerCase();
-        const bg = sectionFill[sec] || (idx % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF');
-        const secFg = sectionFont[sec] || 'FF334155';
+        const secLower = log.section.toLowerCase();
+        const secFont = secLower === 'oht' ? STYLES.fontOht : secLower === 'intake' ? STYLES.fontIntake : secLower === 'wtp' ? STYLES.fontWtp : STYLES.fontDefaultSec;
+        const rowFill = secLower === 'oht' ? STYLES.fillOht : secLower === 'intake' ? STYLES.fillIntake : secLower === 'wtp' ? STYLES.fillWtp : (i % 2 === 0 ? STYLES.fillEven : STYLES.fillOdd);
 
-        row.eachCell({ includeEmpty: true }, (cell, col) => {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-          cell.font = { name: 'Segoe UI', size: 10, color: { argb: 'FF1F2937' } };
-          cell.alignment = { vertical: 'middle', horizontal: col === 5 ? 'right' : 'left' };
-          cell.border = { bottom: { style: 'hair', color: { argb: 'FFE5E7EB' } } };
-        });
-        // Section column bold colored
-        const secCell = row.getCell(2);
-        secCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: secFg } };
-        // Sensor column bold colored
-        const sensorCell = row.getCell(3);
-        sensorCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: secFg } };
-        // Value
-        const valCell = row.getCell(5);
-        if (typeof valueOut === 'number') {
-          valCell.numFmt = '#,##0.00####';
-          valCell.font = { name: 'Consolas', size: 11, bold: true, color: { argb: 'FF111827' } };
-        } else {
-          valCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: valueOut === 'ON' ? 'FF059669' : 'FFDC2626' } };
+        // Apply fast cell-level styling using shared references
+        for (let colIdx = 1; colIdx <= 7; colIdx++) {
+          const cell = row.getCell(colIdx);
+          if (!isLargeExport) {
+            cell.fill = rowFill;
+          }
+          cell.border = STYLES.borderHair;
+          cell.alignment = colIdx === 5 ? STYLES.alignRight : STYLES.alignLeft;
+          if (colIdx === 2 || colIdx === 3) {
+            cell.font = secFont;
+          } else if (colIdx === 5) {
+            if (typeof valueOut === 'number') {
+              cell.numFmt = '#,##0.00####';
+              cell.font = STYLES.fontNum;
+            } else {
+              cell.font = valueOut === 'ON' ? STYLES.fontPumpOn : STYLES.fontPumpOff;
+            }
+          } else if (colIdx === 6) {
+            cell.font = STYLES.fontUnit;
+          } else {
+            cell.font = STYLES.fontBase;
+          }
         }
-        // Unit italic muted
-        const unitCell = row.getCell(6);
-        unitCell.font = { name: 'Segoe UI', size: 9, italic: true, color: { argb: 'FF6B7280' } };
-      });
 
-      const buffer = await wb.xlsx.writeBuffer();
-      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      const intervalSuffix = exportInterval === 'all' ? '' : `_${exportInterval}`;
-      const fileStart = format(globalFilters.startDate!, 'd MMM yyyy');
-      const fileEnd = format(globalFilters.endDate!, 'd MMM yyyy');
-      const safePlant = (plantName || 'SCADA').replace(/[\\/:*?"<>|]/g, '');
-      link.download = `${safePlant} Scada History ${fileStart} to ${fileEnd}${intervalSuffix}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+        if (i > 0 && i % CHUNK_SIZE === 0) {
+          setExportProgress(p => ({
+            ...p,
+            buildCurrent: i,
+            buildTotal: exportCount,
+          }));
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
 
-      setExportProgress(p => ({ ...p, phase: 'done' }));
-      setTimeout(() => setExportProgress(p => ({ ...p, open: false })), 1200);
-      toast({ title: 'Export Complete', description: `Exported ${exportCount.toLocaleString()} records to Excel${exportInterval !== 'all' ? ` (${INTERVAL_LABEL[exportInterval]})` : ''}.` });
+      setExportProgress(p => ({
+        ...p,
+        buildCurrent: exportCount,
+        buildTotal: exportCount,
+      }));
+      await new Promise(r => setTimeout(r, 10));
+
+      try {
+        const buffer = await wb.xlsx.writeBuffer() as ArrayBuffer;
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = downloadFileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+
+        setExportProgress(p => ({ ...p, phase: 'done' }));
+        setTimeout(() => setExportProgress(p => ({ ...p, open: false })), 1200);
+        toast({
+          title: 'Export Complete',
+          description: `Exported ${exportCount.toLocaleString()} records to Excel${exportInterval !== 'all' ? ` (${INTERVAL_LABEL[exportInterval]})` : ''}.`,
+        });
+      } catch (excelErr) {
+        logWarn('History.exportExcel', 'ExcelJS buffer generation failed, falling back to clean CSV', excelErr);
+        downloadCsvFallback(processed, downloadFileName, plantName);
+        setExportProgress(p => ({ ...p, phase: 'done' }));
+        setTimeout(() => setExportProgress(p => ({ ...p, open: false })), 1200);
+        toast({
+          title: 'Downloaded as CSV',
+          description: `Large dataset (${exportCount.toLocaleString()} records) exported as CSV for stability.`,
+        });
+      }
     } catch (error) {
       logError('History.exportExcel', error);
       setExportProgress(p => ({ ...p, open: false }));
-      toast({ title: 'Export Failed', description: 'Failed to generate Excel file.', variant: 'destructive' });
+      toast({ title: 'Export Failed', description: 'Failed to generate export file. Please try again or select a shorter interval.', variant: 'destructive' });
     } finally {
       setIsExporting(false);
     }
-  }, [globalFilters.startDate, globalFilters.endDate, globalFilters.assets, getSectionFilters, getOhtTagPrefixes, toast, plantName, exportInterval]);
+  }, [globalFilters.startDate, globalFilters.endDate, globalFilters.assets, toast, plantName, exportInterval]);
 
   const paginationInfo = useMemo(() => {
     if (totalCount === 0 && logs.length === 0) return null;
     const maxVisible = 5;
     const effectiveTotalPages = Math.max(1, totalPages);
     let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-    let endPage = Math.min(effectiveTotalPages, startPage + maxVisible - 1);
+    const endPage = Math.min(effectiveTotalPages, startPage + maxVisible - 1);
     if (endPage - startPage + 1 < maxVisible) startPage = Math.max(1, endPage - maxVisible + 1);
     const pages = [];
     for (let i = startPage; i <= endPage; i++) pages.push(i);
@@ -808,7 +1083,7 @@ const HistoryPage: React.FC = () => {
             <Database className="h-5 w-5 sm:h-6 sm:w-6 text-primary animate-pulse" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-tight text-foreground bg-gradient-to-r from-foreground via-foreground/90 to-muted-foreground bg-clip-text text-shadow-glow">Historical Sensors</h2>
+            <h2 className="text-lg sm:text-xl md:text-2xl font-bold tracking-tight text-foreground bg-gradient-to-r from-foreground via-foreground/90 to-muted-foreground bg-clip-text text-shadow-glow">Historical Data</h2>
           </div>
         </div>
 
@@ -1179,15 +1454,6 @@ const HistoryPage: React.FC = () => {
 
 export default HistoryPage;
 
-interface ExportProgressState {
-  open: boolean;
-  phase: 'estimating' | 'fetching' | 'building' | 'done';
-  fetched: number;
-  total: number;
-  estSec: number;
-  startedAt: number;
-}
-
 const ExportProgressDialog: React.FC<{ state: ExportProgressState }> = ({ state }) => {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -1197,22 +1463,48 @@ const ExportProgressDialog: React.FC<{ state: ExportProgressState }> = ({ state 
   }, [state.open]);
 
   const elapsedSec = state.startedAt ? (now - state.startedAt) / 1000 : 0;
-  const pct = state.total > 0 ? Math.min(99, Math.round((state.fetched / state.total) * 100)) : 0;
-  const displayPct = state.phase === 'done' ? 100 : state.phase === 'building' ? Math.max(pct, 95) : pct;
 
-  // Recompute ETA from actual throughput once we have samples
+  // Progress computation:
+  // Fetching phase covers 0% to 85%
+  // Building phase covers 85% to 99%
+  // Done covers 100%
+  let displayPct = 0;
+  if (state.phase === 'done') {
+    displayPct = 100;
+  } else if (state.phase === 'building') {
+    const buildFraction = state.buildTotal > 0 ? (state.buildCurrent / state.buildTotal) : 0;
+    displayPct = Math.min(99, Math.max(85, Math.round(85 + buildFraction * 14)));
+  } else if (state.phase === 'fetching') {
+    const fetchPct = state.total > 0 ? Math.round((state.fetched / state.total) * 85) : 0;
+    displayPct = Math.min(85, Math.max(5, fetchPct));
+  } else {
+    displayPct = 5;
+  }
+
+  // Recompute ETA from actual throughput
   let remainSec = Math.max(0, state.estSec - elapsedSec);
   if (state.fetched > 50 && state.total > 0 && state.phase === 'fetching') {
     const rate = state.fetched / Math.max(0.5, elapsedSec);
     remainSec = Math.max(0, (state.total - state.fetched) / Math.max(1, rate));
+  } else if (state.phase === 'building' && state.buildTotal > 0) {
+    const buildRate = Math.max(1, state.buildCurrent / Math.max(0.5, elapsedSec));
+    remainSec = Math.max(0, (state.buildTotal - state.buildCurrent) / buildRate);
   }
+
   const formatSec = (s: number) => s < 60 ? `${Math.ceil(s)}s` : `${Math.floor(s / 60)}m ${Math.ceil(s % 60)}s`;
 
   const phaseLabel: Record<ExportProgressState['phase'], string> = {
-    estimating: '🔍 Estimating size…',
-    fetching: '📥 Fetching data',
-    building: '🎨 Building Excel file',
-    done: '✅ Done',
+    estimating: '🔍 Estimating dataset…',
+    fetching: `📥 Fetching data (${displayPct}%)`,
+    building: `🎨 Building Excel file (${state.buildCurrent.toLocaleString()} / ${state.buildTotal.toLocaleString()})`,
+    done: '✅ Export Complete',
+  };
+
+  const getSubDescription = () => {
+    if (state.phase === 'estimating') return 'Calculating records for selected date range…';
+    if (state.phase === 'fetching') return `${state.fetched.toLocaleString()} of ${state.total.toLocaleString()} records fetched`;
+    if (state.phase === 'building') return `Formatting ${state.buildTotal.toLocaleString()} rows into Excel worksheet…`;
+    return `${state.buildTotal.toLocaleString()} records exported successfully`;
   };
 
   return (
@@ -1221,12 +1513,10 @@ const ExportProgressDialog: React.FC<{ state: ExportProgressState }> = ({ state 
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5 text-emerald-500" />
-            Exporting to Excel
+            Exporting Historical Data
           </DialogTitle>
           <DialogDescription>
-            {state.phase === 'estimating'
-              ? 'Calculating how much data needs to be exported…'
-              : `${state.fetched.toLocaleString()} of ${state.total.toLocaleString()} records`}
+            {getSubDescription()}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 pt-1">
@@ -1247,13 +1537,13 @@ const ExportProgressDialog: React.FC<{ state: ExportProgressState }> = ({ state 
                 {state.phase === 'done' ? 'Elapsed' : 'Remaining'}
               </div>
               <div className="text-sm font-bold text-foreground mt-0.5">
-                {state.phase === 'done' ? formatSec(elapsedSec) : (state.phase === 'fetching' ? formatSec(remainSec) : '…')}
+                {state.phase === 'done' ? formatSec(elapsedSec) : (state.phase === 'fetching' || state.phase === 'building' ? formatSec(remainSec) : '…')}
               </div>
             </div>
           </div>
-          {state.phase === 'fetching' && state.total > 5000 && (
+          {(state.phase === 'fetching' || state.phase === 'building') && state.total > 5000 && (
             <p className="text-[11px] text-muted-foreground text-center">
-              Tip: larger date ranges take longer — please keep this tab open.
+              Processing in optimized time windows — keep this tab open.
             </p>
           )}
         </div>

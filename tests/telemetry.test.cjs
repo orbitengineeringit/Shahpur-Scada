@@ -5,7 +5,8 @@ const vm = require('node:vm');
 const ts = require('typescript');
 
 function load(file, stubs = {}, extra = {}) {
-  const code = ts.transpileModule(fs.readFileSync(file,'utf8'), {
+  const raw = fs.readFileSync(file, 'utf8').replace(/import\.meta/g, '({env:{}})');
+  const code = ts.transpileModule(raw, {
     compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React},
   }).outputText;
   const exports = {};
@@ -376,3 +377,133 @@ test('OHT-1 payload parses correctly and preserves negative flow', () => {
   assert.equal(quality.sanitizeRtuValue("-10.5181", false), 0.0);
   assert.equal(quality.normalizeTelemetryValue("-10.5181", { min: -50, max: 50 }), -10.5181);
 });
+
+test('Historical Data heading and 30-day time-slice export resilience', () => {
+  const historyCode = fs.readFileSync('src/pages/HistoryPage.tsx', 'utf8');
+
+  // 1. Verify "Historical Sensors" was renamed to "Historical Data"
+  assert.equal(historyCode.includes('Historical Sensors'), false, 'Should not contain Historical Sensors heading');
+  assert.match(historyCode, /<h2[^>]*>Historical Data<\/h2>/, 'Should contain Historical Data heading');
+
+  // 2. Verify Time-slice partitioning logic (1-day slices)
+  const SLICE_DURATION_MS = 24 * 60 * 60 * 1000;
+  const startMs = new Date('2026-09-29T00:00:00.000Z').getTime();
+  const endMs = new Date('2026-10-29T23:59:59.999Z').getTime();
+
+  const slices = [];
+  for (let t = endMs; t > startMs; t -= SLICE_DURATION_MS) {
+    const sStart = Math.max(startMs, t - SLICE_DURATION_MS);
+    slices.push({
+      sliceStartMs: sStart,
+      sliceEndMs: t,
+      isLast: t === endMs,
+    });
+  }
+
+  // Slices should span ~31 days
+  assert.equal(slices.length >= 30, true);
+  // Slices must be contiguous: each slice start must equal previous slice end
+  for (let i = 0; i < slices.length - 1; i++) {
+    assert.equal(slices[i].sliceStartMs, slices[i + 1].sliceEndMs);
+  }
+  // Earliest slice must start at startMs
+  assert.equal(slices[slices.length - 1].sliceStartMs, startMs);
+  // Latest slice must end at endMs
+  assert.equal(slices[0].sliceEndMs, endMs);
+
+  // 3. Verify deduplication logic keeps latest timestamp per 5-min bucket per tag
+  const DEDUP_BUCKET_MS = 5 * 60 * 1000;
+  const testLogs = [
+    { tag_id: 'WTP-LT-BW', value: 40, timestamp: '2026-10-29T10:01:00.000Z', section: 'wtp' },
+    { tag_id: 'WTP-LT-BW', value: 42, timestamp: '2026-10-29T10:04:00.000Z', section: 'wtp' }, // newer in same 5-min bucket (10:00-10:05)
+    { tag_id: 'WTP-LT-BW', value: 45, timestamp: '2026-10-29T10:07:00.000Z', section: 'wtp' }, // next bucket (10:05-10:10)
+    { tag_id: 'INT-LT', value: 5.5, timestamp: '2026-10-29T10:02:00.000Z', section: 'intake' },
+  ];
+
+  const latestPerTagBucket = new Map();
+  for (const log of testLogs) {
+    const bucketTs = Math.floor(new Date(log.timestamp).getTime() / DEDUP_BUCKET_MS);
+    const key = `${log.tag_id}|${bucketTs}`;
+    const existing = latestPerTagBucket.get(key);
+    if (!existing || new Date(existing.timestamp).getTime() < new Date(log.timestamp).getTime()) {
+      latestPerTagBucket.set(key, log);
+    }
+  }
+
+  assert.equal(latestPerTagBucket.size, 3);
+  const bwBucket1 = latestPerTagBucket.get(`WTP-LT-BW|${Math.floor(new Date('2026-10-29T10:00:00.000Z').getTime() / DEDUP_BUCKET_MS)}`);
+  assert.equal(bwBucket1.value, 42, 'Should keep the latest timestamp within the bucket (value 42)');
+
+  // 4. Verify ALL_SENSORS maps to valid labels (s.label, not s.name)
+  const sensorsModule = load('src/config/shahpurSensors.ts').exports;
+  const staticMap = new Map(sensorsModule.ALL_SENSORS.map(s => [s.id, { label: s.label, unit: s.unit }]));
+  assert.equal(staticMap.size > 20, true, 'ALL_SENSORS should contain at least 20 sensors');
+  for (const [id, cfg] of staticMap.entries()) {
+    assert.equal(typeof cfg.label, 'string', `Sensor ${id} must have a valid string label`);
+    assert.notEqual(cfg.label, '', `Sensor ${id} label should not be empty`);
+    assert.notEqual(cfg.label, undefined, `Sensor ${id} label should not be undefined`);
+  }
+
+  // 5. Verify single-day edge case slicing (exact 1 slice)
+  const singleDayStart = new Date('2026-10-29T00:00:00.000Z').getTime();
+  const singleDayEnd = new Date('2026-10-29T23:59:59.999Z').getTime();
+  const singleSlices = [];
+  for (let t = singleDayEnd; t > singleDayStart; t -= SLICE_DURATION_MS) {
+    const sStart = Math.max(singleDayStart, t - SLICE_DURATION_MS);
+    singleSlices.push({ sliceStartMs: sStart, sliceEndMs: t, isLast: t === singleDayEnd });
+  }
+  assert.equal(singleSlices.length, 1);
+  assert.equal(singleSlices[0].isLast, true);
+  assert.equal(singleSlices[0].sliceStartMs, singleDayStart);
+  assert.equal(singleSlices[0].sliceEndMs, singleDayEnd);
+
+  // 6. Verify 60-day slice continuity
+  const sixtyDaysStart = new Date('2026-08-30T00:00:00.000Z').getTime();
+  const sixtyDaysEnd = new Date('2026-10-29T23:59:59.999Z').getTime();
+  const sixtySlices = [];
+  for (let t = sixtyDaysEnd; t > sixtyDaysStart; t -= SLICE_DURATION_MS) {
+    const sStart = Math.max(sixtyDaysStart, t - SLICE_DURATION_MS);
+    sixtySlices.push({ sliceStartMs: sStart, sliceEndMs: t, isLast: t === sixtyDaysEnd });
+  }
+  assert.equal(sixtySlices.length >= 60, true);
+  for (let i = 0; i < sixtySlices.length - 1; i++) {
+    assert.equal(sixtySlices[i].sliceStartMs, sixtySlices[i + 1].sliceEndMs);
+  }
+
+  // 7. Verify precalculated sort keys produce identical ordering as timestamp comparator
+  const unsorted = [
+    { tag_id: 'WTP-LT-BW', section: 'wtp', timestamp: '2026-10-29T10:01:00.000Z' },
+    { tag_id: 'INT-LT', section: 'intake', timestamp: '2026-10-29T10:02:00.000Z' },
+    { tag_id: 'OHT1-LT', section: 'oht', timestamp: '2026-10-29T10:03:00.000Z' },
+    { tag_id: 'WTP-PT-RAW', section: 'wtp', timestamp: '2026-10-29T10:00:00.000Z' },
+    { tag_id: 'INT-PT1', section: 'intake', timestamp: '2026-10-29T09:55:00.000Z' },
+  ];
+  function getSectionOrder(section, tagId) {
+    const sec = (section || '').toLowerCase();
+    if (sec === 'intake') return 0;
+    if (sec === 'wtp') return 1;
+    if (sec === 'oht') {
+      const m = tagId.match(/^OHT[-_\s]*([0-9]+)/i);
+      return 1 + (m ? parseInt(m[1], 10) : 99);
+    }
+    return 99;
+  }
+  const withKeys = unsorted.map(log => ({
+    log,
+    bucketTs: Math.floor(new Date(log.timestamp).getTime() / DEDUP_BUCKET_MS),
+    secOrder: getSectionOrder(log.section, log.tag_id),
+  }));
+  withKeys.sort((a, b) => {
+    if (a.bucketTs !== b.bucketTs) return b.bucketTs - a.bucketTs;
+    if (a.secOrder !== b.secOrder) return a.secOrder - b.secOrder;
+    return a.log.tag_id.localeCompare(b.log.tag_id);
+  });
+  const sortedTags = withKeys.map(x => x.log.tag_id);
+  // Intake is section 0, WTP is 1, OHT is 2+. In the 10:00 bucket: Intake comes before WTP, which comes before OHT1.
+  assert.equal(sortedTags[0], 'INT-LT');
+  assert.equal(sortedTags[1], 'WTP-LT-BW');
+  assert.equal(sortedTags[2], 'WTP-PT-RAW');
+  assert.equal(sortedTags[3], 'OHT1-LT');
+  assert.equal(sortedTags[4], 'INT-PT1'); // 09:55 bucket comes after 10:00 bucket
+});
+

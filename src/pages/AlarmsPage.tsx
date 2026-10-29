@@ -194,10 +194,10 @@ const AlarmsPage: React.FC = () => {
 
                     {/* Section Filters */}
                     <div className="flex flex-wrap gap-1.5 bg-muted/40 p-1 rounded-lg border border-border/40">
-                        <Button variant={sectionFilter === 'all' ? 'secondary' : 'ghost'} size="xs" onClick={() => setSectionFilter('all')} className="h-7 px-2.5 text-xs">All Sections</Button>
-                        <Button variant={sectionFilter === 'intake' ? 'secondary' : 'ghost'} size="xs" onClick={() => setSectionFilter('intake')} className="h-7 px-2.5 text-xs">Intake</Button>
-                        <Button variant={sectionFilter === 'wtp' ? 'secondary' : 'ghost'} size="xs" onClick={() => setSectionFilter('wtp')} className="h-7 px-2.5 text-xs">WTP</Button>
-                        <Button variant={sectionFilter === 'oht' ? 'secondary' : 'ghost'} size="xs" onClick={() => setSectionFilter('oht')} className="h-7 px-2.5 text-xs">OHTs</Button>
+                        <Button variant={sectionFilter === 'all' ? 'secondary' : 'ghost'} size="sm" onClick={() => setSectionFilter('all')} className="h-7 px-2.5 text-xs">All Sections</Button>
+                        <Button variant={sectionFilter === 'intake' ? 'secondary' : 'ghost'} size="sm" onClick={() => setSectionFilter('intake')} className="h-7 px-2.5 text-xs">Intake</Button>
+                        <Button variant={sectionFilter === 'wtp' ? 'secondary' : 'ghost'} size="sm" onClick={() => setSectionFilter('wtp')} className="h-7 px-2.5 text-xs">WTP</Button>
+                        <Button variant={sectionFilter === 'oht' ? 'secondary' : 'ghost'} size="sm" onClick={() => setSectionFilter('oht')} className="h-7 px-2.5 text-xs">OHTs</Button>
                     </div>
                 </div>
 
