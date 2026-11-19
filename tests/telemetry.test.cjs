@@ -229,11 +229,17 @@ test('Garud GIS sync enforces uncommissioned station omission and MQTT freshness
   assert.match(gisCode, /if\s*\(includedStations\.length\s*===\s*0\)/);
   assert.match(gisCode, /response_status:\s*204/);
 
+  // Verify telemetry payload explicitly transmits Sagar District (Code 427) and never Betul
+  assert.match(gisCode, /districtName:\s*["']SAGAR["']/);
+  assert.match(gisCode, /district_Code:\s*["']427["']/);
+  assert.equal(/betul/i.test(gisCode), false, 'GIS sync must never transmit or reference Betul');
+
   // Verify GisSyncStatus component rejects false-positive SENT when payload is null or status 204
   const gisUiCode = fs.readFileSync('src/components/GisSyncStatus.tsx', 'utf8');
   assert.match(gisUiCode, /if\s*\(!payload\s*\|\|\s*typeof\s*payload\s*!==\s*'object'\)\s*return\s*\{\s*included:\s*false/);
   assert.match(gisUiCode, /isSkippedStatus\s*=\s*lastStatus\s*===\s*204/);
   assert.match(gisUiCode, /\(success\s*&&\s*included\)\s*\?\s*'SENT'/);
+  assert.match(gisUiCode, /SAGAR \(427\)/, 'GIS Sync UI must display Sagar district with code 427');
 });
 
 test('Intake PLC active keys, equipment_data extraction, and WTP LOH/ROF ranges work as expected', () => {

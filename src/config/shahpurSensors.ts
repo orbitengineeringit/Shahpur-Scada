@@ -2,6 +2,8 @@
  * SHAHPUR SCADA - COMPLETE SENSOR CONFIGURATION
  * 
  * Project: Improvement of Water Supply in Shahpur, Dist- Sagar, Madhya Pradesh (Package-6i)
+ * District: Sagar (Code: 427) — NOTE: Location is Sagar District, NOT Betul
+ * ULB: Shahpur (Code: 0492)
  * Client: Madhya Pradesh Urban Development Company Limited (MPUDCL)
  * Capacity: 1.75 MLD
  * Contractor: M/s. IEL & MCPPLJV Pvt. Ltd.

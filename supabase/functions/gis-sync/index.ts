@@ -248,6 +248,13 @@ Deno.serve(async (req) => {
     // 3) Build payload
     requestPayload = {
       auth: { token: cfg.api_token, vendorKey: cfg.vendor_key },
+      district: "SAGAR",
+      districtName: "SAGAR",
+      district_Code: "427",
+      districtCode: "427",
+      ulbName: "SHAHPUR",
+      ulb_Code: "0492",
+      schemeName: "SHAHPUR WATER SUPPLY SCHEME",
     };
 
     // --- Intake Well (Real-time telemetry) ---
@@ -259,6 +266,12 @@ Deno.serve(async (req) => {
       includedStations.push("intake");
       requestPayload.intake = compact({
         intakWell_Device_id: cfg.intake_device_id,
+        district: "SAGAR",
+        districtName: "SAGAR",
+        district_Code: "427",
+        districtCode: "427",
+        ulbName: "SHAHPUR",
+        schemeName: "SHAHPUR WATER SUPPLY SCHEME",
         intakeWellLevel_mtr: num(v(TAG.intake.lt) ?? 0.0),
         inletFlow_mld: mld(v(TAG.intake.inFlow) ?? 0.0),
         outletFlow_mld: mld(v(TAG.intake.outFlow) ?? v(TAG.intake.inFlow) ?? 0.0),
@@ -275,6 +288,12 @@ Deno.serve(async (req) => {
       const lastSeenAt = stationLastSeenTimestamp(intakeIds) || new Date().toISOString();
       requestPayload.intake = {
         intakWell_Device_id: cfg.intake_device_id,
+        district: "SAGAR",
+        districtName: "SAGAR",
+        district_Code: "427",
+        districtCode: "427",
+        ulbName: "SHAHPUR",
+        schemeName: "SHAHPUR WATER SUPPLY SCHEME",
         recordDateTime: toIstString(lastSeenAt),
       };
       requestPayload.intakePumps = [];
@@ -295,6 +314,12 @@ Deno.serve(async (req) => {
         includedStations.push(stationName);
         freshOhts.push(compact({
           ohT_Device_id: deviceId,
+          district: "SAGAR",
+          districtName: "SAGAR",
+          district_Code: "427",
+          districtCode: "427",
+          ulbName: "SHAHPUR",
+          schemeName: "SHAHPUR WATER SUPPLY SCHEME",
           inletFlow_mld: mld(v(ohtTags.flow) ?? 0.0),
           waterLevel_mld: num(v(ohtTags.lt) ?? 0.0),
           inletPressure: num(v(ohtTags.pt1) ?? v(ohtTags.pt2) ?? 0.0),
@@ -315,6 +340,12 @@ Deno.serve(async (req) => {
       includedStations.push("wtp");
       wtpUnit.wtp = compact({
         wtP_Device_id: cfg.wtp_device_id,
+        district: "SAGAR",
+        districtName: "SAGAR",
+        district_Code: "427",
+        districtCode: "427",
+        ulbName: "SHAHPUR",
+        schemeName: "SHAHPUR WATER SUPPLY SCHEME",
         inletFlow_mld: mld(v(TAG.wtp.inFlow) ?? 0.0),
         outletFlow_mld: mld(v(TAG.wtp.outFlow) ?? 0.0),
         backwashLevel: num(v(TAG.wtp.bw) ?? 0.0),
@@ -336,6 +367,12 @@ Deno.serve(async (req) => {
       const lastSeenAt = stationLastSeenTimestamp(wtpIds) || new Date().toISOString();
       wtpUnit.wtp = {
         wtP_Device_id: cfg.wtp_device_id,
+        district: "SAGAR",
+        districtName: "SAGAR",
+        district_Code: "427",
+        districtCode: "427",
+        ulbName: "SHAHPUR",
+        schemeName: "SHAHPUR WATER SUPPLY SCHEME",
         recordDateTime: toIstString(lastSeenAt),
       };
       wtpUnit.pumps = [];

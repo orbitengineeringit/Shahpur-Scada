@@ -243,14 +243,18 @@ const GisSyncStatus = () => {
               </div>
               <div className="min-w-0">
                 <DialogTitle className="text-sm sm:text-lg font-bold tracking-tight leading-tight text-left">
-                  Shahpur MPGARUD GIS Lab API · Sensor Sync Details
+                  Shahpur (Distt. Sagar) MPGARUD GIS Lab API · Sensor Sync Details
                 </DialogTitle>
                 <p className="text-[10px] sm:text-xs text-muted-foreground mt-1 text-left">
-                  Real-time integration data pipeline for Directorate of Urban Administration & Development, Bhopal.
+                  Real-time telemetry pipeline for MP Urban GIS Portal (MPGARUD) · Distt: Sagar (Code 427) · ULB: Shahpur · MPUDCL
                 </p>
               </div>
             </div>
             <div className="flex sm:flex-col items-center sm:items-end gap-2 sm:gap-1 text-[10px] sm:text-[11px] sm:mr-8 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">District:</span>
+                <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] font-bold">SAGAR (427)</Badge>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">Vendor Key:</span>
                 <span className="font-mono font-bold tracking-wider">{VENDOR_KEY}</span>
