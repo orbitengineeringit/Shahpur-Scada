@@ -10,7 +10,7 @@ import { archiveMonth, archiveTable, canonical, checksum } from '../scripts/hist
 import { createVerifiedArchiveCache, queryVerifiedArchive, readArchiveGrid, readArchiveRecovery, readRecoveryGrid } from '../supabase/functions/_shared/historianArchive.ts';
 import { googleSheetsAccessToken, loadHistorianSheet } from '../supabase/functions/_shared/historianSheets.ts';
 import { appendWorkerArchiveReceipts } from '../supabase/functions/_shared/historianWorkerManifest.ts';
-import { historianBackupGrid } from '../supabase/functions/_shared/historianBackupGrid.ts';
+import { historianBackupGrid, readHistorianBackupRow } from '../supabase/functions/_shared/historianBackupGrid.ts';
 
 test('Sheets API shadow maps IST monthly slots deterministically and preserves source JSON bytes', async () => {
   const start = '2026-11-30T18:30:00.000Z';
@@ -28,6 +28,32 @@ test('Sheets API shadow maps IST monthly slots deterministically and preserves s
   assert.equal(a.cells[2], checksum([raw]));
   assert.match((await historianBackupGrid('2026-11-30T18:25:00.000Z', rows)).range, /A8641:AD8641$/);
   await assert.rejects(historianBackupGrid('2026-11-30T18:31:00.000Z', rows), /Invalid finalized/);
+});
+
+test('verified Sheets API ranges preserve original history filters and reject missing or changed windows', async () => {
+  const start = '2026-11-26T08:00:00.000Z';
+  const next = '2026-11-26T08:05:00.000Z';
+  const end = '2026-11-26T08:10:00.000Z';
+  const reading = { id: 'one', tag_id: 'OHT2-LT', section: 'oht', timestamp: start, value: 0 };
+  const snapshot = { historian_logs: [JSON.stringify(reading)], alarms: [], historian_aggregates: [] };
+  const first = await historianBackupGrid(start, snapshot);
+  const last = await historianBackupGrid(next, { ...snapshot, historian_logs: [] });
+  const grid = [first.cells, last.cells];
+  const manifest = [{
+    spreadsheetId: 'private-workbook-test', range: 'Raw Backup!A2:AD3', format: 'sheets-api',
+    start, end, count: 1, sourceDigest: checksum([first.cells[2], last.cells[2]]),
+  }];
+  const query = { start, end, assets: ['oht-2'], limit: 10, offset: 0 };
+  assert.deepEqual(await readHistorianBackupRow(first.cells, start, first.cells[2]), snapshot);
+  const damaged = [...first.cells];
+  damaged[3] = 2;
+  await assert.rejects(readHistorianBackupRow(damaged, start), /counts/);
+  assert.deepEqual(await queryVerifiedArchive(manifest, query, async () => grid), {
+    coverage: [{ start, end }], count: 1, rows: [reading],
+  });
+  assert.equal((await queryVerifiedArchive(manifest, { ...query, assets: ['oht-1'] }, async () => grid)).count, 0);
+  await assert.rejects(queryVerifiedArchive(manifest, query, async () => [first.cells]), /coverage/);
+  await assert.rejects(queryVerifiedArchive(manifest, query, async () => [...grid].reverse()), /checksum/);
 });
 
 test('private recovery cache checks exact archived bytes and avoids a Sheets read', async () => {

@@ -9,6 +9,43 @@ export type BackupSnapshot = {
   historian_aggregates: string[];
 };
 
+export async function readHistorianBackupRow(
+  row: readonly unknown[],
+  expectedStart: string,
+  expectedDigest?: string,
+): Promise<BackupSnapshot> {
+  const start = Date.parse(expectedStart);
+  const [from, to, checksum, ...tail] = row;
+  const counts = tail.slice(0, 3);
+  const chunks = tail.slice(3);
+  while (chunks.at(-1) === '' || chunks.at(-1) === null) chunks.pop();
+  if (!Number.isFinite(start) || start % SLOT_MS !== 0 || from !== new Date(start).toISOString() ||
+      to !== new Date(start + SLOT_MS).toISOString() ||
+      typeof checksum !== 'string' || !/^[0-9a-f]{64}$/.test(checksum) ||
+      (expectedDigest !== undefined && checksum !== expectedDigest) ||
+      counts.length !== 3 || counts.some(count => typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) ||
+      !chunks.length || chunks.length > MAX_CHUNKS ||
+      chunks.some(chunk => typeof chunk !== 'string' || !chunk.length || chunk.length > CHUNK_BYTES * 4 / 3)) {
+    throw new Error('Invalid Sheets API backup row');
+  }
+  const compressed = Uint8Array.from(chunks.map(chunk => atob(String(chunk))).join(''), char => char.charCodeAt(0));
+  const bytes = await new Response(new Blob([compressed]).stream()
+    .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  const digest = await backupDigest(bytes);
+  if (digest !== checksum) throw new Error('Sheets API backup checksum mismatch');
+  const data = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as BackupSnapshot;
+  if ([data.historian_logs, data.alarms, data.historian_aggregates].some((records, index) =>
+    !Array.isArray(records) || records.length !== counts[index] || records.some(record => typeof record !== 'string'))) {
+    throw new Error('Sheets API backup counts do not match the payload');
+  }
+  return data;
+}
+
+async function backupDigest(bytes: BufferSource) {
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export async function historianBackupGrid(windowStart: string, snapshot: BackupSnapshot) {
   const start = Date.parse(windowStart);
   if (!Number.isFinite(start) || start % SLOT_MS !== 0 ||
@@ -24,8 +61,7 @@ export async function historianBackupGrid(windowStart: string, snapshot: BackupS
     historian_aggregates: snapshot.historian_aggregates,
   });
   const bytes = new TextEncoder().encode(records);
-  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
-    .map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const hash = await backupDigest(bytes);
   const gzip = new Uint8Array(await new Response(new Blob([bytes]).stream()
     .pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
   if (gzip.length > CHUNK_BYTES * MAX_CHUNKS) throw new Error('Backup window exceeds worksheet capacity');

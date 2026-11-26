@@ -1,3 +1,5 @@
+import { readHistorianBackupRow } from './historianBackupGrid.ts';
+
 export interface ArchivedHistorianReading {
   id: string;
   tag_id: string;
@@ -15,7 +17,7 @@ type Grid = readonly (readonly Cell[])[];
 export interface HistorianArchiveRange {
   spreadsheetId: string;
   range: string;
-  format: 'recovery' | 'worker';
+  format: 'recovery' | 'worker' | 'sheets-api';
   start: string;
   end: string;
   count: number;
@@ -128,7 +130,8 @@ export function validateArchiveRanges(ranges: HistorianArchiveRange[]): Historia
     const end = Date.parse(entry.end);
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || start < previousEnd ||
         !/^[A-Za-z0-9_-]{15,}$/.test(entry.spreadsheetId) || typeof entry.range !== 'string' || !entry.range ||
-        !['worker', 'recovery'].includes(entry.format) || !Number.isSafeInteger(entry.count) || entry.count < 0 ||
+        !['worker', 'recovery', 'sheets-api'].includes(entry.format) || !Number.isSafeInteger(entry.count) || entry.count < 0 ||
+        (entry.format === 'sheets-api' && (!entry.sourceDigest || start % 300_000 !== 0 || end % 300_000 !== 0)) ||
         (entry.sourceDigest !== undefined && !/^[a-f0-9]{64}$/.test(entry.sourceDigest)) ||
         (entry.recoveryDigest !== undefined && !/^[a-f0-9]{64}$/.test(entry.recoveryDigest))) {
       throw new Error('Invalid or overlapping historian archive ranges');
@@ -139,6 +142,26 @@ export function validateArchiveRanges(ranges: HistorianArchiveRange[]): Historia
 }
 
 export async function readVerifiedArchiveRange(entry: HistorianArchiveRange, grid: Grid): Promise<ArchivedHistorianReading[]> {
+  if (entry.format === 'sheets-api') {
+    const start = Date.parse(entry.start);
+    const end = Date.parse(entry.end);
+    if (!entry.sourceDigest || start + grid.length * 300_000 !== end || !grid.length ||
+        await digest(new TextEncoder().encode(grid.map(row => row[2]).join('\n'))) !== entry.sourceDigest) {
+      throw new Error('Sheets API archive coverage or audited checksum mismatch');
+    }
+    const readings: ArchivedHistorianReading[] = [];
+    for (const [index, row] of grid.entries()) {
+      const time = start + index * 300_000;
+      const { historian_logs } = await readHistorianBackupRow(row, new Date(time).toISOString());
+      const records: ArchivedHistorianReading[] = [];
+      collectReadings(historian_logs, records);
+      if (records.some(record => Date.parse(record.timestamp) < time || Date.parse(record.timestamp) >= time + 300_000)) {
+        throw new Error('Sheets API archive reading is outside its window');
+      }
+      readings.push(...records);
+    }
+    return checkArchiveReadings(entry, readings);
+  }
   const readings = await (entry.format === 'worker' ? readArchiveGrid(grid) : readRecoveryGrid(grid));
   if (entry.sourceDigest !== undefined) {
     const checksums = entry.format === 'worker'
@@ -183,7 +206,7 @@ export function createVerifiedArchiveCache(maxRows: number, ttlMs: number, loadR
   let storedRows = 0;
 
   return async function readWindow(entry: HistorianArchiveRange, loadGrid: LoadArchiveGrid) {
-    if (!entry.count) return readVerifiedArchiveRange(entry, []);
+    if (!entry.count) return readVerifiedArchiveRange(entry, entry.format === 'sheets-api' ? await loadGrid(entry) : []);
     if (!entry.sourceDigest || entry.count > maxRows) {
       return readVerifiedArchiveRange(entry, await loadGrid(entry));
     }
@@ -228,7 +251,7 @@ export async function queryVerifiedArchive(
   entries: HistorianArchiveRange[], query: HistorianArchiveQuery,
   loadGrid: LoadArchiveGrid,
   readWindow = async (entry: HistorianArchiveRange, load: LoadArchiveGrid): Promise<readonly ArchivedHistorianReading[]> =>
-    readVerifiedArchiveRange(entry, entry.count === 0 ? [] : await load(entry)),
+    readVerifiedArchiveRange(entry, entry.count === 0 && entry.format !== 'sheets-api' ? [] : await load(entry)),
 ): Promise<{ count: number; rows: ArchivedHistorianReading[]; coverage: { start: string; end: string }[] }> {
   const start = Date.parse(query.start);
   const end = Date.parse(query.end);

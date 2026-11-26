@@ -38,6 +38,8 @@ The function uses a dedicated Google service account with Editor access to pilot
 
 This pilot is for evaluating the Sheets API writer. Keep the owner-run pull active for readable station tabs and existing archive receipts. Production cutover requires keeping those views current, provisioning month rollover, and verifying an SCADA history and Excel export from the new archive path.
 
+Use `node scripts/historian-archive/verify-api-backup.mjs <receipt.json> <credentials.json>` to compare one contiguous range in a month against independent source receipts. The receipt contains `spreadsheetId` and an ordered `windows` list with `start`, `digest`, `historian`, `alarms` and `aggregates` for each window. The verifier reads the range once, checks every payload, and prints a pinned `sheets-api` archive range. Up to one day can be audited at once. The optional `--publish-readable` switch creates and verifies station tabs on a pilot workbook using an Editor credential. A repeated publish must match the existing tabs exactly.
+
 ## Restore historian readings from Sheets
 
 Use a private Sheets API values export for one entire historian recovery grid or worker workbook. Supply the independently verified source count. Both formats check all batch SHA-256 values and counts, then require unique record IDs and the full expected source count before writing a new compressed JSON Lines file.
