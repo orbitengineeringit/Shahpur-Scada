@@ -10,6 +10,25 @@ import { archiveMonth, archiveTable, canonical, checksum } from '../scripts/hist
 import { createVerifiedArchiveCache, queryVerifiedArchive, readArchiveGrid, readArchiveRecovery, readRecoveryGrid } from '../supabase/functions/_shared/historianArchive.ts';
 import { googleSheetsAccessToken, loadHistorianSheet } from '../supabase/functions/_shared/historianSheets.ts';
 import { appendWorkerArchiveReceipts } from '../supabase/functions/_shared/historianWorkerManifest.ts';
+import { historianBackupGrid } from '../supabase/functions/_shared/historianBackupGrid.ts';
+
+test('Sheets API shadow maps IST monthly slots deterministically and preserves source JSON bytes', async () => {
+  const start = '2026-11-30T18:30:00.000Z';
+  const rows = { historian_logs: ['{"value":9007199254740993,"tag_id":"WTP-1"}'],
+    alarms: ['{"message":"पंप"}'], historian_aggregates: [] };
+  const a = await historianBackupGrid(start, rows);
+  const b = await historianBackupGrid(start, rows);
+  assert.deepEqual(a, b);
+  assert.equal(a.month, '2026-12');
+  assert.equal(a.range, "'Raw Backup'!A2:AD2");
+  assert.deepEqual(a.cells.slice(3, 6), [1, 1, 0]);
+  const compressed = Buffer.concat(a.cells.slice(6).filter(Boolean).map(chunk => Buffer.from(chunk, 'base64')));
+  const raw = gunzipSync(compressed).toString('utf8');
+  assert.deepEqual(JSON.parse(raw), rows);
+  assert.equal(a.cells[2], checksum([raw]));
+  assert.match((await historianBackupGrid('2026-11-30T18:25:00.000Z', rows)).range, /A8641:AD8641$/);
+  await assert.rejects(historianBackupGrid('2026-11-30T18:31:00.000Z', rows), /Invalid finalized/);
+});
 
 test('private recovery cache checks exact archived bytes and avoids a Sheets read', async () => {
   const row = { id: 'sample', tag_id: 'WTP-PT1', section: 'wtp', timestamp: '2026-11-05T00:05:00Z', value: 0 };

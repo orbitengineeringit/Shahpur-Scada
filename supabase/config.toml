@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.read-historian-archive]
 verify_jwt = false
+
+[functions.historian-backup-shadow]
+verify_jwt = false

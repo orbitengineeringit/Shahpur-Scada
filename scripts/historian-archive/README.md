@@ -30,6 +30,14 @@ node scripts/historian-archive/extend-read-manifest.mjs --gzip '<audited-base.js
 
 Use the output as the next read manifest after verifying that the configured SCADA reader can load it and return the original rows. The read manifest does not replace the independent cleanup receipt or authorize deletion.
 
+## Sheets API backup pilot
+
+The pilot writes an exact five-minute snapshot of historian, alarm and eligible hourly aggregate records into a private monthly workbook. Each window has one fixed row in the workbook based on its start time in Asia/Kolkata. The first six columns contain the time interval, SHA-256 and three record counts. The remaining cells contain ordered base64 chunks of the gzip-compressed original records. Retrying a window compares the full row and acknowledges the original write. A changed snapshot or conflicting row requires reconciliation.
+
+The function uses a dedicated Google service account with Editor access to pilot workbooks and a dedicated invocation key. Deploy it with `HISTORIAN_SHADOW_GOOGLE_WRITER`, `HISTORIAN_SHADOW_CRON_KEY` and `HISTORIAN_SHADOW_MONTH_WORKBOOKS` configured as server secrets. The last secret maps local calendar months to spreadsheet IDs. Each workbook needs a `Raw Backup` sheet with at least 8,929 rows and 30 columns. A scheduled run advances the server-only checkpoint only after the sheet row and a second source read match. Its exclusive end keeps the pilot bounded.
+
+This pilot is for evaluating the Sheets API writer. Keep the owner-run pull active for readable station tabs and existing archive receipts. Production cutover requires keeping those views current, provisioning month rollover, and verifying an SCADA history and Excel export from the new archive path.
+
 ## Restore historian readings from Sheets
 
 Use a private Sheets API values export for one entire historian recovery grid or worker workbook. Supply the independently verified source count. Both formats check all batch SHA-256 values and counts, then require unique record IDs and the full expected source count before writing a new compressed JSON Lines file.

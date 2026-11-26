@@ -9,6 +9,7 @@ export async function googleSheetsAccessToken(credentials: {
   clientSecret: string | undefined;
   refreshToken: string | undefined;
   serviceAccount?: string;
+  access?: 'read' | 'write';
 }): Promise<string> {
   const { clientId, clientSecret, refreshToken, serviceAccount } = credentials;
   let body: URLSearchParams;
@@ -25,7 +26,8 @@ export async function googleSheetsAccessToken(credentials: {
     const encode = (value: object) => base64Url(new TextEncoder().encode(JSON.stringify(value)));
     const now = Math.floor(Date.now() / 1000);
     const unsigned = encode({ alg: 'RS256', typ: 'JWT', kid: keyId }) + '.' + encode({
-      iss: email, scope: 'https://www.googleapis.com/auth/spreadsheets.readonly',
+      iss: email, scope: credentials.access === 'write'
+        ? 'https://www.googleapis.com/auth/spreadsheets' : 'https://www.googleapis.com/auth/spreadsheets.readonly',
       aud: tokenEndpoint, iat: now, exp: now + 3600,
     });
     const signature = await crypto.subtle.sign(algorithm, key, new TextEncoder().encode(unsigned));
