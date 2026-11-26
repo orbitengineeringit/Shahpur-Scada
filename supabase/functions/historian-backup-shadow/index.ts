@@ -1,6 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { historianBackupGrid, type BackupSnapshot } from '../_shared/historianBackupGrid.ts';
 import { googleSheetsAccessToken } from '../_shared/historianSheets.ts';
+import { writeHistorianStationTabs } from '../_shared/historianReadableSheets.ts';
+import type { ArchivedHistorianReading } from '../_shared/historianArchive.ts';
 
 function respond(code: number, status: string, detail: Record<string, unknown> = {}) {
   return Response.json({ status, ...detail }, { status: code, headers: { 'Cache-Control': 'no-store' } });
@@ -63,10 +65,14 @@ Deno.serve(async request => {
     const readSnapshot = async () => {
       const { data, error } = await db.rpc('historian_backup_snapshot', { window_start: windowStart });
       if (error || !data) throw new Error('Source snapshot unavailable');
-      return historianBackupGrid(windowStart, data as BackupSnapshot);
+      return data as BackupSnapshot;
     };
-    const grid = await readSnapshot();
-    const workbook = workbooks?.[grid.month];
+    const snapshot = await readSnapshot();
+    const grid = await historianBackupGrid(windowStart, snapshot);
+    const { data: configured, error: workbookError } = await db.from('historian_backup_workbooks')
+      .select('spreadsheet_id,readable_next').eq('month', grid.month).maybeSingle();
+    if (workbookError) throw new Error('Backup workbook registry unavailable');
+    const workbook = configured?.spreadsheet_id ?? (!scheduled ? workbooks?.[grid.month] : undefined);
     if (typeof workbook !== 'string' || !/^[\w-]{20,}$/.test(workbook)) return respond(503, 'month_unconfigured');
 
     const token = await googleSheetsAccessToken({
@@ -100,13 +106,18 @@ Deno.serve(async request => {
       await response.body?.cancel();
       if (!matches(await readRow())) return respond(502, 'readback_mismatch', { windowStart });
     }
-    const current = await readSnapshot();
+    const positions = scheduled
+      ? await writeHistorianStationTabs(workbook, token, configured!.readable_next,
+        snapshot.historian_logs.map(record => JSON.parse(record) as ArchivedHistorianReading))
+      : {};
+    const current = await historianBackupGrid(windowStart, await readSnapshot());
     if (current.cells[2] !== grid.cells[2]) return respond(409, 'source_changed', { windowStart });
-    const [, end, digest, historian, alarms, aggregates] = grid.cells;
+    const [, , digest, historian, alarms, aggregates] = grid.cells;
     if (scheduled) {
-      const { data, error } = await db.from('historian_backup_shadow_checkpoint')
-        .update({ next_window: end, last_digest: digest, last_verified_at: new Date().toISOString() })
-        .eq('id', true).eq('next_window', windowStart).select('id').maybeSingle();
+      const { data, error } = await db.rpc('ack_historian_backup', {
+        expected_start: windowStart, workbook_month: grid.month, verified_digest: digest,
+        reading_count: historian, station_positions: positions,
+      });
       if (error) throw new Error('Checkpoint update failed');
       if (!data) return respond(409, 'checkpoint_mismatch', { windowStart });
     }

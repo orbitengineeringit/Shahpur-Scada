@@ -733,7 +733,7 @@ test('SCADA All data export preserves separate archived readings and exact sourc
     '@/hooks/use-toast': { useToast: () => ({ toast: () => {} }) },
     '@/integrations/supabase/client': { supabase: { from: () => ({ select: async () => ({ data: [] }) }) } },
     '@/lib/historianArchiveClient': {
-      splitHistorianRange: () => ({ archive: window }),
+      resolveHistorianDates: async () => [{ ...window, archived: true }],
       readArchiveHistory: async () => ({ count: records.length, rows: [] }),
       readArchivePage: async () => ({ count: records.length, rows: records }),
     },

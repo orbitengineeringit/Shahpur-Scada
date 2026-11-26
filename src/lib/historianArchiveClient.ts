@@ -1,27 +1,37 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { ArchivedHistorianReading, HistorianArchiveQuery } from '../../supabase/functions/_shared/historianArchive';
+import { partitionHistorianDates, type DateWindow } from './historianDateWindows';
 
-export type DateWindow = { start: string; end: string };
+export type { DateWindow } from './historianDateWindows';
 const archiveHistoryCounts = new Map<string, { count: number; expires: number }>();
+let currentCoverage: { ranges: DateWindow[]; expires: number } | undefined;
 
-export function splitHistorianRange(start: string, end: string): { archive?: DateWindow; live?: DateWindow } {
+export async function resolveHistorianDates(start: string, end: string, signal?: AbortSignal) {
   const configuredStart = import.meta.env.VITE_HISTORIAN_ARCHIVE_START;
   const configuredCutoff = import.meta.env.VITE_HISTORIAN_ARCHIVE_CUTOFF;
-  if (!configuredStart && !configuredCutoff) return { live: { start, end } };
-  const floor = Date.parse(configuredStart);
-  const cutoff = Date.parse(configuredCutoff);
-  if (!Number.isFinite(floor) || !Number.isFinite(cutoff) || floor >= cutoff) {
-    throw new Error('Historian archive boundaries are invalid');
+  const legacy: DateWindow[] = [];
+  let floor = -Infinity;
+  if (configuredStart || configuredCutoff) {
+    floor = Date.parse(configuredStart);
+    const cutoff = Date.parse(configuredCutoff);
+    if (!Number.isFinite(floor) || !Number.isFinite(cutoff) || floor >= cutoff) {
+      throw new Error('Historian archive boundaries are invalid');
+    }
+    legacy.push({ start: configuredStart, end: configuredCutoff });
+    if (Date.parse(end) <= cutoff) return partitionHistorianDates({ start, end }, legacy, floor);
   }
-  const from = Date.parse(start);
-  const until = Date.parse(end);
-  const archiveStart = Math.max(from, floor);
-  const archiveEnd = Math.min(until, cutoff);
-  const liveStart = Math.max(from, cutoff);
-  return {
-    archive: archiveStart < archiveEnd ? { start: new Date(archiveStart).toISOString(), end: new Date(archiveEnd).toISOString() } : undefined,
-    live: liveStart < until ? { start: new Date(liveStart).toISOString(), end } : undefined,
-  };
+  if (!currentCoverage || currentCoverage.expires <= Date.now()) {
+    const timeout = AbortSignal.timeout(6000);
+    const { data, error } = await supabase.functions.invoke<{ ranges: DateWindow[] }>('read-historian-archive', {
+      body: { operation: 'coverage' }, signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    if (error) throw error;
+    if (!Array.isArray(data?.ranges) || data.ranges.some(range =>
+      !Number.isFinite(Date.parse(range.start)) || !Number.isFinite(Date.parse(range.end)) ||
+      Date.parse(range.start) >= Date.parse(range.end))) throw new Error('Invalid verified backup coverage');
+    currentCoverage = { ranges: data.ranges, expires: Date.now() + 60_000 };
+  }
+  return partitionHistorianDates({ start, end }, [...legacy, ...currentCoverage.ranges], floor);
 }
 
 function hasCompleteCoverage(query: DateWindow, coverage: DateWindow[]): boolean {

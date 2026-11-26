@@ -35,7 +35,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { logError, logWarn } from '@/lib/errorLogger';
-import { readArchiveHistory, readArchivePage, splitHistorianRange, type DateWindow } from '@/lib/historianArchiveClient';
+import { readArchiveHistory, readArchivePage, resolveHistorianDates, type DateWindow } from '@/lib/historianArchiveClient';
 import { ALL_SENSORS } from '@/config/shahpurSensors';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -469,38 +469,38 @@ const HistoryPage: React.FC = () => {
     try {
       const startTime = startOfDay(globalFilters.startDate).toISOString();
       const endTime = new Date(endOfDay(globalFilters.endDate).getTime() + 1).toISOString();
-      const { live, archive } = splitHistorianRange(startTime, endTime);
+      const windows = await resolveHistorianDates(startTime, endTime, controller.signal);
       const currentSize = sizeOverride ?? pageSize;
       const offset = (page - 1) * currentSize;
-      let count = 0;
-      let rows: HistorianLog[] = [];
-
-      if (live) {
+      let total = 0;
+      const rows: HistorianLog[] = [];
+      for (const window of windows.reverse()) {
+        const from = Math.max(0, offset - total);
+        const limit = currentSize - rows.length;
+        if (window.archived) {
+          const result = await readArchiveHistory(window, archiveHistoryFilters(globalFilters.assets), from, limit, controller.signal);
+          total += result.count;
+          rows.push(...result.rows.map(row => ({ ...row, section: row.section ?? '', tag_config: null })));
+          continue;
+        }
         const countQuery = supabase.from('historian_logs').select('*', { count: 'exact', head: true })
-          .gte('timestamp', live.start).lt('timestamp', live.end)
+          .gte('timestamp', window.start).lt('timestamp', window.end)
           .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER).or('source.like.%5min%,source.is.null')
           .abortSignal(controller.signal);
         const dataQuery = supabase.from('historian_logs')
           .select('id, tag_id, section, value, timestamp, received_at, tag_config:tag_config_id (label, unit)')
-          .gte('timestamp', live.start).lt('timestamp', live.end)
+          .gte('timestamp', window.start).lt('timestamp', window.end)
           .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER).or('source.like.%5min%,source.is.null')
           .order('timestamp', { ascending: false }).order('section').order('tag_id').order('id')
-          .range(offset, offset + currentSize - 1).abortSignal(controller.signal);
+          .range(from, from + Math.max(1, limit) - 1).abortSignal(controller.signal);
         const [countResult, dataResult] = await Promise.all([
-          applyAssetFiltersToQuery(countQuery, globalFilters.assets), applyAssetFiltersToQuery(dataQuery, globalFilters.assets),
+          applyAssetFiltersToQuery(countQuery, globalFilters.assets),
+          limit > 0 ? applyAssetFiltersToQuery(dataQuery, globalFilters.assets) : null,
         ]);
         if (countResult.error) throw countResult.error;
-        if (dataResult.error) throw dataResult.error;
-        count = countResult.count ?? 0;
-        rows = (dataResult.data ?? []) as HistorianLog[];
-      }
-
-      let total = count;
-      if (archive) {
-        const result = await readArchiveHistory(archive, archiveHistoryFilters(globalFilters.assets),
-          Math.max(0, offset - count), currentSize - rows.length, controller.signal);
-        total += result.count;
-        rows.push(...result.rows.map(row => ({ ...row, section: row.section ?? '', tag_config: null })));
+        if (dataResult?.error) throw dataResult.error;
+        total += countResult.count ?? 0;
+        rows.push(...(dataResult?.data ?? []) as HistorianLog[]);
       }
       if (controller.signal.aborted) return;
       setTotalCount(total);
@@ -568,7 +568,7 @@ const HistoryPage: React.FC = () => {
     try {
       const startMs = startOfDay(globalFilters.startDate).getTime();
       const endMs = endOfDay(globalFilters.endDate).getTime() + 1;
-      const { live, archive } = splitHistorianRange(new Date(startMs).toISOString(), new Date(endMs).toISOString());
+      const windows = await resolveHistorianDates(new Date(startMs).toISOString(), new Date(endMs).toISOString());
       const archiveFilters = archiveHistoryFilters(globalFilters.assets);
 
       // 1. Pre-fetch tag configs and merge with static sensors
@@ -601,8 +601,8 @@ const HistoryPage: React.FC = () => {
 
       // 2. Count & Estimate Phase (with retry & asset-aware fallback estimation)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const applyFilters = (q: any) => {
-        const r = q.gte('timestamp', live?.start).lt('timestamp', live?.end)
+      const applyFilters = (q: any, window: DateWindow) => {
+        const r = q.gte('timestamp', window.start).lt('timestamp', window.end)
           .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
           .or('source.like.%5min%,source.is.null');
         return applyAssetFiltersToQuery(r, globalFilters.assets);
@@ -610,19 +610,20 @@ const HistoryPage: React.FC = () => {
 
       let totalCountVal = 0;
       try {
-        if (live) {
+        const liveCounts = await Promise.all(windows.filter(window => !window.archived).map(async window => {
           const { count, error: countErr } = await fetchWithRetry(async () => await applyFilters(
-            supabase.from('historian_logs').select('*', { count: 'exact', head: true }),
+            supabase.from('historian_logs').select('*', { count: 'exact', head: true }), window,
           ), 2, 500);
           if (countErr) throw countErr;
-          totalCountVal = count ?? 0;
-        }
-        if (archive) {
-          const archiveDays = Math.max(1, Math.ceil((Date.parse(archive.end) - Date.parse(archive.start)) / 86400_000));
+          return count ?? 0;
+        }));
+        totalCountVal = liveCounts.reduce((sum, count) => sum + count, 0);
+        for (const archive of windows.filter(window => window.archived)) {
+          const archiveDays = (Date.parse(archive.end) - Date.parse(archive.start)) / 86400_000;
           const tags = ALL_SENSORS.filter(sensor =>
             !sensor.notInstalled && matchesSelectedAssets({ tag_id: sensor.id, section: sensor.section }, globalFilters.assets)
           ).length;
-          totalCountVal += archiveDays * Math.max(1, tags) * 288;
+          totalCountVal += Math.ceil(archiveDays * Math.max(1, tags) * 288);
         }
       } catch (countErr) {
         logWarn('History.exportExcel', 'Exact count failed or timed out, estimating total rows', countErr);
@@ -655,11 +656,12 @@ const HistoryPage: React.FC = () => {
       type TimeSlice = DateWindow & { archived: boolean };
 
       const slices: TimeSlice[] = [];
-      for (let t = endMs; t > startMs; t -= SLICE_DURATION_MS) {
-        const sStart = Math.max(startMs, t - SLICE_DURATION_MS);
-        const slice = splitHistorianRange(new Date(sStart).toISOString(), new Date(t).toISOString());
-        if (slice.live) slices.push({ ...slice.live, archived: false });
-        if (slice.archive) slices.push({ ...slice.archive, archived: true });
+      for (const window of windows.reverse()) {
+        const from = Date.parse(window.start);
+        for (let t = Date.parse(window.end); t > from; t -= SLICE_DURATION_MS) {
+          const start = new Date(Math.max(from, t - SLICE_DURATION_MS)).toISOString();
+          slices.push({ start, end: new Date(t).toISOString(), archived: window.archived });
+        }
       }
 
       // 4. Fetch matching readings in parallel, keyed by their original database ID.

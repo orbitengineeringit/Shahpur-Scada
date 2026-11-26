@@ -11,6 +11,49 @@ import { createVerifiedArchiveCache, queryVerifiedArchive, readArchiveGrid, read
 import { googleSheetsAccessToken, loadHistorianSheet } from '../supabase/functions/_shared/historianSheets.ts';
 import { appendWorkerArchiveReceipts } from '../supabase/functions/_shared/historianWorkerManifest.ts';
 import { historianBackupGrid, readHistorianBackupRow } from '../supabase/functions/_shared/historianBackupGrid.ts';
+import { backupReceiptRanges } from '../supabase/functions/_shared/historianBackupReceipts.ts';
+import { stationReadings } from '../supabase/functions/_shared/historianReadable.ts';
+import { partitionHistorianDates } from '../src/lib/historianDateWindows.ts';
+
+test('history, trends and export split the legacy archive, live gap and new backup at exact boundaries', () => {
+  const time = hour => `2026-11-26T0${hour}:00:00.000Z`;
+  const range = (start, end) => ({ start: time(start), end: time(end) });
+  const archived = [range(4, 7), range(0, 2)];
+  assert.deepEqual(partitionHistorianDates(range(0, 9), archived, Date.parse(time(1))), [
+    { ...range(1, 2), archived: true }, { ...range(2, 4), archived: false },
+    { ...range(4, 7), archived: true }, { ...range(7, 9), archived: false },
+  ]);
+  assert.deepEqual(partitionHistorianDates(range(3, 5), archived), [
+    { ...range(3, 4), archived: false }, { ...range(4, 5), archived: true },
+  ]);
+});
+
+test('monthly backup receipts preserve gaps, fixed row ranges and workbook boundaries', async () => {
+  const rows = [
+    ['2026-11-30T18:20:00Z', '2026-11', 'private-November-workbook'],
+    ['2026-11-30T18:25:00Z', '2026-11', 'private-November-workbook'],
+    ['2026-11-30T18:30:00Z', '2026-12', 'private-December-workbook'],
+    ['2026-11-30T18:40:00Z', '2026-12', 'private-December-workbook'],
+  ].map(([window_start, month, spreadsheet_id], i) => ({ window_start, month, spreadsheet_id,
+    readings: i, digest: String(i).repeat(64) }));
+  const entries = await backupReceiptRanges(rows);
+  assert.deepEqual(entries.map(({ range, count }) => [range, count]), [
+    ["'Raw Backup'!A8640:AD8641", 1], ["'Raw Backup'!A2:AD2", 2], ["'Raw Backup'!A4:AD4", 3],
+  ]);
+  assert.equal(entries[0].sourceDigest, checksum(rows.slice(0, 2).map(row => row.digest)));
+  await assert.rejects(backupReceiptRanges([...rows].reverse()), /Invalid backup receipt/);
+});
+
+test('automatic station tabs preserve zero, null and separate OHT records', () => {
+  const sample = { timestamp: '2026-11-30T18:30:00Z', received_at: null, source: 'snapshot-5min' };
+  const grouped = stationReadings([
+    { ...sample, section: 'oht', id: '2', tag_id: 'OHT2-LT', value: 0 },
+    { ...sample, section: 'oht', id: '1', tag_id: 'OHT1-LT', value: null },
+  ]);
+  assert.deepEqual(grouped.get('OHT_1_Logs')[0].slice(2), [sample.timestamp, 'OHT1-LT', '', '', sample.source]);
+  assert.deepEqual(grouped.get('OHT_2_Logs')[0].slice(2), [sample.timestamp, 'OHT2-LT', 0, '', sample.source]);
+  assert.equal(grouped.get('Intake_Logs').length, 0);
+});
 
 test('Sheets API shadow maps IST monthly slots deterministically and preserves source JSON bytes', async () => {
   const start = '2026-11-30T18:30:00.000Z';

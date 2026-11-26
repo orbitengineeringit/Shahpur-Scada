@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createVerifiedArchiveCache, queryVerifiedArchive, readArchiveRecovery, type HistorianArchiveQuery, type HistorianArchiveRange } from '../_shared/historianArchive.ts';
 import { googleSheetsAccessToken, loadHistorianSheet } from '../_shared/historianSheets.ts';
 import { parseArchiveManifest } from '../_shared/historianWorkerManifest.ts';
+import { backupArchiveReadBlockMs, backupReceiptRanges, type BackupReceipt } from '../_shared/historianBackupReceipts.ts';
 
 const cacheBucket = 'historian-archive-cache';
 const readWindow = createVerifiedArchiveCache(48_000, 15 * 60_000, async entry => {
@@ -75,6 +76,24 @@ Deno.serve(async (request) => {
   let query: HistorianArchiveQuery;
   try {
     query = await request.json();
+    if ((query as HistorianArchiveQuery & { operation?: string }).operation === 'coverage') {
+      const manifest = Deno.env.get('HISTORIAN_ARCHIVE_SHEETS');
+      if (!manifest) return json({ error: 'Historian archive is not configured' }, 503);
+      const pinned = await (manifestCache ??= parseArchiveManifest(manifest));
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+        { auth: { persistSession: false, autoRefreshToken: false } });
+      const [first, last] = await Promise.all([
+        admin.from('historian_backup_receipts').select('window_start').order('window_start').limit(1).maybeSingle(),
+        admin.from('historian_backup_shadow_checkpoint').select('next_window').eq('id', true).maybeSingle(),
+      ]);
+      if (first.error || last.error) return json({ error: 'Verified backup coverage unavailable' }, 502);
+      const start = Math.max(Date.parse(pinned[pinned.length - 1].end), Date.parse(first.data?.window_start ?? ''));
+      // Let recent database samples settle before serving them from immutable backups.
+      const end = Math.min(Date.parse(last.data?.next_window ?? ''), Math.floor((Date.now() - 30 * 60_000) / 300_000) * 300_000);
+      const ranges = [{ start: pinned[0].start, end: pinned[pinned.length - 1].end }];
+      if (start < end) ranges.push({ start: new Date(start).toISOString(), end: new Date(end).toISOString() });
+      return json({ ranges });
+    }
     const start = Date.parse(query.start);
     const end = Date.parse(query.end);
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 32 * 86400_000 ||
@@ -91,7 +110,31 @@ Deno.serve(async (request) => {
   try {
     const manifest = Deno.env.get('HISTORIAN_ARCHIVE_SHEETS');
     if (!manifest) return json({ error: 'Historian archive is not configured' }, 503);
-    const entries = await (manifestCache ??= parseArchiveManifest(manifest));
+    const pinned = await (manifestCache ??= parseArchiveManifest(manifest));
+    const pinnedEnd = Date.parse(pinned[pinned.length - 1].end);
+    const entries = [...pinned];
+    if (Date.parse(query.end) > pinnedEnd) {
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+        { auth: { persistSession: false, autoRefreshToken: false } });
+      const start = Math.max(pinnedEnd, Math.floor(Date.parse(query.start) / backupArchiveReadBlockMs) * backupArchiveReadBlockMs);
+      const end = Math.ceil(Date.parse(query.end) / backupArchiveReadBlockMs) * backupArchiveReadBlockMs;
+      const receipts: BackupReceipt[] = [];
+      const pageSize = 1000;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await admin.from('historian_backup_receipts')
+          .select('window_start,month,digest,readings,historian_backup_workbooks!inner(spreadsheet_id)')
+          .gte('window_start', new Date(start).toISOString()).lt('window_start', new Date(end).toISOString())
+          .order('window_start').range(offset, offset + pageSize - 1);
+        if (error) throw new Error('Verified backup receipts unavailable');
+        for (const row of data) {
+          const workbook = row.historian_backup_workbooks as unknown as { spreadsheet_id: string };
+          receipts.push({ window_start: row.window_start, month: row.month, digest: row.digest,
+            readings: row.readings, spreadsheet_id: workbook.spreadsheet_id });
+        }
+        if (data.length < pageSize) break;
+      }
+      entries.push(...await backupReceiptRanges(receipts));
+    }
     return json(await queryVerifiedArchive(entries, query, readSheetFallback, readWindow));
   } catch (error) {
     console.error('Historian archive read failure:', error instanceof Error ? error.message : 'Unknown error');

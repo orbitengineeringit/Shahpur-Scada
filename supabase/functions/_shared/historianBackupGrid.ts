@@ -46,15 +46,20 @@ async function backupDigest(bytes: BufferSource) {
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export async function historianBackupGrid(windowStart: string, snapshot: BackupSnapshot) {
+export function historianBackupSlot(windowStart: string) {
   const start = Date.parse(windowStart);
-  if (!Number.isFinite(start) || start % SLOT_MS !== 0 ||
-    !Array.isArray(snapshot.historian_logs) || !Array.isArray(snapshot.alarms) ||
-    !Array.isArray(snapshot.historian_aggregates)) throw new Error('Invalid finalized backup window');
+  if (!Number.isFinite(start) || start % SLOT_MS !== 0) throw new Error('Invalid finalized backup window');
   const startIst = new Date(start + IST_MS);
   const month = startIst.toISOString().slice(0, 7);
   const monthStart = Date.parse(month + '-01T00:00:00Z') - IST_MS;
   const row = 2 + (start - monthStart) / SLOT_MS;
+  return { start, month, row };
+}
+
+export async function historianBackupGrid(windowStart: string, snapshot: BackupSnapshot) {
+  if (!Array.isArray(snapshot.historian_logs) || !Array.isArray(snapshot.alarms) ||
+      !Array.isArray(snapshot.historian_aggregates)) throw new Error('Invalid finalized backup window');
+  const { start, month, row } = historianBackupSlot(windowStart);
   const records = JSON.stringify({
     historian_logs: snapshot.historian_logs,
     alarms: snapshot.alarms,

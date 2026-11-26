@@ -15,7 +15,7 @@ import { format, subHours, subDays, startOfDay, endOfDay } from 'date-fns';
 import { CalendarIcon, Loader2, TrendingUp, History, RefreshCw, Activity, BarChart3, ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { logError } from '@/lib/errorLogger';
-import { historianDayWindows, readArchivePage, splitHistorianRange } from '@/lib/historianArchiveClient';
+import { historianDayWindows, readArchivePage, resolveHistorianDates } from '@/lib/historianArchiveClient';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   LineChart,
@@ -174,25 +174,26 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
     try {
       const startTime = startOfDay(dateRange.from).toISOString();
       const endTime = new Date(endOfDay(dateRange.to).getTime() + 1).toISOString();
-      const { archive, live } = splitHistorianRange(startTime, endTime);
+      const windows = await resolveHistorianDates(startTime, endTime, controller.signal);
       const PAGE_SIZE = 1000;
       const allData: { timestamp: string; value: number | null }[] = [];
-      if (archive) {
-        for (const window of historianDayWindows(archive, true)) {
-          for (let offset = 0; ; offset += PAGE_SIZE) {
-            const result = await readArchivePage({ ...window, tagIds: [tagId], sections: [section],
-              ascending: true, offset, limit: PAGE_SIZE }, controller.signal);
-            allData.push(...result.rows);
-            if (offset + result.rows.length >= result.count) break;
-            if (result.rows.length !== PAGE_SIZE) throw new Error('Incomplete archive trend page');
+      for (const range of windows) {
+        if (range.archived) {
+          for (const window of historianDayWindows(range, true)) {
+            for (let offset = 0; ; offset += PAGE_SIZE) {
+              const result = await readArchivePage({ ...window, tagIds: [tagId], sections: [section],
+                ascending: true, offset, limit: PAGE_SIZE }, controller.signal);
+              allData.push(...result.rows);
+              if (offset + result.rows.length >= result.count) break;
+              if (result.rows.length !== PAGE_SIZE) throw new Error('Incomplete archive trend page');
+            }
           }
+          continue;
         }
-      }
-      if (live) {
         for (let offset = 0; ; offset += PAGE_SIZE) {
           const { data, error } = await supabase.from('historian_logs').select('timestamp, value')
             .eq('tag_id', tagId).eq('section', section).not('value', 'is', null)
-            .gte('timestamp', live.start).lt('timestamp', live.end)
+            .gte('timestamp', range.start).lt('timestamp', range.end)
             .order('timestamp', { ascending: true }).order('id', { ascending: true })
             .range(offset, offset + PAGE_SIZE - 1).abortSignal(controller.signal);
           if (error) throw error;
