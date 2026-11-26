@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useScada, type TagData } from '@/contexts/ScadaContext';
-import { useTagConnection } from '@/hooks/useTagConnection';
+import { getTagConnection, useTagConnection } from '@/hooks/useTagConnection';
 import StatusBar from '@/components/StatusBar';
 import SensorTrendModal from '@/components/SensorTrendModal';
 import InstrumentCard from '@/components/InstrumentCard';
@@ -33,6 +33,9 @@ const WtpPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'cards' | 'process'>('process');
 
   const [paused, setPaused] = useState(false);
+  const signalStates = wtpTags.filter(tag => !tag.notInstalled && tag.source === 'mqtt').map(getTagConnection);
+  const liveSignalCount = signalStates.filter(state => state === 'connected' || state === 'inactive').length;
+  const faultSignalCount = signalStates.filter(state => state === 'fault').length;
 
   const findTag = (sensorId: string) => wtpTags.find(t => t.id === sensorId);
 
@@ -144,7 +147,10 @@ const WtpPage: React.FC = () => {
         </div>
         <div className="min-w-0">
           <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-foreground truncate">Water Treatment Plant (WTP)</h2>
-          <p className="text-xs sm:text-sm text-muted-foreground">{configuredSignalCount} configured signals</p>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            {liveSignalCount} of {configuredSignalCount} signals live
+            {faultSignalCount > 0 && <span className="text-destructive"> · {faultSignalCount} PLC faults</span>}
+          </p>
         </div>
       </div>
       <div className="wtp-view-actions flex items-center gap-2 sm:gap-3 flex-wrap sm:shrink-0">
