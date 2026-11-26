@@ -81,7 +81,9 @@ function archivePullRun() {
         const partition = state.parts?.[month] || { part: 1, count: 0 };
         // Each window stays in one workbook, including windows that cross a month boundary.
         state.parts = { [month]: partition };
-        const rows = archivePullPage(properties, table, state.start, end, state.cursor);
+        // A short source page already establishes that the next page is empty.
+        // The independent count and digest check below still catches late writes.
+        const rows = state.shortPage ? [] : archivePullPage(properties, table, state.start, end, state.cursor);
         if (!rows.length) {
           const source = archivePullPage(properties, table, state.start, end, null, true);
           const capturedDigest = archivePullDigest((state.pageDigests || []).join('\n'));
@@ -104,8 +106,7 @@ function archivePullRun() {
             const records = [JSON.stringify({ table, start: state.start, end, count: source.count,
               digest: source.digest, ...(rawHistorian ? { location: state.location || null } : {}) })];
             const receipt = { table: 'pull_verification', month, part: 1, digest: archivePullDigest(records[0]) };
-            archiveBatch({ ...receipt, action: 'write', records }, folderId);
-            const restored = archiveBatch({ ...receipt, action: 'read' }, folderId);
+            const restored = archiveBatch({ ...receipt, action: 'write', records }, folderId, true);
             if (restored.count !== 1 || restored.records[0] !== records[0]) throw new Error('Verification receipt readback mismatch');
           }
           state.start = end;
@@ -114,6 +115,7 @@ function archivePullRun() {
           delete state.pageDigests;
           delete state.windowCount;
           delete state.location;
+          delete state.shortPage;
         } else {
           const records = rows.map(row => row.body);
           if (!state.windowCount && partition.count + records.length >= 80000) {
@@ -122,8 +124,7 @@ function archivePullRun() {
           }
           const digest = archivePullDigest(records.join('\n'));
           const batch = { table: 'pull_' + table, month, part: partition.part, digest };
-          archiveBatch({ ...batch, action: 'write', records }, folderId);
-          const restored = archiveBatch({ ...batch, action: 'read' }, folderId);
+          const restored = archiveBatch({ ...batch, action: 'write', records }, folderId, true);
           if (restored.count !== records.length || archivePullDigest(restored.records.join('\n')) !== digest) {
             throw new Error('Google readback mismatch: ' + table + ', ' + month);
           }
@@ -145,6 +146,7 @@ function archivePullRun() {
           state.pageDigests.push(digest);
           state.windowCount = (state.windowCount || 0) + rows.length;
           state.count += rows.length;
+          state.shortPage = rows.length < 250;
         }
         properties.setProperty(property, JSON.stringify(state));
         progressed = true;

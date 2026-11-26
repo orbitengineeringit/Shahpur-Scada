@@ -108,11 +108,9 @@ test('owner-run pull advances its watermark only after matching Sheets readback'
     Utilities: { formatDate: date => new Date(date.getTime() + 330 * 60000).toISOString().slice(0, 7) },
     archiveBatch: batch => {
       if (batch.action === 'write') writes.set(batch.digest, batch.records);
-      else {
-        const records = writes.get(batch.digest);
-        return { spreadsheetId: 'fixture_archive_sheet', sheetName: 'Sheet1', row: 2,
-          count: records.length, records: corrupt ? ['{}'] : records };
-      }
+      const records = writes.get(batch.digest);
+      return { spreadsheetId: 'fixture_archive_sheet', sheetName: 'Sheet1', row: 2,
+        count: records.length, records: corrupt ? ['{}'] : records };
     },
   });
   assert.throws(runner, /readback mismatch/);
@@ -165,7 +163,6 @@ test('scheduled backup retries a late raw reading and waits for the finalized ho
       const key = [batch.table, batch.part, batch.digest].join('/');
       if (batch.action === 'write') {
         writes.set(key, batch.records);
-        return;
       }
       const records = writes.get(key);
       return { spreadsheetId: 'fixture_data_sheet_' + batch.part, sheetName: 'Sheet1', row: 2, count: records.length, records };
@@ -352,4 +349,42 @@ test('readable history groups all four Shahpur stations without inventing readin
   assert.equal(saved.get('OHT_2_Logs').size, 0);
   group(workbook, [...readings, { section: 'oht', tag_id: 'OHT2-Flow', value: -2786.41, timestamp }]);
   assert.equal(saved.get('OHT_2_Logs').get(timestamp).get('OHT2-Flow').value, -2786.41);
+});
+
+test('readable history appends after a sorted tail and updates a retried timestamp in place', async () => {
+  const source = await readFile(new URL('../scripts/historian-archive/Readable.gs', import.meta.url), 'utf8');
+  const first = '2026-11-25T20:30:00+00:00';
+  const next = '2026-11-25T20:35:00+00:00';
+  const stamps = [first];
+  const reads = [];
+  const writes = [];
+  const headers = ['Date (IST)', 'Time (IST)', 'ISO Timestamp', 'INT-LT'];
+  const sheet = {
+    getLastColumn: () => headers.length, getLastRow: () => stamps.length + 1,
+    getMaxRows: () => 100, getMaxColumns: () => 10,
+    getRange(row, col, count = 1) {
+      return {
+        getValues() {
+          if (row === 1) return [headers];
+          reads.push([row, count]);
+          return stamps.slice(row - 2, row - 2 + count).map(stamp => [stamp]);
+        },
+        setNumberFormat() {},
+        setValues(rows) {
+          writes.push(row);
+          rows.forEach((values, i) => { stamps[row - 2 + i] = values[2]; });
+        },
+      };
+    },
+  };
+  const write = runInNewContext(source + '\nwriteReadableTab;', {
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => 'true' }) },
+    Utilities: { formatDate: () => 'fixture' },
+  });
+  const rows = new Map([[next, new Map([['INT-LT', { value: 0 }]])]]);
+  write({ getSheetByName: () => sheet }, 'Intake_Logs', rows);
+  assert.deepEqual(reads, [[2, 1]]);
+  write({ getSheetByName: () => sheet }, 'Intake_Logs', rows);
+  assert.deepEqual(writes, [3, 3]);
+  assert.deepEqual(stamps, [first, next]);
 });

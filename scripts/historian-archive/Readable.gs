@@ -79,9 +79,16 @@ function writeReadableTab(workbook, name, times) {
     if (headers.length > 3) sheet.setColumnWidths(4, headers.length - 3, 175);
   }
   const last = Math.max(1, sheet.getLastRow());
-  const prior = last > 1 ? sheet.getRange(2, 3, last - 1, 1).getValues() : [];
-  const byTime = new Map(prior.map(([stamp], i) => [stamp, i + 2]));
   const ordered = [...times].sort(([a], [b]) => a.localeCompare(b));
+  if (!ordered.length) return;
+  // Backfill and retries can overlap old rows. Normal chronological appends
+  // only need the tail cell, even when the tab contains months of readings.
+  const tail = last > 1 ? sheet.getRange(last, 3).getValues()[0][0] : null;
+  const appendOnly = typeof tail === 'string' && Number.isFinite(Date.parse(tail)) &&
+    Date.parse(ordered[0][0]) > Date.parse(tail) &&
+    PropertiesService.getScriptProperties().getProperty('READABLE_RECOVERY_SORTED') === 'true';
+  const prior = last > 1 && !appendOnly ? sheet.getRange(2, 3, last - 1, 1).getValues() : [];
+  const byTime = new Map(prior.map(([stamp], i) => [stamp, i + 2]));
   const pending = [];
   for (const [stamp, values] of ordered) {
     const date = new Date(stamp);

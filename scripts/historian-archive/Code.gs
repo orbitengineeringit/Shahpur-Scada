@@ -34,7 +34,7 @@ function reply(body) {
   return ContentService.createTextOutput(JSON.stringify(body)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function archiveBatch(batch, folderId) {
+function archiveBatch(batch, folderId, readBack = false) {
   if (!folderId || !/^[a-z_]+$/.test(batch.table) || !/^\d{4}-\d{2}$/.test(batch.month) ||
       !/^[a-f0-9]{64}$/.test(batch.digest) || !Number.isInteger(batch.part) || batch.part < 1 ||
       !['write', 'read'].includes(batch.action)) throw new Error('Invalid archive batch');
@@ -74,7 +74,7 @@ function archiveBatch(batch, folderId) {
     }
     const count = sheet.getRange(row, 2).getValue();
     const result = { spreadsheetId: workbook.getId(), sheetName: sheet.getName(), row, count };
-    if (batch.action === 'read') result.records = sheet.getRange(row, 3, count, 1).getValues().map(cell => cell[0]);
+    if (batch.action === 'read' || readBack) result.records = sheet.getRange(row, 3, count, 1).getValues().map(cell => cell[0]);
     return result;
   } finally {
     lock.releaseLock();
