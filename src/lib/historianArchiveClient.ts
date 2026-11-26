@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { ArchivedHistorianReading, HistorianArchiveQuery } from '../../supabase/functions/_shared/historianArchive';
 
 export type DateWindow = { start: string; end: string };
+const archiveHistoryCounts = new Map<string, { count: number; expires: number }>();
 
 export function splitHistorianRange(start: string, end: string): { archive?: DateWindow; live?: DateWindow } {
   const configuredStart = import.meta.env.VITE_HISTORIAN_ARCHIVE_START;
@@ -47,11 +48,11 @@ export async function readArchivePage(query: HistorianArchiveQuery, signal?: Abo
   return data;
 }
 
-export function historianDayWindows(range: DateWindow, ascending: boolean): DateWindow[] {
+export function historianDayWindows(range: DateWindow, ascending: boolean, daysPerWindow = 1): DateWindow[] {
   const windows: DateWindow[] = [];
   const until = Date.parse(range.end);
   for (let time = Date.parse(range.start); time < until; ) {
-    const next = Math.min(until, time + 86400_000);
+    const next = Math.min(until, (Math.floor(time / 86400_000) + daysPerWindow) * 86400_000);
     windows.push({ start: new Date(time).toISOString(), end: new Date(next).toISOString() });
     time = next;
   }
@@ -65,15 +66,27 @@ export async function readArchiveHistory(
 ): Promise<{ count: number; rows: ArchivedHistorianReading[] }> {
   let count = 0;
   const rows: ArchivedHistorianReading[] = [];
-  for (const window of historianDayWindows(range, false)) {
+  for (const window of historianDayWindows(range, false, 3)) {
+    signal?.throwIfAborted();
     const from = Math.max(0, offset - count);
     const remaining = limit - rows.length;
+    const key = JSON.stringify({ ...window, ...filters });
+    const saved = archiveHistoryCounts.get(key);
+    if (saved && saved.expires > Date.now() && (remaining <= 0 || from >= saved.count)) {
+      count += saved.count;
+      continue;
+    }
     const page = await readArchivePage({ ...window, ...filters, offset: remaining > 0 ? from : 0,
       limit: Math.max(1, remaining) }, signal);
     if (remaining > 0) {
       if (page.rows.length !== Math.min(remaining, Math.max(0, page.count - from))) throw new Error('Incomplete archive page');
       rows.push(...page.rows);
     }
+    if (archiveHistoryCounts.size >= 128) {
+      const oldest = archiveHistoryCounts.keys().next();
+      if (!oldest.done) archiveHistoryCounts.delete(oldest.value);
+    }
+    archiveHistoryCounts.set(key, { count: page.count, expires: Date.now() + 5 * 60_000 });
     count += page.count;
   }
   return { count, rows };

@@ -1,9 +1,51 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { createVerifiedArchiveCache, queryVerifiedArchive, type HistorianArchiveQuery } from '../_shared/historianArchive.ts';
+import { createVerifiedArchiveCache, queryVerifiedArchive, readArchiveRecovery, type HistorianArchiveQuery, type HistorianArchiveRange } from '../_shared/historianArchive.ts';
 import { googleSheetsAccessToken, loadHistorianSheet } from '../_shared/historianSheets.ts';
 import { parseArchiveManifest } from '../_shared/historianWorkerManifest.ts';
 
-const readWindow = createVerifiedArchiveCache(32_000, 5 * 60_000);
+const cacheBucket = 'historian-archive-cache';
+const readWindow = createVerifiedArchiveCache(48_000, 15 * 60_000, async entry => {
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!serviceKey) return;
+  try {
+    const response = await fetch(
+      `${Deno.env.get('SUPABASE_URL')}/storage/v1/object/authenticated/${cacheBucket}/${entry.recoveryDigest}.jsonl.gz`,
+      { headers: { Authorization: `Bearer ${serviceKey}` }, signal: AbortSignal.timeout(8000), redirect: 'error' },
+    );
+    if (response.ok && response.body) return await readArchiveRecovery(entry, response.body);
+    await response.body?.cancel();
+    console.warn('Historian storage cache miss:', response.status);
+  } catch (error) {
+    console.warn('Historian storage cache unavailable:', error instanceof Error ? error.name : 'Unknown error');
+  }
+});
+
+let manifestCache: ReturnType<typeof parseArchiveManifest> | undefined;
+let sheetsToken: { value: Promise<string>; expires: number } | undefined;
+let nextSheetReadAt = 0;
+let pendingSheetReads = Promise.resolve();
+
+function getSheetsToken() {
+  if (sheetsToken && sheetsToken.expires > Date.now()) return sheetsToken.value;
+  const value = googleSheetsAccessToken({ clientId: Deno.env.get('HISTORIAN_GOOGLE_CLIENT_ID'),
+    clientSecret: Deno.env.get('HISTORIAN_GOOGLE_CLIENT_SECRET'),
+    refreshToken: Deno.env.get('HISTORIAN_GOOGLE_REFRESH_TOKEN'),
+    serviceAccount: Deno.env.get('HISTORIAN_GOOGLE_SERVICE_ACCOUNT') });
+  sheetsToken = { value, expires: Date.now() + 50 * 60_000 };
+  void value.catch(() => { if (sheetsToken?.value === value) sheetsToken = undefined; });
+  return value;
+}
+
+function readSheetFallback(entry: HistorianArchiveRange) {
+  const loading = pendingSheetReads.then(async () => {
+    const wait = nextSheetReadAt - Date.now();
+    if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+    nextSheetReadAt = Date.now() + 1200;
+    return loadHistorianSheet(entry, await getSheetsToken());
+  });
+  pendingSheetReads = loading.then(() => {}, () => {});
+  return loading;
+}
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -37,7 +79,7 @@ Deno.serve(async (request) => {
     const end = Date.parse(query.end);
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 32 * 86400_000 ||
         !Number.isSafeInteger(query.offset) || query.offset < 0 ||
-        !Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 1000 ||
+        !Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 3000 ||
         !validFilter(query.tagIds, 128) || !validFilter(query.sections, 16) || !validFilter(query.excludeTagIds, 128) ||
         !validFilter(query.assets, 5) || (query.assets && query.assets.some(value => !['all', 'intake', 'wtp', 'oht-1', 'oht-2'].includes(value))) ||
         (query.snapshotsOnly !== undefined && typeof query.snapshotsOnly !== 'boolean') ||
@@ -49,14 +91,8 @@ Deno.serve(async (request) => {
   try {
     const manifest = Deno.env.get('HISTORIAN_ARCHIVE_SHEETS');
     if (!manifest) return json({ error: 'Historian archive is not configured' }, 503);
-    const entries = await parseArchiveManifest(manifest);
-    let accessToken: string | undefined;
-    return json(await queryVerifiedArchive(entries, query, async entry => {
-      accessToken ??= await googleSheetsAccessToken({ clientId: Deno.env.get('HISTORIAN_GOOGLE_CLIENT_ID'),
-        clientSecret: Deno.env.get('HISTORIAN_GOOGLE_CLIENT_SECRET'), refreshToken: Deno.env.get('HISTORIAN_GOOGLE_REFRESH_TOKEN'),
-        serviceAccount: Deno.env.get('HISTORIAN_GOOGLE_SERVICE_ACCOUNT') });
-      return loadHistorianSheet(entry, accessToken);
-    }, readWindow));
+    const entries = await (manifestCache ??= parseArchiveManifest(manifest));
+    return json(await queryVerifiedArchive(entries, query, readSheetFallback, readWindow));
   } catch (error) {
     console.error('Historian archive read failure:', error instanceof Error ? error.message : 'Unknown error');
     return json({ error: 'Verified historian archive unavailable' }, 502);

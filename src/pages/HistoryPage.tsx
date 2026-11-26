@@ -617,7 +617,13 @@ const HistoryPage: React.FC = () => {
           if (countErr) throw countErr;
           totalCountVal = count ?? 0;
         }
-        if (archive) totalCountVal += (await readArchiveHistory(archive, archiveFilters, 0, 0)).count;
+        if (archive) {
+          const archiveDays = Math.max(1, Math.ceil((Date.parse(archive.end) - Date.parse(archive.start)) / 86400_000));
+          const tags = ALL_SENSORS.filter(sensor =>
+            !sensor.notInstalled && matchesSelectedAssets({ tag_id: sensor.id, section: sensor.section }, globalFilters.assets)
+          ).length;
+          totalCountVal += archiveDays * Math.max(1, tags) * 288;
+        }
       } catch (countErr) {
         logWarn('History.exportExcel', 'Exact count failed or timed out, estimating total rows', countErr);
         const days = Math.max(1, Math.ceil((endMs - startMs) / (24 * 3600 * 1000)));
@@ -662,26 +668,28 @@ const HistoryPage: React.FC = () => {
       let fetchedSoFar = 0;
       let nextSliceIdx = 0;
       const SLICE_CONCURRENCY = 3;
-      const PAGE = 1000;
 
       const sliceWorker = async () => {
         while (true) {
           const sliceIdx = nextSliceIdx++;
           if (sliceIdx >= slices.length) return;
           const slice = slices[sliceIdx];
+          const pageSize = slice.archived ? 3000 : 1000;
 
           let offset = 0;
           while (true) {
             const from = offset;
-            const to = from + PAGE - 1;
+            const to = from + pageSize - 1;
+            let hasMoreArchiveRows = false;
 
             const pageRows = await fetchWithRetry(async () => {
               if (slice.archived) {
                 const result = await readArchivePage({ start: slice.start, end: slice.end,
-                  ...archiveFilters, offset: from, limit: PAGE });
-                if (result.rows.length !== Math.min(PAGE, Math.max(0, result.count - from))) {
+                  ...archiveFilters, offset: from, limit: pageSize });
+                if (result.rows.length !== Math.min(pageSize, Math.max(0, result.count - from))) {
                   throw new Error('Incomplete archive export page');
                 }
+                hasMoreArchiveRows = from + result.rows.length < result.count;
                 return result.rows;
               }
               let q = supabase
@@ -699,7 +707,7 @@ const HistoryPage: React.FC = () => {
               const { data, error } = await q;
               if (error) throw error;
               return data || [];
-            }, 3, 500);
+            }, slice.archived ? 1 : 3, 500);
 
             if (!pageRows || pageRows.length === 0) break;
 
@@ -728,8 +736,8 @@ const HistoryPage: React.FC = () => {
               total: Math.max(p.total, fetchedSoFar),
             }));
 
-            if (pageRows.length < PAGE) break;
-            offset += PAGE;
+            if (slice.archived ? !hasMoreArchiveRows : pageRows.length < pageSize) break;
+            offset += pageSize;
           }
         }
       };

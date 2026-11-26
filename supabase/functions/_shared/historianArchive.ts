@@ -20,6 +20,7 @@ export interface HistorianArchiveRange {
   end: string;
   count: number;
   sourceDigest?: string;
+  recoveryDigest?: string;
 }
 
 export interface HistorianArchiveQuery {
@@ -128,7 +129,8 @@ export function validateArchiveRanges(ranges: HistorianArchiveRange[]): Historia
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || start < previousEnd ||
         !/^[A-Za-z0-9_-]{15,}$/.test(entry.spreadsheetId) || typeof entry.range !== 'string' || !entry.range ||
         !['worker', 'recovery'].includes(entry.format) || !Number.isSafeInteger(entry.count) || entry.count < 0 ||
-        (entry.sourceDigest !== undefined && !/^[a-f0-9]{64}$/.test(entry.sourceDigest))) {
+        (entry.sourceDigest !== undefined && !/^[a-f0-9]{64}$/.test(entry.sourceDigest)) ||
+        (entry.recoveryDigest !== undefined && !/^[a-f0-9]{64}$/.test(entry.recoveryDigest))) {
       throw new Error('Invalid or overlapping historian archive ranges');
     }
     previousEnd = end;
@@ -146,6 +148,10 @@ export async function readVerifiedArchiveRange(entry: HistorianArchiveRange, gri
       throw new Error('Archive content does not match the audited source checksum');
     }
   }
+  return checkArchiveReadings(entry, readings);
+}
+
+function checkArchiveReadings(entry: HistorianArchiveRange, readings: ArchivedHistorianReading[]) {
   const start = Date.parse(entry.start);
   const end = Date.parse(entry.end);
   if (readings.length !== entry.count || new Set(readings.map(row => row.id)).size !== entry.count ||
@@ -155,9 +161,23 @@ export async function readVerifiedArchiveRange(entry: HistorianArchiveRange, gri
   return readings;
 }
 
+/** Read a private cache object pinned to the independently audited recovery file. */
+export async function readArchiveRecovery(entry: HistorianArchiveRange, compressed: ReadableStream<Uint8Array>) {
+  if (!entry.recoveryDigest) throw new Error('Missing recovery file checksum');
+  const bytes = await new Response(compressed.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  if (await digest(new Uint8Array(bytes)) !== entry.recoveryDigest) throw new Error('Recovery file checksum mismatch');
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  if (!text.endsWith('\n')) throw new Error('Incomplete recovery file');
+  const readings: ArchivedHistorianReading[] = [];
+  collectReadings(text.slice(0, -1).split('\n'), readings);
+  return checkArchiveReadings(entry, readings);
+}
+
 type LoadArchiveGrid = (entry: HistorianArchiveRange) => Promise<Grid>;
 
-export function createVerifiedArchiveCache(maxRows: number, ttlMs: number) {
+export function createVerifiedArchiveCache(maxRows: number, ttlMs: number, loadRecovery?: (
+  entry: HistorianArchiveRange,
+) => Promise<ArchivedHistorianReading[] | undefined>) {
   const windows = new Map<string, { rows: readonly ArchivedHistorianReading[]; expires: number }>();
   const pending = new Map<string, Promise<readonly ArchivedHistorianReading[]>>();
   let storedRows = 0;
@@ -168,7 +188,7 @@ export function createVerifiedArchiveCache(maxRows: number, ttlMs: number) {
       return readVerifiedArchiveRange(entry, await loadGrid(entry));
     }
 
-    const key = JSON.stringify([entry.spreadsheetId, entry.range, entry.format, entry.start, entry.end, entry.count, entry.sourceDigest]);
+    const key = JSON.stringify([entry.spreadsheetId, entry.range, entry.format, entry.start, entry.end, entry.count, entry.sourceDigest, entry.recoveryDigest]);
     const previous = windows.get(key);
     if (previous) {
       windows.delete(key);
@@ -182,7 +202,8 @@ export function createVerifiedArchiveCache(maxRows: number, ttlMs: number) {
     const current = pending.get(key);
     if (current) return current;
     const loading = (async () => {
-      const rows = await readVerifiedArchiveRange(entry, await loadGrid(entry));
+      const rows = (entry.recoveryDigest ? await loadRecovery?.(entry) : undefined)
+        ?? await readVerifiedArchiveRange(entry, await loadGrid(entry));
       while (storedRows + rows.length > maxRows) {
         const oldest = windows.entries().next();
         if (oldest.done) break;

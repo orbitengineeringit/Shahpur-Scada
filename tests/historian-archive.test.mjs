@@ -5,11 +5,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { archiveMonth, archiveTable, canonical, checksum } from '../scripts/historian-archive/backup.mjs';
-import { createVerifiedArchiveCache, queryVerifiedArchive, readArchiveGrid, readRecoveryGrid } from '../supabase/functions/_shared/historianArchive.ts';
+import { createVerifiedArchiveCache, queryVerifiedArchive, readArchiveGrid, readArchiveRecovery, readRecoveryGrid } from '../supabase/functions/_shared/historianArchive.ts';
 import { googleSheetsAccessToken, loadHistorianSheet } from '../supabase/functions/_shared/historianSheets.ts';
 import { appendWorkerArchiveReceipts } from '../supabase/functions/_shared/historianWorkerManifest.ts';
+
+test('private recovery cache checks exact archived bytes and avoids a Sheets read', async () => {
+  const row = { id: 'sample', tag_id: 'WTP-PT1', section: 'wtp', timestamp: '2026-11-05T00:05:00Z', value: 0 };
+  const raw = JSON.stringify(row) + '\n';
+  const entry = { spreadsheetId: 'archive-workbook-test', range: 'Sheet1!A2:H2', format: 'recovery',
+    start: '2026-11-05T00:00:00Z', end: '2026-11-05T01:00:00Z', count: 1,
+    sourceDigest: 'a'.repeat(64), recoveryDigest: checksum([JSON.stringify(row), '']) };
+  const compressed = () => new Blob([gzipSync(raw)]).stream();
+  const cached = createVerifiedArchiveCache(100, 1000, range => readArchiveRecovery(range, compressed()));
+  const loadSheets = () => { throw new Error('Verified storage hit must not read Google Sheets'); };
+  assert.deepEqual(await cached(entry, loadSheets), [row]);
+  await assert.rejects(readArchiveRecovery({ ...entry, recoveryDigest: 'b'.repeat(64) }, compressed()), /checksum mismatch/);
+  await assert.rejects(readArchiveRecovery({ ...entry, count: 2 }, compressed()), /verified coverage/);
+});
 
 test('backfill verifies readback and resumes without appending a completed window', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'shahpur-archive-'));

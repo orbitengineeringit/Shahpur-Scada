@@ -53,3 +53,13 @@ The reader accepts `start`, `end`, `offset`, `limit`, optional `tagIds`, `sectio
 Leave `VITE_HISTORIAN_ARCHIVE_START` and `VITE_HISTORIAN_ARCHIVE_CUTOFF` unset until the contiguous archive range is verified in production. Set both as ISO instants when ready. The start is inclusive and the cutoff is exclusive. A trend spanning the cutoff reads the archive below the cutoff and Supabase from the cutoff onward. A missing coverage interval surfaces as a load error. Ranges with verified zero source rows can appear in the manifest with `count: 0`.
 
 For a dedicated Google service account, enable the Sheets API in its project and grant the account Viewer access only to the private archive folders and workbooks needed by SCADA. Store its credentials JSON as the server-only `HISTORIAN_GOOGLE_SERVICE_ACCOUNT` secret. The backend requests the `spreadsheets.readonly` scope and does not impersonate an account owner.
+
+## Private read cache
+
+Seed the cache from the independently audited recovery receipt and its gzip files. Use the Shahpur project ref and supply the authorized management token through the process environment.
+
+```sh
+node scripts/historian-archive/seed-read-cache.mjs '<audited receipt.json>' '<recovery-directory>' '<project-ref>'
+```
+
+The seeder requires a private bucket, verifies every uploaded object by reading it back, and updates the archive manifest only after all objects match. The Edge Function verifies each cached file against the manifest before using it. On a cache miss or failed integrity check, it reads the original private Google Sheet. No client read or write policy is required for this bucket.

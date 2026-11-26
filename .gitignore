@@ -15,6 +15,7 @@ scripts/historian-archive/*
 !scripts/historian-archive/extend-read-manifest.mjs
 !scripts/historian-archive/prepare-raw-cleanup.mjs
 !scripts/historian-archive/restore-sheet.mjs
+!scripts/historian-archive/seed-read-cache.mjs
 !scripts/historian-archive/README.md
 
 # Logs
