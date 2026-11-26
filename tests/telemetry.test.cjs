@@ -4,12 +4,15 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 
+let sharedWtp;
 function load(file, stubs = {}, extra = {}) {
   const raw = fs.readFileSync(file, 'utf8').replace(/import\.meta/g, '({env:{}})');
   const code = ts.transpileModule(raw, {
     compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.React},
   }).outputText;
   const exports = {};
+  if (file !== 'supabase/functions/_shared/wtpEquipment.ts' && !sharedWtp) sharedWtp = load('supabase/functions/_shared/wtpEquipment.ts').exports;
+  stubs = { '../_shared/wtpEquipment.ts':sharedWtp, '../../supabase/functions/_shared/wtpEquipment':sharedWtp, ...stubs };
   const context = vm.createContext({exports,require:name=>name in stubs ? stubs[name] : (name.startsWith('@/') ? {} : require(name)),
     console,Date,Map,Set,Number,JSON,Promise,setTimeout,clearTimeout,...extra});
   vm.runInContext(code,context,{filename:file});
@@ -26,8 +29,19 @@ const {mapReadings,parsePayload,SENSORS,topicSetup} = vm.runInContext('({mapRead
 const map = (section,payload,subsection) => mapReadings({section,subsection,payload,topic:'test',timestamp:new Date()});
 const tag={id:'WTP-LT-BW',value:40,min:0,max:100,unit:'%',instrumentType:'lt',status:'connected',lastDataTime:new Date('2026-09-19T12:00:00Z')};
 
-test('both Shahpur OHTs expose exactly four instruments',()=>{
-  for(let i=1;i<=2;i++)assert.equal(SENSORS.filter(s=>s.subsection===`OHT-${i}`).length,4);
+test('OHT-1 retains four instruments and OHT-2 maps five exact RTU measurements',()=>{
+  assert.equal(topicSetup(null).topicToSection.get('shahpur-oht2')?.subsection, 'OHT-2');
+  assert.equal(SENSORS.filter(s=>s.subsection==='OHT-1').length,4);
+  assert.equal(SENSORS.filter(s=>s.subsection==='OHT-2').length,5);
+  const r_data = Object.entries({PT1:'0.1', LT1:'0.0996094', FLOW:'-2786.41', TOTALIZER:'604', TOTALIZER2:'46445'}).map(([name,value])=>({name,value,err:'0'}));
+  const payload=Object.assign({},...parsePayload(JSON.stringify({params:{id:'00601924123100045318',r_data}})));
+  const rows=map('oht',payload,'OHT-2');
+  assert.deepEqual(Object.fromEntries(rows.map(r=>[r.tag_id,r.value])),{'OHT2-PT':0.1,'OHT2-LT':0.0996094,'OHT2-Flow':-2786.41,'OHT2-Totalizer':604,'OHT2-Totalizer2':46445});
+  const bad=Object.assign({},...parsePayload(JSON.stringify({params:{r_data:[{name:'FLOW',value:'42',err:'1'}]}})));
+  const [fault]=map('oht',bad,'OHT-2');
+  assert.equal(fault.quality,'fault');
+  assert.equal(fault.value,null);
+  assert.equal(quality.normalizeTelemetryValue(-2786.41,{id:'OHT2-Flow',min:-50,max:50}),-2786.41);
   const readings=map('oht',{OHT_LT:'59.8292',OHT_PT_1:'10.0625',OHT_FLOW:'0',OHT_POSICUMVALUE:'1542.12'},'OHT-1');
   assert.equal(readings.find(r=>r.tag_id==='OHT1-Flow').value,0);
   assert.equal(readings.find(r=>r.tag_id==='OHT1-Totalizer').value,1542.12);
@@ -77,8 +91,119 @@ test('shared status thresholds tolerate cellular delays and expire honestly',()=
   assert.equal(connection({...reading,lastDataTime:new Date(Date.now()-16*60000)}),'no-data');
 });
 
+const wtpLive = load('src/lib/wtpProcessActivity.ts', {
+  '@/hooks/useTagConnection': load('src/hooks/useTagConnection.ts', {
+    '@/lib/telemetryQuality': quality,
+  }).exports,
+}).exports;
+
+function wtpReading(id, value, options = {}) {
+  return { ...tag, id, value, source: 'mqtt', lastDataTime: new Date(), ...options };
+}
+
+test('WTP measured flow never implies unmonitored equipment or a backwash phase', () => {
+  const samples = [
+    wtpReading('WTP-ROF-FB1', 42),
+    wtpReading('WTP-LOH-FB2', 90),
+    wtpReading('WTP-Flow-OUT', 65),
+    wtpReading('WTP-PT1', 4.5),
+    wtpReading('WTP-LT-BW', 60),
+  ];
+  const view = wtpLive.deriveWtpProcessActivity(samples);
+  assert.deepEqual(Array.from(view.filters), ['filter', null]);
+  assert.deepEqual(Array.from(view.pumpStates), ['No data', 'No data', 'No data']);
+  assert.equal(view.outletFlow, true);
+  assert.equal(view.inletFlow, null);
+  assert.equal(view.mixing, null);
+  assert.equal(view.clarifying, null);
+  assert.equal(view.backwashTankOutflow, null);
+  assert.deepEqual(Array.from(view.dosing), Array(6).fill(null));
+  assert.deepEqual(Array.from(view.backwashPumps), [null, null]);
+});
+
+test('WTP rotation uses independent digital run and trip feedback', () => {
+  const active = [
+    wtpReading('WTP-Pump1', 1),
+    wtpReading('WTP-Trip1', 1),
+    wtpReading('WTP-Pump2', 0),
+    wtpReading('WTP-Trip2', 0),
+    wtpReading('WTP-PT2', 8.2),
+  ];
+  assert.deepEqual(Array.from(wtpLive.deriveWtpProcessActivity(active).pumpStates), ['Conflict', 'Off', 'No data']);
+  assert.deepEqual(Array.from(wtpLive.deriveWtpProcessActivity([
+    wtpReading('WTP-Pump1', 1, { source: 'simulated' }),
+    wtpReading('WTP-Pump2', 1, { lastDataTime: new Date(Date.now() - 6 * 60000) }),
+  ]).pumpStates), ['No data', 'Stale', 'No data']);
+  assert.equal(wtpLive.deriveWtpProcessActivity([wtpReading('WTP-Pump1', 7)]).pumpStates[0], 'Fault');
+});
+
+test('HMI mixer, numbered agitators and valves require their own feedback', () => {
+  const samples = [
+    wtpReading('WTP-FLASH_MIXER_RUN_FB', 1), wtpReading('WTP-FLASH_MIXER_TRIP_FB', 0),
+    wtpReading('WTP-ALUM_AG02_RUN_FB', 1), wtpReading('WTP-ALUM_AG02TRIP_FB', 0),
+    wtpReading('WTP-CWR_VALVE1_OPEN_FB', 1), wtpReading('WTP-CWR_VALVE1_CLOSE_FB', 0),
+    wtpReading('WTP-VALVE3_OPEN_FB', 0), wtpReading('WTP-VALVE3_CLOSE_FB', 0),
+    wtpReading('WTP-VALVE4_OPEN_FB', 1), wtpReading('WTP-VALVE4_CLOSE_FB', 1),
+    wtpReading('WTP-AIR_BLOWER_RUN_FB', 1), wtpReading('WTP-AIR_BLOWER_TRIP_FB', 0),
+  ];
+  const view = wtpLive.deriveWtpProcessActivity(samples);
+  assert.equal(view.mixing, true);
+  assert.equal(view.driveStates.dosingMixers[1], 'Run');
+  assert.equal(view.dosing[1], null);
+  assert.deepEqual(Array.from(view.blowers), [null, null]);
+  assert.equal(view.fieldDrives.find(d => d.name === 'Air blower').state, 'Run');
+  assert.deepEqual(Array.from(view.fieldValves.slice(0,4), v => v.position), ['Open','No data','Unconfirmed','Conflict']);
+  assert.equal(wtpLive.deriveWtpProcessActivity([samples[0]]).mixing, null);
+});
+
+test('WTP preserves fresh zero and distinguishes unavailable analog readings', () => {
+  assert.equal(wtpLive.readWtpTelemetry(wtpReading('WTP-LT-CW', 0)).value, 0);
+  for (const degraded of [
+    { status: 'fault' }, { status: 'unknown' }, { notInstalled: true },
+    { source: 'simulated' }, { value: NaN }, { lastDataTime: undefined },
+  ]) {
+    assert.equal(wtpLive.readWtpTelemetry(wtpReading('WTP-LT-CW', 17, degraded)).value, null);
+  }
+  const zeroFlows = wtpLive.deriveWtpProcessActivity([wtpReading('WTP-Flow-OUT', 0), wtpReading('WTP-ROF-FB1', 0)]);
+  assert.equal(zeroFlows.outletFlow, false);
+  assert.equal(zeroFlows.rates.filterBed[0], 0);
+  assert.equal(zeroFlows.filters[0], null);
+});
+
+test('WTP can consume explicitly mapped field signals without assigning activity to other equipment', () => {
+  const mapping = {
+    mixer: { run: 'fixture-mixer-run', rpm: 'fixture-mixer-rpm' },
+    dosing: [{ run: 'fixture-dosing-run', mixer: { run: 'fixture-dosing-agitator-run' } }],
+    filters: [undefined, {
+      phase: { tag: 'fixture-second-bed-stage', values: { 4: 'backwash' } },
+      backwashInletOpen: 'fixture-wash-inlet',
+      washFlow: 'fixture-wash-flow',
+    }],
+  };
+  const samples = [
+    wtpReading('fixture-mixer-run', 1),
+    wtpReading('fixture-mixer-rpm', 27),
+    wtpReading('fixture-dosing-run', 1),
+    wtpReading('fixture-dosing-agitator-run', 0),
+    wtpReading('fixture-second-bed-stage', 4),
+    wtpReading('fixture-wash-inlet', 1),
+    wtpReading('fixture-wash-flow', 39),
+  ];
+  const view = wtpLive.deriveWtpProcessActivity(samples, mapping);
+  assert.equal(view.mixing, true);
+  assert.equal(view.rpm.mixer, 27);
+  assert.equal(view.clarifying, null);
+  assert.equal(view.driveStates.dosing[0], 'Run');
+  assert.equal(view.driveStates.dosingMixers[0], 'Off');
+  assert.deepEqual(Array.from(view.filters), [null, 'backwash']);
+  assert.equal(view.valves.backwashInlet[1], true);
+  assert.equal(view.rates.backwash[1], 39);
+  assert.equal(view.backwashPumps[1], null);
+});
+
 test('history and alarms asset filters isolate OHT-1 and OHT-2 and purge legacy Mohgaon footprints',()=>{
   const historyModule = load('src/pages/HistoryPage.tsx', {
+    '@/config/shahpurSensors': load('src/config/shahpurSensors.ts').exports,
     '@/integrations/supabase/client': { supabase: {} },
     '@/contexts/ScadaContext': { useScada: () => ({ plantName: 'Shahpur SCADA' }) },
     '@/lib/errorLogger': {},
@@ -101,6 +226,13 @@ test('history and alarms asset filters isolate OHT-1 and OHT-2 and purge legacy 
   }).exports;
 
   const { isLegacyMohgaonTag, matchesSelectedAssets, applyAssetFiltersToQuery } = historyModule;
+  const historyValue = (tag_id, value) => historyModule.describeHistoryReading({tag_id, value});
+  assert.equal(historyValue('WTP-CWR_VALVE1_OPEN_FB', 1).sensorType, 'Valve feedback');
+  assert.equal(historyValue('WTP-FLASH_MIXER_RUN_FB', 0).valueOut, 0);
+  assert.equal(historyValue('WTP-Trip1', 1).valueOut, 1);
+  assert.equal(historyValue('OHT2-Flow', -2786.41).valueOut, -2786.41);
+  assert.equal(historyValue('OHT2-Totalizer2', 46445).sensorType, 'Totalizer');
+  assert.equal(historyValue('OHT2-LT', null).valueOut, '—');
 
   // 1. Legacy Mohgaon tags must be rejected (OHT3, OHT4, OHT5, Ward No, Mohgaon, etc.)
   assert.equal(isLegacyMohgaonTag('OHT3-LT'), true);
@@ -210,10 +342,10 @@ test('history and alarms asset filters isolate OHT-1 and OHT-2 and purge legacy 
   assert.equal(isLegacyMohgaonAlarm({ tagId: 'INT-PT1', label: 'VT Pump 1' }), false);
 });
 
-test('Garud GIS sync enforces uncommissioned station omission and MQTT freshness requirements',()=>{
+test('Garud sends fresh valid measurements for commissioned stations',()=>{
   const gisCode = fs.readFileSync('supabase/functions/gis-sync/index.ts', 'utf8');
 
-  // Verify WTP and OHT-2 are marked as non-commissioned and excluded
+  // Stations without eligible readings are skipped
   assert.match(gisCode, /skippedStations\.push\(stationName\)/);
   assert.match(gisCode, /skippedStations\.push\("wtp"\)/);
 
@@ -221,9 +353,15 @@ test('Garud GIS sync enforces uncommissioned station omission and MQTT freshness
   assert.match(gisCode, /if\s*\(hasFreshData\(intakeIds\)\)/);
   assert.match(gisCode, /if\s*\(hasFreshData\(ohtIds\)\)/);
 
-  // Verify 0.00 fallback for uncalibrated / zero readings
-  assert.match(gisCode, /v\(TAG\.intake\.lt\)\s*\?\?\s*0\.0/);
-  assert.match(gisCode, /v\(ohtTags\.flow\)\s*\?\?\s*0\.0/);
+  const gis = load('supabase/functions/gis-sync/index.ts', {
+    'https://esm.sh/@supabase/supabase-js@2.45.0': {},
+  }, { Deno: { env: {get:()=>undefined}, serve:()=>{} } }).context;
+  const normalize = vm.runInContext('normalizeReading', gis);
+  assert.equal(normalize('OHT2-Flow', -2786.41), undefined);
+  assert.equal(normalize('WTP-CL', NaN), undefined);
+  assert.equal(normalize('WTP-CL', 0), 0);
+  assert.equal(normalize('OHT2-PT', 0.1), 0.1);
+  assert.doesNotMatch(gisCode, /v\([^)]*\)\s*\?\?\s*0/);
 
   // Verify when no fresh data arrived from MQTT, POST to Garud is skipped with 204
   assert.match(gisCode, /if\s*\(includedStations\.length\s*===\s*0\)/);
@@ -240,6 +378,51 @@ test('Garud GIS sync enforces uncommissioned station omission and MQTT freshness
   assert.match(gisUiCode, /isSkippedStatus\s*=\s*lastStatus\s*===\s*204/);
   assert.match(gisUiCode, /\(success\s*&&\s*included\)\s*\?\s*'SENT'/);
   assert.match(gisUiCode, /SAGAR \(427\)/, 'GIS Sync UI must display Sagar district with code 427');
+});
+
+test('Garud request includes OHT-2 and WTP good values without fabricating missing flow or pressure', async () => {
+  const now = new Date().toISOString();
+  const row = (tag_id, value, quality = 'good', received_at = now) => ({tag_id, value, quality, received_at});
+  let readings = [
+    row('OHT2-Flow', -2786.41), row('OHT2-PT', 0.1), row('OHT2-LT', 0.0996094),
+    row('WTP-PH-IN', 7.1), row('WTP-CL', 0), row('WTP-LT-CW', null, 'fault'),
+    row('WTP-PT1', 2.2, 'good', new Date(Date.now() - 3600000).toISOString()),
+  ];
+  const client = {from(table) {
+    const query = {
+      select: () => query, limit: () => query, in: () => query,
+      order: () => table === 'telemetry_latest' ? {data: readings} : query,
+      maybeSingle: () => ({data: {cron_secret:'test', base_url:'https://example.invalid', oht2_device_id:'SHA_OHT_002'}}),
+      insert: async () => ({}),
+    };
+    return query;
+  }};
+  const sent = [];
+  let handler;
+  load('supabase/functions/gis-sync/index.ts', {
+    'https://esm.sh/@supabase/supabase-js@2.45.0': {createClient:()=>client},
+  }, {
+    Deno: {env:{get:()=>undefined}, serve: fn => {handler = fn;}},
+    fetch: async (_, options) => {sent.push(JSON.parse(options.body)); return new Response('{}');},
+    Response, AbortSignal,
+  });
+  const request = new Request('https://example.invalid', {method:'POST', headers:{'x-cron-key':'test'}});
+  const result = await (await handler(request)).json();
+  assert.deepEqual(result.proof.included_stations.sort(), ['oht2', 'wtp']);
+  const unit = sent[0].wtpUnits[0];
+  assert.equal(unit.ohts[0].ohT_Device_id, 'SHA_OHT_002');
+  assert.equal(unit.ohts[0].inletPressure, 0.1);
+  assert.equal(unit.ohts[0].waterLevel_mld, 0.0996);
+  assert.equal(unit.ohts[0].outletFlow_mld, undefined);
+  assert.equal(unit.wtp.rawPh, 7.1);
+  assert.equal(unit.wtp.chlorine, 0);
+  assert.equal(unit.wtp.cwrLevel, undefined);
+  assert.deepEqual(unit.pumps, []);
+  readings = [row('OHT2-Flow', -2786.41)];
+  const skipped = await (await handler(request)).json();
+  assert.equal(skipped.proof.status, 204);
+  assert.equal(sent.length, 1);
+  assert.equal(skipped.proof.invalid_readings['OHT2-Flow'].value, -2786.41);
 });
 
 test('Intake PLC active keys, equipment_data extraction, and WTP LOH/ROF ranges work as expected', () => {
@@ -513,3 +696,113 @@ test('Historical Data heading and 30-day time-slice export resilience', () => {
   assert.equal(sortedTags[4], 'INT-PT1'); // 09:55 bucket comes after 10:00 bucket
 });
 
+test('SCADA All data export preserves separate archived readings and exact source fields in Excel', async () => {
+  const ExcelJS = require('exceljs');
+  // ExcelJS identifies row arrays using instanceof, so move VM arrays into its realm.
+  class FixtureWorkbook extends ExcelJS.Workbook {
+    addWorksheet(...args) {
+      const sheet = super.addWorksheet(...args);
+      const addRow = sheet.addRow.bind(sheet);
+      sheet.addRow = values => addRow(Array.from(values));
+      return sheet;
+    }
+  }
+  const window = { start: '2026-11-25T00:00:00.000Z', end: '2026-11-26T00:00:00.000Z' };
+  const records = [
+    { id: 'a', tag_id: 'OHT2-Flow', section: 'oht', value: -2786.412345678901,
+      timestamp: '2026-11-25T10:00:00.123456+00:00', received_at: '2026-11-25T10:00:03.765432+00:00' },
+    { id: 'b', tag_id: 'OHT2-Flow', section: 'oht', value: 0,
+      timestamp: '2026-11-25T10:01:00+00:00', received_at: null },
+  ];
+  let blob;
+  const react = {
+    default: { createElement: (type, props, ...children) => ({ type, props, children }) },
+    useState: initial => [initial && typeof initial === 'object' && 'density' in initial
+      ? { ...initial, startDate: new Date(window.start), endDate: new Date(Date.parse(window.end) - 1) } : initial, () => {}],
+    useMemo: compute => compute(),
+    useCallback: callback => callback,
+    useEffect: () => {},
+    useRef: value => ({ current: value }),
+  };
+  const { exports } = load('src/pages/HistoryPage.tsx', {
+    react,
+    exceljs: { default: { Workbook: FixtureWorkbook } },
+    'date-fns': { format: () => '25 Nov 2026', startOfDay: date => date, endOfDay: date => date },
+    '@/config/shahpurSensors': load('src/config/shahpurSensors.ts').exports,
+    '@/contexts/ScadaContext': { useScada: () => ({ plantName: 'Shahpur SCADA' }) },
+    '@/hooks/use-toast': { useToast: () => ({ toast: () => {} }) },
+    '@/integrations/supabase/client': { supabase: { from: () => ({ select: async () => ({ data: [] }) }) } },
+    '@/lib/historianArchiveClient': {
+      splitHistorianRange: () => ({ archive: window }),
+      readArchiveHistory: async () => ({ count: records.length, rows: [] }),
+      readArchivePage: async () => ({ count: records.length, rows: records }),
+    },
+    '@/lib/errorLogger': { logWarn: () => {}, logError: (_, error) => { throw error; } },
+    '@/lib/utils': { cn: (...args) => args.filter(Boolean).join(' ') },
+    '@/components/ui/button': { Button: 'fixture-button' },
+  }, {
+    Blob,
+    URL: { createObjectURL: value => { blob = value; return 'blob:fixture'; }, revokeObjectURL: () => {} },
+    document: { createElement: () => ({ click: () => {} }), body: { appendChild: () => {}, removeChild: () => {} } },
+    setTimeout: callback => { callback(); return 0; },
+  });
+  const hasExportText = element => element === 'Export Excel' || element?.children?.some(hasExportText);
+  function exportButton(element) {
+    if (element?.type === 'fixture-button' && hasExportText(element)) return element;
+    for (const child of element?.children ?? []) {
+      const match = exportButton(child);
+      if (match) return match;
+    }
+  }
+  const button = exportButton(exports.default());
+  assert.equal(typeof button?.props?.onClick, 'function');
+  await button.props.onClick();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(Buffer.from(await blob.arrayBuffer()));
+  const sheet = workbook.getWorksheet('Historical Records');
+  assert.equal(sheet.rowCount, 6);
+  const result = [5, 6].map(row => [sheet.getCell(row, 1).value, sheet.getCell(row, 7).value ?? '', sheet.getCell(row, 8).value]);
+  assert.deepEqual(result.sort(), records.map(record => [record.timestamp, record.received_at ?? '', String(record.value)]).sort());
+});
+
+
+test('WTP original bytes preserve named readings inside repeated anonymous members', () => {
+  const raw = '{"":"id","":{"CWR_LT_SCALED":"7.8615","CWR_LT_SCALED":"0.0000","FLASH_MIXER_RUN_FB":"1","FLASH_MIXER_TRIP_FB":"0","CWR_VALVE1_OPEN_FB":"1","CWR_VALVE1_CLOSE_FB":"0","RAW_PH_SCALED":"8.5","pt3":"1.0065"},"":"1"}';
+  const decoded = sharedWtp.decodeWtpEquipment(raw);
+  const rows = new Map(map('wtp', decoded).map(row => [row.tag_id,row]));
+  assert.equal(rows.get('WTP-LT-CW').quality,'fault');
+  assert.equal(rows.get('WTP-LT-CW').value,null);
+  assert.equal(rows.get('WTP-FLASH_MIXER_RUN_FB').value,1);
+  assert.equal(rows.get('WTP-CWR_VALVE1_OPEN_FB').value,1);
+  assert.equal(rows.get('WTP-PH-IN').value,8.5);
+  assert.equal(rows.get('WTP-PLC-PT3').value,1.01);
+  assert.equal(rows.has('WTP-HeaderPT'),false);
+  assert.equal(sharedWtp.decodeWtpEquipment('{"":{"TOTALIZER":"604","OUTLET_FLOW":0},"":"1"}').TOTALIZER,604);
+});
+
+test('WTP conflicting drive and valve feedback cannot create good historian samples', () => {
+  const decoded = sharedWtp.decodeWtpEquipment(JSON.stringify({equipment_data:{
+    RECYCLE_PUMP02_RUN_FB:1, RECYCLE_PUMP02_TRIP_FB:1, VALVE4_OPEN_FB:1, VALVE4_CLOSE_FB:1,
+    AIR_BLOWER_RUN_FB:2, VALVE5_OPEN_FB:0, VALVE5_CLOSE_FB:0, LOH02_SCALED:-4.0116,
+    ALUM_AG02_RUN_FB:1, ALUM_AG02TRIP_FB:1, CWR_PUMP1_RUN_FB:0, CWR_PUMP1_TRIP_FB:0,
+  }}));
+  const rows = new Map(map('wtp',decoded).map(row => [row.tag_id,row]));
+  for (const key of ['RECYCLE_PUMP02_RUN_FB','RECYCLE_PUMP02_TRIP_FB','VALVE4_OPEN_FB','VALVE4_CLOSE_FB',
+    'AIR_BLOWER_RUN_FB','ALUM_AG02TRIP_FB','ALUM_AG02_RUN_FB','LOH-FB2']) {
+    assert.equal(rows.get('WTP-'+key).quality,'fault',key);
+  }
+  for (const key of ['VALVE5_OPEN_FB','VALVE5_CLOSE_FB','Pump1','Trip1']) {
+    assert.equal(rows.get('WTP-'+key).quality,'good',key);
+    assert.equal(rows.get('WTP-'+key).value,0,key);
+  }
+  const fixed = sharedWtp.decodeWtpEquipment('{"equipment_data":{"RECYCLE_PUMP02_RUN_FB":1,"RECYCLE_PUMP02_TRIP_FB":0,"LOH02_SCALED":"2.50","LOH02_SCALED":2.5}}');
+  assert.ok(map('wtp',fixed).every(row=>row.quality==='good'));
+});
+
+test('every additional WTP feedback field has a matching database definition', () => {
+  const migration = fs.readFileSync('supabase/migrations/20261125010000_wtp_equipment_feedback.sql','utf8');
+  for (const sensor of sharedWtp.wtpAdditionalSensors) {
+    assert.ok(migration.includes("('"+sensor.id+"', 'wtp',"),sensor.id);
+    assert.equal(SENSORS.filter(s=>s.id===sensor.id).length,1);
+  }
+});

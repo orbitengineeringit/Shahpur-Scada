@@ -1,3 +1,4 @@
+import { ALL_SENSORS } from '@/config/shahpurSensors';
 import React, { memo, useMemo, useId } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
@@ -5,11 +6,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar, TrendingUp, TrendingDown, Minus, BarChart3, Droplets, Gauge, Zap, Activity, Database, Clock } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useScada } from '@/contexts/ScadaContext';
+import type { Database as ScadaDatabase } from '@/integrations/supabase/types';
 import { getTagConnection } from '@/hooks/useTagConnection';
 
 interface HistoricalAnalyticsCardProps {
   section: 'intake' | 'wtp' | 'oht';
 }
+
+const summaryMetric = (id: string) => {
+  if (/^(INT-LT|WTP-LT-(BW|CW)|OHT[12]-LT)$/.test(id)) return 'avgLevel';
+  if (/^(INT-Flow-OUT|WTP-Flow-OUT|OHT[12]-Flow)$/.test(id)) return 'avgFlow';
+  return ALL_SENSORS.some(s => s.id === id && s.instrumentType === 'pt' && !s.notInstalled) ? 'avgPressure' : undefined;
+};
 
 interface DaySummary {
   date: string;
@@ -41,8 +49,8 @@ const formatRuntime = (seconds: number): string => {
 };
 
 const MiniBarChart: React.FC<{ data: number[]; labels: string[]; color: string; unit: string; title: string; icon: React.ReactNode }> = memo(({ data, labels, color, unit, title, icon }) => {
-  const maxVal = Math.max(...data, 0.1);
-  const hasData = data.some(v => v > 0);
+  const maxVal = Math.max(...data.map(Math.abs), 0.1);
+  const hasData = data.some(v => v !== 0);
 
   return (
     <div className="rounded-2xl border border-border/50 p-4 bg-gradient-to-br from-background to-muted/10 hover:border-primary/20 transition-all">
@@ -55,7 +63,7 @@ const MiniBarChart: React.FC<{ data: number[]; labels: string[]; color: string; 
         <>
           <div className="flex items-end gap-[3px] h-16">
             {data.map((val, i) => {
-              const heightPct = maxVal > 0 ? (val / maxVal) * 100 : 0;
+              const heightPct = maxVal > 0 ? (Math.abs(val) / maxVal) * 100 : 0;
               const isMax = val === maxVal && val > 0;
               const barColor = isMax ? 'hsl(var(--destructive))' : color;
               return (
@@ -65,7 +73,7 @@ const MiniBarChart: React.FC<{ data: number[]; labels: string[]; color: string; 
                     style={{
                       height: `${Math.max(heightPct, 3)}%`,
                       backgroundColor: barColor,
-                      opacity: val > 0 ? 1 : 0.15,
+                      opacity: val !== 0 ? 1 : 0.15,
                       animation: `barGrowH 0.6s ease-out ${i * 0.05}s both`,
                     }}
                   />
@@ -125,7 +133,7 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
 
   // Build live instrument summary
   const liveInstruments = useMemo(() => {
-    return liveTags.filter(tag => !tag.notInstalled && tag.instrumentType !== 'pump').map(tag => ({
+    return liveTags.filter(tag => !tag.notInstalled).map(tag => ({
       id: tag.id,
       label: tag.label,
       value: tag.value,
@@ -141,13 +149,13 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
     const activeCount = liveInstruments.filter(i => i.status === 'connected' && i.value > 0).length;
     
     const fresh = liveInstruments.filter(i => i.status === 'connected' || i.status === 'inactive');
-    const levelTags = fresh.filter(i => i.instrumentType === 'lt');
-    const flowTags = fresh.filter(i => i.instrumentType === 'flow');
+    const levelTags = fresh.filter(i => summaryMetric(i.id) === 'avgLevel');
+    const flowTags = fresh.filter(i => summaryMetric(i.id) === 'avgFlow');
     const ptTags = fresh.filter(i => i.instrumentType === 'pt');
     
-    const avgLevel = levelTags.length > 0 ? levelTags.reduce((s, t) => s + t.value, 0) / levelTags.length : 0;
-    const totalFlow = flowTags.reduce((s, t) => s + t.value, 0);
-    const avgPressure = ptTags.length > 0 ? ptTags.reduce((s, t) => s + t.value, 0) / ptTags.length : 0;
+    const avgLevel = levelTags.length > 0 ? levelTags.reduce((s, t) => s + t.value, 0) / levelTags.length : null;
+    const totalFlow = flowTags.length ? flowTags.reduce((s, t) => s + t.value, 0) : null;
+    const avgPressure = ptTags.length > 0 ? ptTags.reduce((s, t) => s + t.value, 0) / ptTags.length : null;
 
     return { totalInstruments, onlineCount, activeCount, avgLevel, totalFlow, avgPressure };
   }, [liveInstruments]);
@@ -160,8 +168,20 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
       startDate.setDate(startDate.getDate() - 6);
       const startStr = startDate.toISOString().split('T')[0];
 
-      const [aggRes, consRes, pumpRes] = await Promise.all([
-        supabase.from('historian_aggregates').select('*').eq('section', section).gte('bucket_start', startStr).order('bucket_start', { ascending: true }),
+      const fetchAggregates = async () => {
+        const rows: ScadaDatabase['public']['Tables']['historian_aggregates']['Row'][] = [];
+        const pageSize = 1000;
+        for (let offset = 0; ; offset += pageSize) {
+          const { data, error } = await supabase.from('historian_aggregates').select('*')
+            .eq('section', section).gte('bucket_start', startStr).lte('bucket_start', endDate.toISOString())
+            .order('bucket_start').order('id').range(offset, offset + pageSize - 1);
+          if (error) throw error;
+          rows.push(...data);
+          if (data.length < pageSize) return rows;
+        }
+      };
+      const [aggregates, consRes, pumpRes] = await Promise.all([
+        fetchAggregates(),
         supabase.from('consumption_data').select('*').eq('section', section).gte('date', startStr).order('date', { ascending: true }),
         section !== 'oht'
           ? supabase.from('pump_analytics').select('*').eq('section', section).gte('date', startStr).order('date', { ascending: true })
@@ -176,7 +196,8 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
         days[dateStr] = { date: dateStr, avgLevel: 0, avgPressure: 0, avgFlow: 0, totalConsumption: 0, pumpRuntime: 0, sampleCount: 0 };
       }
 
-      for (const agg of (aggRes.data || [])) {
+      const counts = new Map<string, number>();
+      for (const agg of aggregates) {
         const dateStr = agg.bucket_start.split('T')[0];
         if (!days[dateStr]) continue;
         const tagId = agg.tag_id?.toLowerCase() || '';
@@ -192,9 +213,14 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
           continue;
         }
 
-        if (tagId.includes('lt') || tagId.includes('level')) days[dateStr].avgLevel = Math.max(days[dateStr].avgLevel, Number(agg.avg_value));
-        if (tagId.includes('pt') && !tagId.includes('com')) days[dateStr].avgPressure = Math.max(days[dateStr].avgPressure, Number(agg.avg_value));
-        if (tagId.includes('flow')) days[dateStr].avgFlow += Number(agg.avg_value);
+        const metric = summaryMetric(agg.tag_id);
+        if (metric && agg.sample_count > 0) {
+          const key = dateStr + metric;
+          const previous = counts.get(key) ?? 0;
+          const count = previous + agg.sample_count;
+          days[dateStr][metric] += (Number(agg.avg_value) - days[dateStr][metric]) * agg.sample_count / count;
+          counts.set(key, count);
+        }
         days[dateStr].sampleCount += agg.sample_count;
       }
 
@@ -281,17 +307,17 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
               <div className="grid grid-cols-3 gap-2 mb-3">
                 <div className="rounded-xl p-2.5 text-center bg-primary/5 border border-primary/10">
                   <div className="text-[9px] text-primary/70 uppercase tracking-wider font-bold mb-1">Level</div>
-                  <div className="text-lg font-mono font-bold text-primary tabular-nums">{liveStats.avgLevel.toFixed(1)}</div>
-                  <div className="text-[9px] text-muted-foreground">m</div>
+                  <div className="text-lg font-mono font-bold text-primary tabular-nums">{liveStats.avgLevel?.toFixed(1) ?? '—'}</div>
+                  <div className="text-[9px] text-muted-foreground">%</div>
                 </div>
                 <div className="rounded-xl p-2.5 text-center bg-success/5 border border-success/10">
                   <div className="text-[9px] text-success/70 uppercase tracking-wider font-bold mb-1">Flow</div>
-                  <div className="text-lg font-mono font-bold text-success tabular-nums">{liveStats.totalFlow.toFixed(1)}</div>
+                  <div className="text-lg font-mono font-bold text-success tabular-nums">{liveStats.totalFlow?.toFixed(1) ?? '—'}</div>
                   <div className="text-[9px] text-muted-foreground">m³/hr</div>
                 </div>
                 <div className="rounded-xl p-2.5 text-center bg-accent/5 border border-accent/10">
                   <div className="text-[9px] text-accent/70 uppercase tracking-wider font-bold mb-1">Pressure</div>
-                  <div className="text-lg font-mono font-bold text-accent tabular-nums">{liveStats.avgPressure.toFixed(1)}</div>
+                  <div className="text-lg font-mono font-bold text-accent tabular-nums">{liveStats.avgPressure?.toFixed(1) ?? '—'}</div>
                   <div className="text-[9px] text-muted-foreground">Bar</div>
                 </div>
               </div>
@@ -356,7 +382,7 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <MiniBarChart data={summaries.map(s => s.totalConsumption)} labels={dateLabels} color="hsl(var(--primary))" unit="m³" title="Daily Consumption" icon={<Droplets className="h-3.5 w-3.5 text-primary" />} />
               <MiniBarChart data={summaries.map(s => s.avgFlow)} labels={dateLabels} color="hsl(var(--success))" unit="m³/hr" title="Avg Flow Rate" icon={<Activity className="h-3.5 w-3.5 text-success" />} />
-              <MiniBarChart data={summaries.map(s => s.avgLevel)} labels={dateLabels} color="hsl(var(--accent))" unit="m" title="Avg Level" icon={<Gauge className="h-3.5 w-3.5 text-accent" />} />
+              <MiniBarChart data={summaries.map(s => s.avgLevel)} labels={dateLabels} color="hsl(var(--accent))" unit="%" title="Avg Level" icon={<Gauge className="h-3.5 w-3.5 text-accent" />} />
               {section !== 'oht' ? (
                 <MiniBarChart data={summaries.map(s => s.pumpRuntime / 3600)} labels={dateLabels} color="hsl(38, 92%, 50%)" unit="hrs" title="Pump Runtime" icon={<Zap className="h-3.5 w-3.5 text-warning" />} />
               ) : (
@@ -400,7 +426,7 @@ const HistoricalAnalyticsCard: React.FC<HistoricalAnalyticsCardProps> = memo(({ 
                               </div>
                             </td>
                             <td className="text-right px-3 py-2.5 font-mono font-bold tabular-nums">
-                              <span className={day.avgLevel > 0 ? 'text-accent' : 'text-muted-foreground'}>{day.avgLevel.toFixed(1)} m</span>
+                              <span className={day.avgLevel > 0 ? 'text-accent' : 'text-muted-foreground'}>{day.avgLevel.toFixed(1)} %</span>
                             </td>
                             <td className="text-right px-3 py-2.5 font-mono font-bold tabular-nums">
                               <span className={day.avgFlow > 0 ? 'text-success' : 'text-muted-foreground'}>{day.avgFlow.toFixed(1)} m³/hr</span>

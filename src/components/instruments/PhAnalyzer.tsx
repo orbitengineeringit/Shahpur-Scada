@@ -40,7 +40,7 @@ const PhAnalyzer: React.FC<PhAnalyzerProps> = ({ value, unit }) => {
 
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <svg width="100%" height="auto" viewBox="0 0 100 130" className="drop-shadow-md max-w-[200px]">
+      <svg width="100%" viewBox="0 0 100 130" className="drop-shadow-md max-w-[200px]">
         <defs>
           {/* Body gradient */}
           <linearGradient id="ph-body-grad" x1="0" y1="0" x2="1" y2="0">

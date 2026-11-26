@@ -15,7 +15,7 @@
  * Stations:
  * - Intake PLC: sahpur/intake/plc01/update (Device ID: 02500225110500007982)
  * - OHT-1 (Bus Station OHT): sahpur/oht/plc01/update (Device ID: 02500225110500007512)
- * - OHT-2: Pending Commissioning (Topic TBD)
+ * - OHT-2: RTU 00601924123100045318
  * - WTP PLC: sahpur/wtp/plc01/update (Device IDs: slave_id=1 & slave_id=4)
  */
 
@@ -42,7 +42,7 @@ export interface ShahpurSensor {
 // ==================== OHT SENSORS ====================
 // Shahpur OHT Model:
 // OHT-1: Bus Station OHT (Live)
-// OHT-2: OHT-2 (Pending Commissioning)
+// OHT-2: signed flow and two individually reported counters
 // Keys: OHT_PT_1, OHT_LT, OHT_FLOW, OHT_POSICUMVALUE
 const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSensor[] => {
   const prefix = `OHT${ohtNum}`;
@@ -50,7 +50,7 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
   return [
     {
       id: `${prefix}-PT`,
-      mqttKey: ohtNum === 1 ? 'OHT1_PT_ACT' : 'OHT_PT_1',
+      mqttKey: ohtNum === 1 ? 'OHT1_PT_ACT' : 'PT1',
       label: 'Inlet Pressure (PT)',
       unit: 'Bar',
       min: 0,
@@ -63,7 +63,7 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
     },
     {
       id: `${prefix}-LT`,
-      mqttKey: ohtNum === 1 ? 'OHT1_LT_ACT' : 'OHT_LT',
+      mqttKey: ohtNum === 1 ? 'OHT1_LT_ACT' : 'LT1',
       label: 'Level Transducer',
       unit: '%',
       min: 0,
@@ -76,10 +76,10 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
     },
     {
       id: `${prefix}-Flow`,
-      mqttKey: 'OHT_FLOW',
+      mqttKey: ohtNum === 1 ? 'OHT_FLOW' : 'FLOW',
       label: 'Outlet Flow Meter',
       unit: 'm³/hr',
-      min: ohtNum === 1 ? -50 : 0, // Negative flow display enabled for OHT-1
+      min: -50,
       max: 50,
       section: 'oht',
       subsection: sub,
@@ -89,7 +89,7 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
     },
     {
       id: `${prefix}-Totalizer`,
-      mqttKey: ohtNum === 1 ? 'OHT_TOTALIZER' : 'OHT_POSICUMVALUE',
+      mqttKey: ohtNum === 1 ? 'OHT_TOTALIZER' : 'TOTALIZER',
       label: 'Totalizer',
       unit: 'm³',
       min: 0,
@@ -104,7 +104,11 @@ const createOhtSensors = (ohtNum: number, isPending: boolean = false): ShahpurSe
 };
 
 export const OHT1_SENSORS = createOhtSensors(1, false);
-export const OHT2_SENSORS = createOhtSensors(2, true);
+export const OHT2_SENSORS: ShahpurSensor[] = [
+  ...createOhtSensors(2),
+  { id: 'OHT2-Totalizer2', mqttKey: 'TOTALIZER2', label: 'Totalizer 2', unit: '', min: 0, max: 999999,
+    section: 'oht', subsection: 'OHT-2', type: 'totalizer', instrumentType: 'totalizer' },
+];
 export const ALL_OHT_SENSORS = [...OHT1_SENSORS, ...OHT2_SENSORS];
 
 // ==================== INTAKE SENSORS ====================
@@ -126,7 +130,10 @@ export const INTAKE_SENSORS: ShahpurSensor[] = [
 // ==================== WTP SENSORS ====================
 // WTP PLC: sahpur/wtp/plc01/update
 // slave_id=1: process sensors; slave_id=4: outlet EFM
+import { wtpAdditionalSensors } from '../../supabase/functions/_shared/wtpEquipment';
+
 export const WTP_SENSORS: ShahpurSensor[] = [
+  ...wtpAdditionalSensors,
   // Levels — real data from slave_id=1
   { id: 'WTP-LT-BW', mqttKey: 'BACKWASH_TANK', label: 'Backwash Level', unit: '%', min: 0, max: 100, section: 'wtp', type: 'analog', instrumentType: 'lt' },
   { id: 'WTP-LT-CW', mqttKey: 'CWT', label: 'Clear Water Level', unit: '%', min: 0, max: 100, section: 'wtp', type: 'analog', instrumentType: 'lt' },
@@ -182,7 +189,7 @@ const getEnv = (key: string): string | undefined => {
 export const DEFAULT_MQTT_TOPICS: Record<string, string> = {
   INTAKE: getEnv('VITE_MQTT_TOPIC_INTAKE') || getEnv('NEXT_PUBLIC_MQTT_TOPIC_INTAKE') || 'sahpur/intake/plc01/update',
   OHT1:   getEnv('VITE_MQTT_TOPIC_OHT1')   || getEnv('NEXT_PUBLIC_MQTT_TOPIC_OHT1')   || 'sahpur/oht1/plc01/update',
-  OHT2:   getEnv('VITE_MQTT_TOPIC_OHT2')   || getEnv('NEXT_PUBLIC_MQTT_TOPIC_OHT2')   || '',
+  OHT2:   getEnv('VITE_MQTT_TOPIC_OHT2')   || getEnv('NEXT_PUBLIC_MQTT_TOPIC_OHT2')   || 'shahpur-oht2',
   WTP:    getEnv('VITE_MQTT_TOPIC_WTP')    || getEnv('NEXT_PUBLIC_MQTT_TOPIC_WTP')    || 'sahpur/wtp/plc01/update',
 };
 
@@ -246,7 +253,7 @@ export const VALID_OHT_KEYS = [
   'OHT1_PT_ACT', 'OHT1_LT_ACT', 'OHT_FLOW', 'OHT_TOTALIZER',
   'OHT_PT_1', 'OHT_PT_2', 'OHT_LT', 'OHT_POSICUMVALUE', 'OHT_DECPOSICUMVALUE',
   // Backward compatibility / alias keys
-  'PT', 'PT_01', 'LT', 'LEVEL', 'FLOW', 'TOTALIZER',
+  'PT', 'PT1', 'PT_01', 'LT', 'LT1', 'LEVEL', 'FLOW', 'TOTALIZER', 'TOTALIZER2',
 ];
 
 export const VALID_INTAKE_KEYS = [
@@ -262,6 +269,7 @@ export const VALID_INTAKE_KEYS = [
 ];
 
 export const VALID_WTP_KEYS = [
+  ...wtpAdditionalSensors.map(sensor => sensor.mqttKey),
   // slave_id=1 — process sensors (real data)
   'TURBIDITY_INLET', 'ROF_FB1', 'LOH_FB1', 'LOH_FB2',
   'BACKWASH_TANK', 'CWT', 'PUMP_HOUSE_PT',
@@ -276,3 +284,6 @@ export const VALID_WTP_KEYS = [
   'PT_1', 'PT_2', 'PT_3', 'BW_LT', 'BW_LEVEL', 'CWR_LT', 'CWR_LEVEL',
   'CWR_PH', 'CWR_CL', 'CWR_TB', 'CLR_EFM_FLOW', 'CLR_EFM',
 ];
+
+/** Only run feedback for physical pumps belongs in pump counts and runtime reports. */
+export const isPumpRunTag = (id: string) => /^(?:INT|WTP)-Pump[12]$|^WTP-(?:RECYCLE_PUMP0[12]|SLDP_PUMP)_RUN_FB$/.test(id);

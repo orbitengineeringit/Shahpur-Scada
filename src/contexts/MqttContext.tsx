@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import { logError, logDebug, logWarn, logInfo } from '@/lib/errorLogger';
 import { MQTT_TOPICS, ALL_MQTT_TOPICS, TOPIC_TO_SECTION, DEFAULT_MQTT_TOPICS, setTopicsFromDb } from '@/config/shahpurSensors';
 
+import { decodeWtpEquipment, normalizeWtpFields } from '../../supabase/functions/_shared/wtpEquipment';
+
 export interface MqttConfig {
   id?: string;
   brokerUrl: string;
@@ -189,6 +191,7 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         if (parsed.equipment_data && typeof parsed.equipment_data === 'object' && !Array.isArray(parsed.equipment_data)) {
           Object.entries(parsed.equipment_data).forEach(([key, val]) => {
+            if (typeof val !== 'number' && typeof val !== 'string') return;
             const parsedVal = typeof val === 'number' ? val : (isNaN(Number(val)) || val === '' || val === null ? val : Number(val));
             results.push({ [key]: parsedVal });
           });
@@ -201,7 +204,10 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
           rData.forEach((item: any) => {
             if (item && item.name !== undefined && item.value !== undefined) {
               // Skip items where the PLC error flag indicates a sensor fault (err !== '0')
-              if (item.err !== undefined && String(item.err) !== '0') return;
+              if (item.err !== undefined && String(item.err) !== '0') {
+                if (parsed.params?.id === '00601924123100045318') results.push({ [item.name]: NaN });
+                return;
+              }
               const val = typeof item.value === 'number' ? item.value : (isNaN(Number(item.value)) || item.value === '' || item.value === null ? item.value : Number(item.value));
               results.push({ [item.name]: val });
             }
@@ -257,7 +263,14 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
   }, []);
 
   const determineSectionFromTopic = useCallback((topic: string, payloadStr?: string): { section: 'oht' | 'intake' | 'wtp' | 'unknown'; subsection?: string } => {
+    if (payloadStr && /"id"\s*:\s*"00601924123100045318"/.test(payloadStr)) return { section: 'oht', subsection: 'OHT-2' };
     const cleanTopic = topic.trim();
+    for (const [station, configuredTopic] of Object.entries(configRef.current.topics)) {
+      if (!configuredTopic || configuredTopic !== cleanTopic) continue;
+      if (station === 'OHT1' || station === 'OHT2') return { section: 'oht', subsection: 'OHT-' + station.slice(3) };
+      if (station === 'WTP') return { section: 'wtp' };
+      if (station === 'INTAKE') return { section: 'intake' };
+    }
     const mapping = TOPIC_TO_SECTION[cleanTopic] || TOPIC_TO_SECTION[topic];
     if (mapping) return { section: mapping.section, subsection: mapping.subsection };
 
@@ -271,6 +284,7 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
     }
 
     if (topic.toLowerCase().includes('oht')) {
+      if (/oht[-_]?0?2(?:\/|$)/i.test(cleanTopic)) return { section: 'oht', subsection: 'OHT-2' };
       if (topic.includes('OHT01') || topic.includes('OHT-1') || topic.includes('OHT1') || topic.includes('plc01')) {
         return { section: 'oht', subsection: 'OHT-1' };
       }
@@ -333,7 +347,8 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
           wasConnectedRef.current = true;
         }
         const defaultTopicList = Object.values(DEFAULT_MQTT_TOPICS).filter(Boolean);
-        const topicsToSub = Array.from(new Set([...ALL_MQTT_TOPICS, ...defaultTopicList, 'sahpur/#', 'sahpur/wtp']));
+        const configuredTopics = Object.values(configRef.current.topics).filter(Boolean);
+        const topicsToSub = Array.from(new Set([...configuredTopics, ...ALL_MQTT_TOPICS, ...defaultTopicList, 'sahpur/#', 'sahpur/wtp']));
         client.subscribe(topicsToSub, (err) => {
           if (err) { logError('MqttContext.subscribe', err); }
           else logDebug('MQTT', `Subscribed to ${topicsToSub.length} topics`);
@@ -360,10 +375,11 @@ export const MqttProvider: React.FC<{ children: ReactNode; onMessage?: (message:
       client.on('message', (topic, payload, packet) => {
         if (clientRef.current !== client || packet.retain) return;
         const payloadStr = payload.toString();
-        const parsedData = parsePayload(payloadStr);
         const { section, subsection } = determineSectionFromTopic(topic, payloadStr);
-        const combinedPayload: Record<string, string | number> = {};
-        parsedData.forEach(data => Object.assign(combinedPayload, data));
+        const parts = () => parsePayload(payloadStr).flatMap(part => Object.entries(part));
+        const combinedPayload = section === 'wtp'
+          ? decodeWtpEquipment(payloadStr) ?? normalizeWtpFields(parts())
+          : Object.fromEntries(parts());
         const message: MqttMessage = { topic, payload: combinedPayload, timestamp: new Date(), section, subsection, rawPayload: payloadStr };
         throttledUpdate(message);
         setMessageCount(prev => prev + 1);

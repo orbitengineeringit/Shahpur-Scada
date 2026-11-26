@@ -40,7 +40,7 @@ const DEVICES = [
   { key: 'intake', id: 'SHA_INTK_001', label: 'INTAKE WELL', commissioned: true },
   { key: 'wtp', id: 'SHA_WTP_001', label: 'WATER TREATMENT PLANT (WTP)', commissioned: true },
   { key: 'oht1', id: 'SHA_OHT_001', label: 'OHT - 1 Bus Station', commissioned: true },
-  { key: 'oht2', id: 'SHA_OHT_002', label: 'OHT - 2 (Pending)', commissioned: false },
+  { key: 'oht2', id: 'SHA_OHT_002', label: 'OHT - 2', commissioned: true },
 ] as const;
 
 const stationDeliveryFromPayload = (payload: unknown, key: string, deviceId: string) => {
@@ -49,16 +49,16 @@ const stationDeliveryFromPayload = (payload: unknown, key: string, deviceId: str
   if (key === 'intake') {
     const intake = body.intake as Record<string, unknown> | undefined;
     const sourceAt = typeof intake?.recordDateTime === 'string' ? intake.recordDateTime : undefined;
-    const included = !!intake && ['intakeWellLevel_mtr', 'outletFlow_mld', 'headerActualPressure']
-      .some(field => typeof intake[field] === 'number');
+    const included = !!intake && ['intakeWellLevel_mtr', 'inletFlow_mld', 'outletFlow_mld', 'headerActualPressure']
+      .some(field => typeof intake[field] === 'number') || (Array.isArray(body.intakePumps) && body.intakePumps.some(p => typeof p?.actualPressure === 'number'));
     return { included, sourceAt };
   }
   const unit = Array.isArray(body.wtpUnits) ? body.wtpUnits[0] as Record<string, unknown> | undefined : undefined;
   if (key === 'wtp') {
     const wtp = unit?.wtp as Record<string, unknown> | undefined;
     const sourceAt = typeof wtp?.recordDateTime === 'string' ? wtp.recordDateTime : undefined;
-    const included = !!wtp && ['inletFlow_mld', 'outletFlow_mld', 'rawPh', 'treatedPh', 'cwrLevel', 'backwashLevel']
-      .some(field => typeof wtp[field] === 'number');
+    const included = !!wtp && ['inletFlow_mld', 'outletFlow_mld', 'rawPh', 'treatedPh', 'cwrLevel', 'backwashLevel', 'chlorine', 'rawTurbidity', 'treatedTurbidity', 'headerActualPressure']
+      .some(field => typeof wtp[field] === 'number') || (Array.isArray(unit?.pumps) && unit.pumps.some(p => typeof p?.actualPressure === 'number'));
     return { included, sourceAt };
   }
   const ohts = Array.isArray(unit?.ohts) ? unit.ohts as Record<string, unknown>[] : [];
@@ -86,6 +86,7 @@ const rowsFromPayload = (payload: unknown, key: string, deviceId: string): Param
 
   const value = (field: string, digits = 2): string | undefined => {
     const raw = station?.[field];
+    if (raw == null || raw === '') return undefined;
     const numeric = typeof raw === 'number' ? raw : Number(raw);
     return Number.isFinite(numeric) ? numeric.toFixed(digits) : undefined;
   };
@@ -104,7 +105,7 @@ const rowsFromPayload = (payload: unknown, key: string, deviceId: string): Param
     : key === 'wtp'
       ? [
           row('Outlet Flow', 'outletFlow_mld', 'MLD', 'WTP-Flow-OUT', 4),
-          row('Inlet Flow (ROF)', 'inletFlow_mld', 'MLD', 'WTP-ROF-FB1', 4),
+          row('Raw pH', 'rawPh', 'pH', 'WTP-PH-IN'),
           row('Raw Turbidity', 'rawTurbidity', 'NTU', 'WTP-TA-IN'),
           row('Treated pH', 'treatedPh', 'pH', 'WTP-PH'),
           row('Treated Turbidity', 'treatedTurbidity', 'NTU', 'WTP-TA'),
@@ -118,6 +119,17 @@ const rowsFromPayload = (payload: unknown, key: string, deviceId: string): Param
           row('Inlet Flow', 'inletFlow_mld', 'MLD', `${key.toUpperCase()}-Flow`, 4) || row('Outlet Flow', 'outletFlow_mld', 'MLD', `${key.toUpperCase()}-Flow`, 4),
           row('Inlet Pressure', 'inletPressure', 'Bar', `${key.toUpperCase()}-PT`, 3),
         ];
+  const pumpList = key === 'wtp' ? unit?.pumps : key === 'intake' ? body.intakePumps : undefined;
+  if (Array.isArray(pumpList)) {
+    for (const pump of pumpList) {
+      if (typeof pump?.actualPressure === 'number' && [1, 2].includes(pump.pumpNumber)) {
+        rows.push({
+          param: `Pump ${pump.pumpNumber} Pressure`, value: pump.actualPressure.toFixed(3),
+          unit: 'Bar', sensorId: `${key === 'wtp' ? 'WTP' : 'INT'}-PT${pump.pumpNumber}`,
+        });
+      }
+    }
+  }
   return rows.filter((item): item is ParamRow => item !== null);
 };
 
@@ -168,7 +180,7 @@ const GisSyncStatus = () => {
       const proof = result?.proof;
       const ok = result?.success;
       if (proof?.status === 204) {
-        toast.info('GIS sync skipped (HTTP 204): No fresh MQTT telemetry received for Intake / OHT-1.');
+        toast.info('GIS sync skipped (HTTP 204). No fresh, valid station readings.');
       } else if (ok) {
         toast.success(`GIS sync OK (HTTP ${proof?.status})`);
       } else {
@@ -180,7 +192,7 @@ const GisSyncStatus = () => {
       readLocal();
       fetchLogs();
     } catch (e: unknown) {
-      toast.error(`Sync error: ${e?.message || e}`);
+      toast.error(`Sync error: ${e instanceof Error ? e.message : String(e)}`);
     } finally { setBusy(false); }
   };
 
@@ -215,7 +227,7 @@ const GisSyncStatus = () => {
   const lastTimeStr = latestLogTime
     ? new Date(latestLogTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '—';
-  const activePayload = lastLog?.request_payload ?? lastPayload;
+  const activePayload = lastLog ? lastLog.request_payload : lastPayload;
   // A DB audit log is authoritative. Browser-local proof is used only until
   // the corresponding audit row becomes visible, avoiding mixed attempts.
   const activeProof = lastLog ? null : lastResponse;
@@ -338,7 +350,7 @@ const GisSyncStatus = () => {
           <div>
             <div className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-2 mb-2">
               <h3 className="text-xs font-bold tracking-wider text-foreground">SENSOR SYNC BOARD</h3>
-              <span className="text-[10px] sm:text-[11px] text-muted-foreground">(Intake, WTP & OHT-1 Live • OHT-2 Pending)</span>
+              <span className="text-[10px] sm:text-[11px] text-muted-foreground">Intake · WTP · OHT-1 · OHT-2</span>
             </div>
             <div className="overflow-x-auto pb-2 -mx-1 px-1">
               <div className="flex gap-3 min-w-min">

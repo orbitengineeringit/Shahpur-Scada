@@ -1,4 +1,5 @@
-import React, { memo, useId, useMemo } from 'react';
+import { isTagLive } from '@/hooks/useTagConnection';
+import React, { memo, useId, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useScada } from '@/contexts/ScadaContext';
 import { BarChart3, Droplets, Gauge, Activity, TrendingUp, Waves } from 'lucide-react';
@@ -22,28 +23,28 @@ const TANK_BG_COLORS = [
 
 interface TankData {
   label: string;
-  level: number;
-  flow: number;
-  pressure: number;
+  level: number | null;
+  flow: number | null;
+
 }
 
 const TankLevelBars: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
-  const maxLevel = Math.max(...tanks.map(t => t.level), 1);
+  const maxLevel = Math.max(...tanks.map(t => t.level ?? 0), 1);
 
   return (
     <div className="flex items-end gap-3 h-28 px-2">
       {tanks.map((tank, i) => {
-        const heightPct = (tank.level / maxLevel) * 100;
+        const heightPct = ((tank.level ?? 0) / maxLevel) * 100;
         return (
           <div key={i} className="flex-1 flex flex-col items-center gap-1.5 group relative">
             <span className="text-[10px] font-mono font-bold text-foreground tabular-nums opacity-0 group-hover:opacity-100 transition-opacity">
-              {tank.level.toFixed(1)}%
+              {tank.level?.toFixed(1) ?? '—'}%
             </span>
             <div className="w-full flex-1 relative rounded-t-md overflow-hidden bg-muted/30">
               <div
                 className="absolute bottom-0 left-0 right-0 rounded-t-md transition-all duration-700 ease-out"
                 style={{
-                  height: `${Math.max(heightPct, 4)}%`,
+                  height: `${heightPct}%`,
                   backgroundColor: TANK_COLORS[i],
                   boxShadow: `0 0 8px ${TANK_COLORS[i]}40`,
                   animation: `barGrow 0.8s ease-out ${i * 0.1}s both`,
@@ -52,7 +53,7 @@ const TankLevelBars: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
               <div
                 className="absolute left-0 right-0 h-1"
                 style={{
-                  bottom: `${Math.max(heightPct, 4)}%`,
+                  bottom: `${heightPct}%`,
                   background: `linear-gradient(180deg, ${TANK_COLORS[i]}60, transparent)`,
                 }}
               />
@@ -61,7 +62,7 @@ const TankLevelBars: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
               {tank.label}
             </span>
             <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground text-[10px] px-2.5 py-1.5 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-20 border border-border backdrop-blur-sm transition-opacity duration-200">
-              {tank.level.toFixed(1)} %
+              {tank.level?.toFixed(1) ?? '—'} %
             </div>
           </div>
         );
@@ -72,7 +73,8 @@ const TankLevelBars: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
 TankLevelBars.displayName = 'TankLevelBars';
 
 const FlowDonut: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
-  const totalFlow = tanks.reduce((s, t) => s + t.flow, 0);
+  const totalFlow = tanks.reduce((s, t) => s + (t.flow ?? 0), 0);
+  const absoluteFlow = tanks.reduce((s, t) => s + Math.abs(t.flow ?? 0), 0);
   const size = 100;
   const cx = size / 2;
   const cy = size / 2;
@@ -81,7 +83,7 @@ const FlowDonut: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
 
   let accumulated = 0;
   const segments = tanks.map((tank, i) => {
-    const pct = totalFlow > 0 ? tank.flow / totalFlow : 0;
+    const pct = absoluteFlow > 0 ? Math.abs(tank.flow ?? 0) / absoluteFlow : 0;
     const dashLength = pct * circumference;
     const offset = accumulated * circumference;
     accumulated += pct;
@@ -109,7 +111,7 @@ const FlowDonut: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
           </circle>
         ))}
         <text x={cx} y={cy - 4} textAnchor="middle" dominantBaseline="central" className="fill-foreground font-mono font-bold" style={{ fontSize: '14px' }}>
-          {totalFlow.toFixed(1)}
+          {tanks.every(t => t.flow !== null) ? totalFlow.toFixed(1) : '—'}
         </text>
         <text x={cx} y={cy + 10} textAnchor="middle" dominantBaseline="central" className="fill-muted-foreground" style={{ fontSize: '8px' }}>
           m³/hr
@@ -120,7 +122,7 @@ const FlowDonut: React.FC<{ tanks: TankData[] }> = memo(({ tanks }) => {
           <div key={i} className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: seg.color }} />
             <span className="text-[10px] text-muted-foreground font-medium">{seg.label}</span>
-            <span className="text-[10px] font-mono font-bold text-foreground ml-auto tabular-nums">{seg.flow.toFixed(1)}</span>
+            <span className="text-[10px] font-mono font-bold text-foreground ml-auto tabular-nums">{seg.flow?.toFixed(1) ?? '—'}</span>
           </div>
         ))}
       </div>
@@ -132,21 +134,27 @@ FlowDonut.displayName = 'FlowDonut';
 const OhtAnalyticsCard: React.FC = memo(() => {
   const { ohtTags } = useScada();
 
-  const tankData: TankData[] = useMemo(() => {
-    return [1, 2].map(num => {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => tick(n => n + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const tankData: TankData[] = [1, 2].map(num => {
       const prefix = `OHT${num}`;
-      const findVal = (key: string) => ohtTags.find(t => t.id === `${prefix}-${key}`)?.value ?? 0;
+      const findVal = (key: string) => {
+        const tag = ohtTags.find(t => t.id === prefix + '-' + key);
+        return tag && tag.source !== 'simulated' && isTagLive(tag) ? tag.value : null;
+      };
       return {
-        label: num === 1 ? 'OHT - 1 Bus Station' : 'OHT - 2 (Pending)',
+        label: num === 1 ? 'OHT - 1 Bus Station' : 'OHT - 2',
         level: findVal('LT'),
-        flow: findVal('Flow') || findVal('Flow-IN'),
-        pressure: findVal('PT'),
+        flow: findVal('Flow'),
       };
     });
-  }, [ohtTags]);
 
-  const totalFlow = tankData.reduce((s, t) => s + t.flow, 0);
-  const avgLevel = tankData.length > 0 ? tankData.reduce((s, t) => s + t.level, 0) / tankData.length : 0;
+  const totalFlow = tankData.reduce((s, t) => s + (t.flow ?? 0), 0);
+  const levels = tankData.flatMap(t => t.level === null ? [] : [t.level]);
+  const avgLevel = levels.length ? levels.reduce((sum, level) => sum + level, 0) / levels.length : null;
 
   return (
     <Card className="opacity-0 animate-fade-in relative overflow-hidden border-success/20" style={{ animationDelay: '350ms' }}>
@@ -167,8 +175,8 @@ const OhtAnalyticsCard: React.FC = memo(() => {
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
             {[
-              { label: 'Total Flow', value: `${totalFlow.toFixed(1)}`, unit: 'm³/hr', icon: Waves, color: 'primary', active: totalFlow > 0 },
-              { label: 'Avg Level', value: `${avgLevel.toFixed(1)}`, unit: '%', icon: Gauge, color: 'accent', active: avgLevel > 0 },
+              { label: 'Total Flow', value: tankData.every(t => t.flow !== null) ? totalFlow.toFixed(1) : '—', unit: 'm³/hr', icon: Waves, color: 'primary', active: totalFlow > 0 },
+              { label: 'Avg Level', value: `${avgLevel?.toFixed(1) ?? '—'}`, unit: '%', icon: Gauge, color: 'accent', active: (avgLevel ?? 0) > 0 },
             ].map((kpi, i) => (
               <div key={i} className={`rounded-2xl p-4 text-center relative overflow-hidden border-2 transition-colors ${
                 kpi.active 
@@ -202,7 +210,7 @@ const OhtAnalyticsCard: React.FC = memo(() => {
                   <Droplets className="h-3.5 w-3.5 text-accent" />
                 </div>
                 Levels
-                <span className="ml-auto px-2 py-0.5 rounded-full bg-accent/10 text-[10px] font-mono text-accent font-bold">{avgLevel.toFixed(1)} % avg</span>
+                <span className="ml-auto px-2 py-0.5 rounded-full bg-accent/10 text-[10px] font-mono text-accent font-bold">{avgLevel?.toFixed(1) ?? '—'} % avg</span>
               </div>
               <TankLevelBars tanks={tankData} />
             </div>

@@ -1,22 +1,38 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useScada } from '@/contexts/ScadaContext';
+import { useScada, type TagData } from '@/contexts/ScadaContext';
+import { useTagConnection } from '@/hooks/useTagConnection';
 import StatusBar from '@/components/StatusBar';
+import SensorTrendModal from '@/components/SensorTrendModal';
 import InstrumentCard from '@/components/InstrumentCard';
 import SortableCardGrid, { SortableItem } from '@/components/SortableCardGrid';
 import SortableSectionList from '@/components/SortableSectionList';
 import { WTP_SENSORS } from '@/config/shahpurSensors';
-import { BarChart2, LayoutGrid, Activity } from 'lucide-react';
+import { BarChart2, LayoutGrid, Activity, Pause, Play } from 'lucide-react';
 import WtpIcon from '@/components/icons/WtpIcon';
 import { Button } from '@/components/ui/button';
 import WtpProcessSimulation from '@/components/WtpProcessSimulation';
 
+const configuredSignalCount = WTP_SENSORS.filter(sensor => !sensor.notInstalled).length;
 
+function FieldFeedbackCard({ tag, name }: { tag: TagData; name: string }) {
+  const [showTrend, setShowTrend] = useState(false);
+  const connection = useTagConnection(tag);
+  const live = (connection === 'connected' || connection === 'inactive') && tag.source !== 'simulated';
+  const label = live ? (tag.value === 1 ? '1 · Asserted' : tag.value === 0 ? '0 · Clear' : 'Invalid feedback')
+    : connection === 'fault' ? 'Fault' : connection === 'stale' ? 'Stale' : 'No data';
+  return <><button type="button" aria-label={`View trend for ${name}`} onClick={() => setShowTrend(true)} className="premium-card rounded-xl p-4 text-left w-full">
+    <span className="block text-xs text-muted-foreground">{name}</span>
+    <strong>{label}</strong>
+  </button>{showTrend && <SensorTrendModal open onOpenChange={setShowTrend} tagId={tag.id} label={name} unit={tag.unit} section="wtp" currentValue={live ? tag.value : undefined} digital />} </>;
+}
 
 const WtpPage: React.FC = () => {
   const { wtpTags } = useScada();
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<'cards' | 'process'>('process');
+
+  const [paused, setPaused] = useState(false);
 
   const findTag = (sensorId: string) => wtpTags.find(t => t.id === sensorId);
 
@@ -34,11 +50,18 @@ const WtpPage: React.FC = () => {
     'WTP-LT-CW', 'WTP-Pump1', 'WTP-Pump2', 'WTP-Trip1', 'WTP-Trip2', 'WTP-PT1', 'WTP-PT2', 'WTP-HeaderPT',
   ].filter(id => !sensorMap[id]?.notInstalled), [sensorMap]);
   const outletIds = useMemo(() => WTP_SENSORS.filter(s => s.subsection === 'outlet' && !s.notInstalled).map(s => s.id), []);
+  const fieldIds = useMemo(() => {
+    const grouped = new Set([...rawWaterIds, ...backwashIds, ...filterBedIds, ...clearWaterIds, ...outletIds]);
+    return WTP_SENSORS.filter(s => !s.notInstalled && !grouped.has(s.id)).map(s => s.id);
+  }, [rawWaterIds, backwashIds, filterBedIds, clearWaterIds, outletIds]);
 
   const renderSensorCard = (id: string, pumpComponent?: 'wtp') => {
     const sensor = sensorMap[id];
     const tag = findTag(id);
     if (!sensor || !tag) return null;
+    if (sensor.type === 'digital' && (sensor.mqttKey?.endsWith('_FB') || id.startsWith('WTP-Trip'))) {
+      return <FieldFeedbackCard tag={tag} name={sensor.label} />;
+    }
     return <InstrumentCard tag={tag} sensor={sensor} section="wtp" index={0} pumpComponent={pumpComponent} />;
   };
 
@@ -102,56 +125,82 @@ const WtpPage: React.FC = () => {
         </div>
       ),
     },
-  ], [rawWaterIds, backwashIds, filterBedIds, clearWaterIds, outletIds, wtpTags, sensorMap]);
+    {
+      id: 'wtp-sec-plc-feedback',
+      content: fieldIds.length > 0 && <div className="mb-8">
+        <h3 className="text-lg font-semibold text-foreground mb-4">Field feedback</h3>
+        <SortableCardGrid groupKey="wtp-field-feedback" sensorIds={fieldIds} className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+          {orderedIds => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
+        </SortableCardGrid>
+      </div>,
+    },
+  ], [rawWaterIds, backwashIds, filterBedIds, clearWaterIds, outletIds, fieldIds, wtpTags, sensorMap]);
+
+  const viewControls = (
+    <div className="wtp-view-controls flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 opacity-0 animate-fade-in">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="wtp-view-icon p-2 rounded-xl bg-accent/10 shrink-0">
+          <WtpIcon size={36} />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-foreground truncate">Water Treatment Plant (WTP)</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground">{configuredSignalCount} configured signals</p>
+        </div>
+      </div>
+      <div className="wtp-view-actions flex items-center gap-2 sm:gap-3 flex-wrap sm:shrink-0">
+        {viewMode === 'process' && (
+          <Button type="button" size="sm" variant="outline" className="wtp-motion-toggle"
+            aria-label={paused ? 'Resume motion' : 'Pause motion'} aria-controls="wtp-process-drawing"
+            onClick={() => setPaused(value => !value)}>
+            {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+            <span>{paused ? 'Resume motion' : 'Pause motion'}</span>
+          </Button>
+        )}
+        <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary border border-border">
+          <Button
+            variant={viewMode === 'cards' ? 'default' : 'ghost'}
+            size="sm"
+            className="gap-1.5 h-8 text-xs"
+            aria-label="Instrument cards"
+            aria-pressed={viewMode === 'cards'}
+            onClick={() => setViewMode('cards')}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant={viewMode === 'process' ? 'default' : 'ghost'}
+            size="sm"
+            className="gap-1.5 h-8 text-xs"
+            aria-label="Process view"
+            aria-pressed={viewMode === 'process'}
+            onClick={() => setViewMode('process')}
+          >
+            <Activity className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <button
+          onClick={() => navigate('/analytics/wtp')}
+          aria-label="View Analytics"
+          className="wtp-analytics-button flex items-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 hover:border-accent/40 transition-all duration-200 hover:scale-105 active:scale-95 shrink-0 group"
+        >
+          <BarChart2 className="h-4 w-4 sm:h-[18px] sm:w-[18px] group-hover:scale-110 transition-transform" />
+          <span className="text-xs sm:text-sm font-semibold hidden sm:inline">View Analytics</span>
+          <span className="text-xs font-semibold sm:hidden">Analytics</span>
+        </button>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen flex flex-col bg-background grid-pattern">
+    <div className={`flex flex-col bg-background grid-pattern ${viewMode === 'process' ? 'wtp-fit-page' : 'min-h-screen'}`}>
       <main className="flex-1 container mx-auto px-4 py-6 md:py-8">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 opacity-0 animate-fade-in">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="p-2 rounded-xl bg-accent/10 shrink-0">
-              <WtpIcon size={36} />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-foreground truncate">Water Treatment Plant (WTP)</h2>
-              <p className="text-xs sm:text-sm text-muted-foreground">{WTP_SENSORS.length} instruments monitoring</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:shrink-0">
-            {/* Cards / Process View Toggle */}
-            <div className="flex items-center gap-1 p-1 rounded-lg bg-secondary border border-border">
-              <Button
-                variant={viewMode === 'cards' ? 'default' : 'ghost'}
-                size="sm"
-                className="gap-1.5 h-8 text-xs"
-                onClick={() => setViewMode('cards')}
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant={viewMode === 'process' ? 'default' : 'ghost'}
-                size="sm"
-                className="gap-1.5 h-8 text-xs"
-                onClick={() => setViewMode('process')}
-              >
-                <Activity className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <button
-              onClick={() => navigate('/analytics/wtp')}
-              className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 hover:border-accent/40 transition-all duration-200 hover:scale-105 active:scale-95 shrink-0 group"
-            >
-              <BarChart2 className="h-4 w-4 sm:h-[18px] sm:w-[18px] group-hover:scale-110 transition-transform" />
-              <span className="text-xs sm:text-sm font-semibold hidden sm:inline">View Analytics</span>
-              <span className="text-xs font-semibold sm:hidden">Analytics</span>
-            </button>
-          </div>
-        </div>
-
         {viewMode === 'cards' ? (
-          <SortableSectionList groupKey="wtp-sections" sections={sections} />
+          <>
+            {viewControls}
+            <SortableSectionList groupKey="wtp-sections" sections={sections} />
+          </>
         ) : (
-          <WtpProcessSimulation />
+          <WtpProcessSimulation paused={paused} controls={viewControls} />
         )}
       </main>
       <StatusBar />

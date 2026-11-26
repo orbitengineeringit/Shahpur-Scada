@@ -1,5 +1,6 @@
 /// <reference path="./deno.d.ts" />
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { wtpAdditionalSensors, decodeWtpEquipment, normalizeWtpFields, WTP_INVALID_FEEDBACK } from '../_shared/wtpEquipment.ts';
 import mqtt from "npm:mqtt@5.10.4";
 
 const corsHeaders = {
@@ -18,7 +19,7 @@ type Sensor = {
   max: number;
   section: Section;
   subsection?: string;
-  instrumentType: "pt" | "lt" | "flow" | "totalizer" | "kw" | "ph" | "turbidity" | "chlorine" | "pump" | "combined_pt" | "fcv" | "temperature";
+  instrumentType: "pt" | "lt" | "flow" | "totalizer" | "kw" | "ph" | "turbidity" | "chlorine" | "pump" | "combined_pt" | "valve" | "fcv" | "temperature";
 };
 type MqttConfig = {
   broker_url: string | null;
@@ -66,21 +67,22 @@ const DEFAULT_TOPICS = {
   INTAKE: "sahpur/intake/plc01/update",
   WTP: "sahpur/wtp/plc01/update",
   OHT1: "sahpur/oht1/plc01/update",
-  OHT2: "",
+  OHT2: "shahpur-oht2",
 };
 
 const ohtSensors = (n: number): Sensor[] => {
   const prefix = `OHT${n}`;
   const subsection = `OHT-${n}`;
   return [
-    { id: `${prefix}-PT`, mqttKey: n === 1 ? "OHT1_PT_ACT" : "OHT_PT_1", label: "Inlet Pressure (PT)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
-    { id: `${prefix}-LT`, mqttKey: n === 1 ? "OHT1_LT_ACT" : "OHT_LT", label: "Water Level (LT)", unit: "%", min: 0, max: 100, section: "oht", subsection, instrumentType: "lt" },
-    { id: `${prefix}-Flow`, mqttKey: "OHT_FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: n === 1 ? -50 : 0, max: 50, section: "oht", subsection, instrumentType: "flow" },
-    { id: `${prefix}-Totalizer`, mqttKey: n === 1 ? "OHT_TOTALIZER" : "OHT_POSICUMVALUE", label: "Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
+    { id: `${prefix}-PT`, mqttKey: n === 1 ? "OHT1_PT_ACT" : "PT1", label: "Inlet Pressure (PT)", unit: "Bar", min: 0, max: 10, section: "oht", subsection, instrumentType: "pt" },
+    { id: `${prefix}-LT`, mqttKey: n === 1 ? "OHT1_LT_ACT" : "LT1", label: "Water Level (LT)", unit: "%", min: 0, max: 100, section: "oht", subsection, instrumentType: "lt" },
+    { id: `${prefix}-Flow`, mqttKey: n === 1 ? "OHT_FLOW" : "FLOW", label: "Outlet Flow Meter", unit: "m³/hr", min: -50, max: 50, section: "oht", subsection, instrumentType: "flow" },
+    { id: `${prefix}-Totalizer`, mqttKey: n === 1 ? "OHT_TOTALIZER" : "TOTALIZER", label: "Totalizer", unit: "m³", min: 0, max: 999999, section: "oht", subsection, instrumentType: "totalizer" },
   ];
 };
 
 const SENSORS: Sensor[] = [
+  ...wtpAdditionalSensors,
   // === INTAKE sensors — Shahpur SCADA: RTU Device ID: 02500225110500007982 ===
   // mqttKey values match PLC tags from sahpur/intake/plc01/update
   { id: "INT-PT1", mqttKey: "PUMP1_PT1_ACT", label: "VT Pump 1 Pressure", unit: "Bar", min: 0, max: 10, section: "intake", instrumentType: "pt" },
@@ -115,6 +117,7 @@ const SENSORS: Sensor[] = [
   { id: "WTP-Trip2", mqttKey: "MOTOR2_TRIP", label: "HT Pump 2 Trip", unit: "", min: 0, max: 1, section: "wtp", instrumentType: "pump" },
   // === OHT sensors (Shahpur: 2 OHTs) ===
   ...ohtSensors(1), ...ohtSensors(2),
+  { id: "OHT2-Totalizer2", mqttKey: "TOTALIZER2", label: "Totalizer 2", unit: "", min: 0, max: 999999, section: "oht", subsection: "OHT-2", instrumentType: "totalizer" },
 ];
 
 const PT_TO_PUMP: Record<string, string> = {
@@ -378,7 +381,8 @@ async function collectSnapshot(
     client.on("message", (topic: string, payload: Buffer, packet: { retain?: boolean }) => {
       // Retained packets have no trustworthy acquisition timestamp in these RTUs.
       if (settled || packet.retain) return;
-      let mapped = topicToSection.get(topic);
+      const deviceIsOht2 = /"id"\s*:\s*"00601924123100045318"/.test(payload.toString());
+      let mapped: Pick<ParsedMessage, 'section' | 'subsection'> | undefined = deviceIsOht2 ? {section: "oht" as const, subsection: "OHT-2"} : topicToSection.get(topic);
       if (!mapped || mapped.section === "unknown") {
         const lowerTopic = topic.toLowerCase();
         if (lowerTopic.includes("wtp")) {
@@ -401,8 +405,11 @@ async function collectSnapshot(
           }
         }
       }
-      const combined: Record<string, string | number> = {};
-      parsePayload(payload.toString()).forEach(part => Object.assign(combined, part));
+      const raw = payload.toString();
+      const parts = () => parsePayload(raw).flatMap(part => Object.entries(part));
+      const combined = mapped.section === 'wtp'
+        ? decodeWtpEquipment(raw) ?? normalizeWtpFields(parts())
+        : Object.fromEntries(parts());
       if (Object.keys(combined).length > 0) {
         const message = { topic, payload: combined, timestamp: new Date(), ...mapped };
         messages.push(message);
@@ -419,7 +426,7 @@ async function collectSnapshot(
 
 function mapReadings(msg: ParsedMessage) {
   if (msg.section === 'unknown') return [];
-  const sensors = SENSORS.filter(s => s.section === msg.section && (!s.subsection || s.subsection === msg.subsection) && s.mqttKey);
+  const sensors = SENSORS.filter(s => s.section === msg.section && (msg.section !== 'oht' || !s.subsection || s.subsection === msg.subsection) && s.mqttKey);
   const rows = new Map<string, {tag_id: string; section: Section; value: number | null; quality: string; received_at: string; mqtt_topic: string}>();
 
   // 32-bit combined registers for Intake Totalizers: ((65535 x H) + L) / 100
@@ -483,9 +490,21 @@ function mapReadings(msg: ParsedMessage) {
     }
     const sensor = sensors.find(s => mqttKeyMatches(s.mqttKey, key));
     if (!sensor) continue;
+    if (msg.section === 'wtp' && raw === WTP_INVALID_FEEDBACK) {
+      rows.set(sensor.id, {tag_id:sensor.id, section:'wtp', value:null, quality:'fault',
+        received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
+      continue;
+    }
     const value = raw === '' || raw === null || typeof raw === 'boolean' ? NaN : Number(raw);
     // equipment_data values are already in their instrument engineering units.
     // LOH_FB1/LOH_FB2 are percentages, so preserve the PLC value as published.
+    if (sensor.subsection === 'OHT-2') {
+      // The signed meter's display scale is not a PLC validation limit.
+      const valid = Number.isFinite(value);
+      rows.set(sensor.id, {tag_id:sensor.id, section:sensor.section, value:valid ? value : null,
+        quality:valid ? 'good' : 'fault', received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
+      continue;
+    }
     const normalized = normalizeSensorValue(sensor, value);
     rows.set(sensor.id, {tag_id:sensor.id, section:sensor.section, value:normalized,
       quality:'good', received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
@@ -649,7 +668,7 @@ Deno.serve(async (req: Request) => {
       // --- Trip Sensor Special Case (WTP-Trip1 / WTP-Trip2) ---
       // Digital motor trip indicators. instrumentType='pump' but must NOT be skipped.
       // value=1 means motor tripped -> Critical alarm fires even on HTTPS via backend job.
-      const isTripSensor = sensor.id === 'WTP-Trip1' || sensor.id === 'WTP-Trip2';
+      const isTripSensor = sensor.section === 'wtp' && (sensor.id === 'WTP-Trip1' || sensor.id === 'WTP-Trip2' || sensor.mqttKey.endsWith('TRIP_FB'));
       if (isTripSensor) {
         if (value >= 1 && !recentAlarmSet.has(`${sensor.id}-High`)) {
           const cfg = configs?.find((c: any) => c.tag_id === sensor.id && c.section === sensor.section);
@@ -660,7 +679,7 @@ Deno.serve(async (req: Request) => {
             value: 1,
             unit: '',
             alarm_type: 'High',
-            message: `CRITICAL: ${sensor.label} — MOTOR TRIPPED (backend:5min detection)`,
+            message: `CRITICAL: ${sensor.label} — trip feedback active (backend:5min detection)`,
             section: sensor.section,
             source: 'backend:5min',
             acknowledged: false,
@@ -671,7 +690,7 @@ Deno.serve(async (req: Request) => {
       }
 
       // Skip all other pump/totalizer sensors for standard alarm evaluation
-      if (sensor.instrumentType === "pump" || sensor.instrumentType === "totalizer") continue;
+      if (sensor.instrumentType === "pump" || sensor.instrumentType === "valve" || sensor.instrumentType === "totalizer") continue;
 
       const cfg = configs?.find((c: any) => c.tag_id === sensor.id && c.section === sensor.section);
       const dbId = cfg?.id;

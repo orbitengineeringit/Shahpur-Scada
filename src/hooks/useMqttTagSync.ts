@@ -1,6 +1,7 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { MqttMessage } from '@/contexts/MqttContext';
+import { WTP_INVALID_FEEDBACK } from '../../supabase/functions/_shared/wtpEquipment';
 import { type TagData, getDefaultSetpoints } from '@/contexts/ScadaContext';
 import { toast } from 'sonner';
 import { useAlarm } from '@/contexts/AlarmContext';
@@ -424,7 +425,9 @@ export const useMqttTagSync = (
       // Universal sanitize ensures all incoming PLC values (even garbage/near-zero noise)
       // are converted to clean numbers. Negative values are preserved ONLY for sensors that support it (OHT1 flow).
       const allowNegative = sensor.min < 0 || sensor.id === 'OHT1-Flow';
-      const sanitizedValue = sanitizeRtuValue(rawValue, allowNegative);
+      const sanitizedValue = sensor.subsection === 'OHT-2'
+        ? (String(rawValue).trim() ? Number(rawValue) : NaN)
+        : sanitizeRtuValue(rawValue, allowNegative);
       // WTP equipment_data already contains engineering values. In particular,
       // LOH_FB1 and LOH_FB2 are direct percentages and must not be rescaled.
       const value = sanitizedValue;
@@ -438,7 +441,7 @@ export const useMqttTagSync = (
       const normalizedValue = normalizeTelemetryValue(processedValue, sensor);
       const validatedValue = normalizedValue ?? processedValue;
 
-      const isNaNOrInfinite = !Number.isFinite(validatedValue);
+      const isNaNOrInfinite = rawValue === WTP_INVALID_FEEDBACK || !Number.isFinite(validatedValue);
       if (isNaNOrInfinite) {
         const faultKey = `${sensorId}-SignalFault`;
         const faultStart = alarmActiveSince.current.get(faultKey);
@@ -454,7 +457,7 @@ export const useMqttTagSync = (
         }
         const receivedAt = message.timestamp instanceof Date ? message.timestamp : new Date();
         setter(prev => prev.map(t => t.id === sensorId
-          ? { ...t, status: 'fault' as const, lastDataTime: receivedAt, mqttTopic: topic, source: 'mqtt' as const }
+          ? { ...t, status: 'fault' as const, isActive: false, lastDataTime: receivedAt, mqttTopic: topic, source: 'mqtt' as const }
           : t));
         continue;
       }
@@ -464,7 +467,7 @@ export const useMqttTagSync = (
       // --- MLTCV Layer 1: Rate-of-Change (ROC) Sensor Limiter ---
       const prevVal = existingTag ? existingTag.value : null;
       let rawValueAdjusted = validatedValue;
-      if (prevVal !== null && existingTag.status === 'connected') {
+      if (sensor.subsection !== 'OHT-2' && prevVal !== null && existingTag.status === 'connected') {
         const delta = Math.abs(validatedValue - prevVal);
         if (sensor.instrumentType === 'pt' || sensor.instrumentType === 'combined_pt') {
           if (delta > 3.0) { // Clamping instantaneous spikes > 3.0 Bar
@@ -513,7 +516,7 @@ export const useMqttTagSync = (
         roundedValue = Math.round(rawValueAdjusted * 10) / 10;
       }
 
-      const displayValue = roundedValue;
+      const displayValue = sensor.subsection === 'OHT-2' ? validatedValue : roundedValue;
       latestValues.set(sensorId, displayValue);
 
       // --- MLTCV Layer 3: Level vs Flow Validation (Echo Jitter Protection) ---
@@ -651,7 +654,7 @@ export const useMqttTagSync = (
       }
 
       // --- Trip Alarm Logic (WTP-Trip1 / WTP-Trip2, no debounce) ---
-      if (sensor.id === 'WTP-Trip1' || sensor.id === 'WTP-Trip2') {
+      if (section === 'wtp' && (sensor.id === 'WTP-Trip1' || sensor.id === 'WTP-Trip2' || sensor.mqttKey.endsWith('TRIP_FB'))) {
         const tripKey = `${sensorId}-TripAlarm`;
         if (displayValue >= 1) {
           if (!alarmActiveSince.current.get(tripKey)) {
@@ -663,7 +666,7 @@ export const useMqttTagSync = (
               value: 1,
               unit: '',
               type: 'High',
-              message: `CRITICAL: ${sensor.label} — MOTOR TRIPPED`,
+              message: `CRITICAL: ${sensor.label} — trip feedback active`,
               section: 'wtp',
             });
           }

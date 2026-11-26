@@ -1,0 +1,107 @@
+.wtp-machinery {
+  --wm-metal-edge: #637683;
+  --wm-metal-mid: #adbbbe;
+  --wm-metal-bright: #e2e7e5;
+  --wm-glint: #fffef4;
+  --wm-paint-hi: #8fccf7;
+  --wm-paint-lit: #368bd0;
+  --wm-paint: #1265a4;
+  --wm-paint-lo: #143653;
+  --wm-slab-top: #e1ded3;
+  --wm-slab-mid: #c3c1b6;
+  --wm-slab-edge: #92968c;
+  --wm-shadow: #253341;
+  --wm-empty: #c8dadd;
+  --wm-tick: #334e59;
+  --wm-water-lit: #80e5de;
+  --wm-water-mid: #2aafba;
+  --wm-water-deep: #11677c;
+}
+
+.dark .wtp-machinery {
+  --wm-metal-edge: #273943;
+  --wm-metal-mid: #506471;
+  --wm-metal-bright: #879fa7;
+  --wm-glint: #bcd4d7;
+  --wm-paint-hi: #6799bb;
+  --wm-paint-lit: #32749a;
+  --wm-paint: #1b537b;
+  --wm-paint-lo: #142e41;
+  --wm-slab-top: #56616a;
+  --wm-slab-mid: #414b54;
+  --wm-slab-edge: #28343b;
+  --wm-shadow: #010810;
+  --wm-empty: #243c47;
+  --wm-tick: #b6ced0;
+  --wm-water-lit: #4ab6bd;
+  --wm-water-mid: #227e8e;
+  --wm-water-deep: #164858;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .wtp-machine-rotor--running,
+  .wtp-machine-fan-turn,
+  .wtp-machine-mixer-turn {
+    transform-origin: 0 0;
+  }
+
+  .wtp-machine-rotor--running {
+    animation: wtp-machine-rotor-turn var(--wtp-motor-period, 1.05s) linear infinite;
+  }
+
+  .wtp-machine-fan-turn {
+    animation: wtp-machine-rotor-turn var(--wtp-motor-period, 1.05s) linear infinite;
+  }
+
+  .wtp-machine-mixer-turn {
+    animation: wtp-machine-rotor-turn var(--wtp-motor-period, 2.3s) linear infinite;
+  }
+
+  .wtp-machine-chemical-surface {
+    animation: wtp-machine-surface 2.1s linear infinite;
+  }
+
+  .wtp-machine-coupling {
+    animation: wtp-machine-shaft 0.6s linear infinite;
+  }
+
+  .wtp-machine-metering-stroke {
+    animation: wtp-machine-stroke var(--wtp-motor-period, 1.2s) ease-in-out infinite;
+  }
+
+  .wtp-machine-liquid {
+    stroke-dasharray: 8 5 1 4;
+    animation: wtp-machine-stream 0.72s linear infinite;
+  }
+
+  .wtp-machine-air,
+  .wtp-machine-gas {
+    stroke-dasharray: 1 5;
+    animation: wtp-machine-stream 0.4s linear infinite;
+  }
+
+  .wtp-machine-wash-current {
+    stroke-dasharray: 7 7 1 3;
+    animation: wtp-machine-stream 0.9s linear infinite;
+  }
+}
+
+@keyframes wtp-machine-rotor-turn {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes wtp-machine-surface {
+  to { transform: translateX(26px); }
+}
+
+@keyframes wtp-machine-stroke {
+  0%, 100% { transform: translateY(-1.7px); }
+  50% { transform: translateY(1.7px); }
+}
+
+@keyframes wtp-machine-shaft {
+  to { stroke-dashoffset: -4; }
+}
+
+@keyframes wtp-machine-stream {
+  to { stroke-dashoffset: -18; }
+}

@@ -107,41 +107,10 @@ serve(async (req) => {
     const action = body.action || 'daily_check';
     const results: any = { action, steps: [] };
 
-    // ===== STEP 1: Cleanup raw historian_logs older than 7 days =====
-    if (action === 'daily_check' || action === 'cleanup_raw') {
-      const cutoff = new Date(Date.now() - RAW_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
-
-      const { count: rawCount } = await supabase
-        .from('historian_logs')
-        .select('*', { count: 'exact', head: true })
-        .lt('timestamp', cutoff);
-
-      if (rawCount && rawCount > 0) {
-        const BATCH = 1000;
-        let totalDeleted = 0;
-        let hasMore = true;
-
-        while (hasMore && totalDeleted < 100000) {
-          const { data: toDelete } = await supabase
-            .from('historian_logs')
-            .select('id')
-            .lt('timestamp', cutoff)
-            .limit(BATCH);
-
-          if (!toDelete || toDelete.length === 0) { hasMore = false; break; }
-
-          const ids = toDelete.map((r: any) => r.id);
-          const { error } = await supabase.from('historian_logs').delete().in('id', ids);
-
-          if (error) { results.steps.push({ step: 'cleanup_raw', error: error.message }); break; }
-          totalDeleted += toDelete.length;
-          if (toDelete.length < BATCH) hasMore = false;
-        }
-
-        results.steps.push({ step: 'cleanup_raw', deleted: totalDeleted, totalEligible: rawCount });
-      } else {
-        results.steps.push({ step: 'cleanup_raw', message: 'No raw data to clean' });
-      }
+    if (action === 'cleanup_raw' || action === 'cleanup_expired') {
+      return new Response(JSON.stringify({ error: 'Automatic historian deletion is disabled' }), {
+        status: 410, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     // ===== STEP 2: Check if 3-month export is due =====
@@ -358,63 +327,6 @@ serve(async (req) => {
       }
     }
 
-    // ===== STEP 3: Monthly rolling block cleanup (1-year retention) =====
-    if (action === 'daily_check' || action === 'cleanup_expired') {
-      try {
-        // Calculate the cutoff date (start of the current month minus 12 months)
-        // Anything before this cutoff will be deleted in monthly blocks.
-        const now = new Date();
-        const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const cutoffDate = new Date(startOfCurrentMonth);
-        cutoffDate.setMonth(cutoffDate.getMonth() - 12);
-        const cutoffStr = cutoffDate.toISOString(); // e.g. "2025-06-01T00:00:00.000Z"
-        const cutoffDateOnly = cutoffStr.split('T')[0]; // "2025-06-01"
-
-        console.log(`[cleanup] Running 1-year rolling monthly cleanup. Cutoff: ${cutoffStr}`);
-
-        // 1. Delete aggregates
-        const { error: aggErr } = await supabase
-          .from('historian_aggregates')
-          .delete()
-          .lt('bucket_start', cutoffStr);
-        if (aggErr) throw aggErr;
-
-        // 2. Delete alarms
-        const { error: alarmErr } = await supabase
-          .from('alarms')
-          .delete()
-          .lt('created_at', cutoffStr);
-        if (alarmErr) throw alarmErr;
-
-        // 3. Delete pump analytics
-        const { error: pumpErr } = await supabase
-          .from('pump_analytics')
-          .delete()
-          .lt('date', cutoffDateOnly);
-        if (pumpErr) throw pumpErr;
-
-        // 4. Delete consumption data
-        const { error: consErr } = await supabase
-          .from('consumption_data')
-          .delete()
-          .lt('date', cutoffDateOnly);
-        if (consErr) throw consErr;
-
-        results.steps.push({
-          step: 'cleanup_expired',
-          cutoff: cutoffStr,
-          status: 'success',
-          message: 'Data older than 1 year deleted successfully',
-        });
-      } catch (err: any) {
-        console.error('[cleanup] 1-year rolling cleanup failed:', err.message);
-        results.steps.push({
-          step: 'cleanup_expired',
-          status: 'failed',
-          error: err.message,
-        });
-      }
-    }
 
     // ===== Action: mark_downloaded =====
     if (action === 'mark_downloaded' && body.exportId) {

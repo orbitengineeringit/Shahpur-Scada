@@ -352,6 +352,7 @@ export type Database = {
         Row: {
           id: string
           mqtt_topic: string | null
+          received_at: string | null
           section: string | null
           source: string | null
           tag_config_id: string | null
@@ -362,6 +363,7 @@ export type Database = {
         Insert: {
           id?: string
           mqtt_topic?: string | null
+          received_at?: string | null
           section?: string | null
           source?: string | null
           tag_config_id?: string | null
@@ -372,6 +374,7 @@ export type Database = {
         Update: {
           id?: string
           mqtt_topic?: string | null
+          received_at?: string | null
           section?: string | null
           source?: string | null
           tag_config_id?: string | null

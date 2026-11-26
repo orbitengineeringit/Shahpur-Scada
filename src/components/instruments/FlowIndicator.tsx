@@ -21,7 +21,7 @@ const FlowIndicator: React.FC<FlowIndicatorProps> = ({ value, unit, max, directi
 
   return (
     <div className="flex flex-col items-center gap-1">
-      <svg width="100%" height="auto" viewBox="0 0 100 120" className="drop-shadow-md max-w-[200px]">
+      <svg width="100%" viewBox="0 0 100 120" className="drop-shadow-md max-w-[200px]">
         {/* Direction label above head */}
         {direction && (
           <text x="50" y="8" textAnchor="middle"

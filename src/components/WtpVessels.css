@@ -1,0 +1,91 @@
+.wtpv-materials {
+  --wv-cement-top: #e4dfd3;
+  --wv-cement-mid: #bbb8ad;
+  --wv-cement-shadow: #88877e;
+  --wv-frame-edge: #767d77;
+  --wv-steel-edge: #485d66;
+  --wv-steel-mid: #bdcbcf;
+  --wv-steel-light: #eff8f9;
+  --wv-basin-interior: #687772;
+  --wv-water-light: #a3e8dd;
+  --wv-water-mid: #28b5bc;
+  --wv-water-deep: #097d89;
+  --wv-water-bottom: #064f5d;
+  --wv-water-glint: #dbfff7;
+}
+
+.dark .wtpv-materials {
+  --wv-cement-top: #738083;
+  --wv-cement-mid: #566165;
+  --wv-cement-shadow: #333e42;
+  --wv-frame-edge: #2c393d;
+  --wv-steel-edge: #233c47;
+  --wv-steel-mid: #788e97;
+  --wv-steel-light: #c0d5da;
+  --wv-basin-interior: #24353c;
+  --wv-water-light: #58bdba;
+  --wv-water-mid: #137f89;
+  --wv-water-deep: #095864;
+  --wv-water-bottom: #072f42;
+  --wv-water-glint: #9ae3df;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .wtpv-bubble { animation: wtpv-bubble-rise 3.1s ease-in infinite; }
+  .wtpv-scraper { animation: wtpv-turn var(--wtpv-drive-period, 24s) linear infinite; }
+  .wtpv-impeller { animation: wtpv-turn var(--wtpv-drive-period, 1.2s) linear infinite; }
+  .wtpv-caustics { animation: wtpv-caustics 5.4s linear infinite; }
+  .wtpv-current { animation: wtpv-current 2.4s linear infinite; }
+  .wtpv-filter-flow { animation: wtpv-filter-flow var(--wtpv-flow-period, 1.8s) linear infinite; }
+  .wtpv-drive-coupling { animation: wtpv-turn 1.7s linear infinite; }
+  .wtpv-directional-current { animation: wtpv-directional-flow var(--wtpv-flow-period, 1.4s) linear infinite; }
+  .wtpv-floc { animation: wtpv-settle 5.8s linear infinite; }
+  .wtpv-lifted-solids { animation: wtpv-wash-up 2.5s ease-out infinite; }
+  .wtpv-scour-bubble { animation: wtpv-scour 2.1s ease-in infinite; }
+
+  [data-paused="true"] .wtpv-materials * { animation-play-state: paused; }
+}
+
+@keyframes wtpv-bubble-rise {
+  0% { transform: translateY(5px); opacity: 0; }
+  28% { opacity: .68; }
+  100% { transform: translate(2px, -12px); opacity: 0; }
+}
+
+@keyframes wtpv-turn {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes wtpv-current {
+  to { transform: translateX(32px); }
+}
+
+@keyframes wtpv-caustics { to { transform: translateX(67px); } }
+
+@keyframes wtpv-filter-flow {
+  to { stroke-dashoffset: -38; }
+}
+
+@keyframes wtpv-directional-flow {
+  to { stroke-dashoffset: -36; }
+}
+
+@keyframes wtpv-settle {
+  0% { transform: translateY(0); opacity: 0; }
+  18% { opacity: .85; }
+  82% { opacity: .7; }
+  100% { transform: translate(4px, 40px); opacity: 0; }
+}
+
+@keyframes wtpv-wash-up {
+  0% { transform: translateY(5px); opacity: 0; }
+  28% { opacity: .92; }
+  100% { transform: translate(4px, -31px); opacity: 0; }
+}
+
+@keyframes wtpv-scour {
+  0% { transform: translateY(3px); opacity: 0; }
+  20% { opacity: .85; }
+  85% { opacity: .65; }
+  100% { transform: translate(5px, -66px); opacity: 0; }
+}

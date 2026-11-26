@@ -15,6 +15,7 @@ import { format, subHours, subDays, startOfDay, endOfDay } from 'date-fns';
 import { CalendarIcon, Loader2, TrendingUp, History, RefreshCw, Activity, BarChart3, ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { logError } from '@/lib/errorLogger';
+import { historianDayWindows, readArchivePage, splitHistorianRange } from '@/lib/historianArchiveClient';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   LineChart,
@@ -42,6 +43,7 @@ interface SensorTrendModalProps {
   highSetpoint?: number;
   lowSetpoint?: number;
   currentValue?: number;
+  digital?: boolean;
 }
 
 interface TrendDataPoint {
@@ -95,12 +97,15 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
   highSetpoint,
   lowSetpoint,
   currentValue,
+  digital = false,
 }) => {
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<'realtime' | 'historical'>('realtime');
   const [activeTrend, setActiveTrend] = useState<'value' | 'range' | 'roc'>('value');
   const [realtimeData, setRealtimeData] = useState<TrendDataPoint[]>([]);
   const [historicalData, setHistoricalData] = useState<TrendDataPoint[]>([]);
+  const [historicalError, setHistoricalError] = useState(false);
+  const historicalRequest = useRef<AbortController | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const today = useMemo(() => new Date(), []);
@@ -112,22 +117,10 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
   const realtimeIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const MAX_REALTIME_POINTS = 60;
 
-  const smoothData = (data: TrendDataPoint[], windowSize: number = 5): TrendDataPoint[] => {
-    if (data.length < windowSize) return data;
-    return data.map((point, index) => {
-      const start = Math.max(0, index - Math.floor(windowSize / 2));
-      const end = Math.min(data.length, index + Math.ceil(windowSize / 2));
-      const window = data.slice(start, end);
-      const avgValue = window.reduce((sum, p) => sum + p.value, 0) / window.length;
-      return { ...point, value: parseFloat(avgValue.toFixed(4)) };
-    });
-  };
-
   const processedData = useMemo(() => {
     const rawData = activeTab === 'realtime' ? realtimeData : historicalData;
     if (rawData.length < 2) return rawData;
-    const smoothedData = smoothData(rawData, 5);
-    return smoothedData.map((point, index, arr) => {
+    return rawData.map((point, index, arr) => {
       const windowSize = Math.min(10, index + 1);
       const window = arr.slice(Math.max(0, index - windowSize + 1), index + 1);
       const values = window.map(p => p.value);
@@ -155,13 +148,14 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
         .from('historian_logs')
         .select('timestamp, value')
         .eq('tag_id', tagId)
+        .not('value', 'is', null)
         .eq('section', section)
         .gte('timestamp', startTime)
-        .order('timestamp', { ascending: true })
-        .limit(500);
+        .order('timestamp', { ascending: false })
+        .limit(MAX_REALTIME_POINTS);
       if (error) { logError('SensorTrend.fetchRealtime', error); return; }
       if (data) {
-        const formattedData: TrendDataPoint[] = data.map((item) => ({
+        const formattedData: TrendDataPoint[] = data.slice().reverse().map((item) => ({
           timestamp: item.timestamp,
           value: Number(item.value),
           time: format(new Date(item.timestamp), 'HH:mm:ss'),
@@ -172,37 +166,56 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
   }, [tagId, section, timeRange]);
 
   const fetchHistoricalData = useCallback(async () => {
+    historicalRequest.current?.abort();
+    const controller = new AbortController();
+    historicalRequest.current = controller;
     setIsLoading(true);
+    setHistoricalError(false);
     try {
       const startTime = startOfDay(dateRange.from).toISOString();
-      const endTime = endOfDay(dateRange.to).toISOString();
+      const endTime = new Date(endOfDay(dateRange.to).getTime() + 1).toISOString();
+      const { archive, live } = splitHistorianRange(startTime, endTime);
       const PAGE_SIZE = 1000;
-      let allData: { timestamp: string; value: number }[] = [];
-      let page = 0;
-      let hasMore = true;
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('historian_logs')
-          .select('timestamp, value')
-          .eq('tag_id', tagId)
-          .eq('section', section)
-          .gte('timestamp', startTime)
-          .lte('timestamp', endTime)
-          .order('timestamp', { ascending: true })
-          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
-        if (error) { logError('SensorTrend.fetchHistorical', error); break; }
-        if (data && data.length > 0) { allData = [...allData, ...data]; page++; hasMore = data.length === PAGE_SIZE; }
-        else { hasMore = false; }
+      const allData: { timestamp: string; value: number | null }[] = [];
+      if (archive) {
+        for (const window of historianDayWindows(archive, true)) {
+          for (let offset = 0; ; offset += PAGE_SIZE) {
+            const result = await readArchivePage({ ...window, tagIds: [tagId], sections: [section],
+              ascending: true, offset, limit: PAGE_SIZE }, controller.signal);
+            allData.push(...result.rows);
+            if (offset + result.rows.length >= result.count) break;
+            if (result.rows.length !== PAGE_SIZE) throw new Error('Incomplete archive trend page');
+          }
+        }
       }
-      if (allData.length > 0) {
-        setHistoricalData(allData.map((item) => ({
+      if (live) {
+        for (let offset = 0; ; offset += PAGE_SIZE) {
+          const { data, error } = await supabase.from('historian_logs').select('timestamp, value')
+            .eq('tag_id', tagId).eq('section', section).not('value', 'is', null)
+            .gte('timestamp', live.start).lt('timestamp', live.end)
+            .order('timestamp', { ascending: true }).order('id', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1).abortSignal(controller.signal);
+          if (error) throw error;
+          allData.push(...(data ?? []));
+          if (!data || data.length < PAGE_SIZE) break;
+        }
+      }
+      if (!controller.signal.aborted) {
+        setHistoricalData(allData.filter(item => item.value !== null).map(item => ({
           timestamp: item.timestamp,
           value: Number(item.value),
           time: format(new Date(item.timestamp), 'MMM dd HH:mm'),
         })));
-      } else { setHistoricalData([]); }
-    } catch (error) { logError('SensorTrend.fetchHistorical', error); }
-    finally { setIsLoading(false); }
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        logError('SensorTrend.fetchHistorical', error);
+        setHistoricalData([]);
+        setHistoricalError(true);
+      }
+    } finally {
+      if (historicalRequest.current === controller) setIsLoading(false);
+    }
   }, [tagId, section, dateRange]);
 
   useEffect(() => {
@@ -215,6 +228,7 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
 
   useEffect(() => {
     if (open && activeTab === 'historical') fetchHistoricalData();
+    return () => historicalRequest.current?.abort();
   }, [open, activeTab, fetchHistoricalData]);
 
   useEffect(() => {
@@ -249,12 +263,15 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
   const CustomTooltip = ({ active, payload, label: tooltipLabel }: any) => {
     if (!active || !payload || !payload.length) return null;
     const dataPoint = payload[0]?.payload;
+    const savedTimestamp = activeTab === 'historical' ? dataPoint?.timestamp : undefined;
     const zoneName = dataPoint?.zone ? ZONE_LABELS[dataPoint.zone as keyof typeof ZONE_LABELS] : '';
     const zoneColor = dataPoint?.zoneColor || 'hsl(var(--primary))';
     
     return (
       <div className="bg-card/95 backdrop-blur-md border border-border/60 rounded-xl p-2.5 sm:p-3 shadow-2xl max-w-[220px]">
-        <p className="text-[10px] text-muted-foreground mb-1.5 font-medium truncate">{tooltipLabel}</p>
+        <p className="text-[10px] text-muted-foreground mb-1.5 font-medium break-all">
+          {savedTimestamp ? <time dateTime={savedTimestamp}>{savedTimestamp}</time> : tooltipLabel}
+        </p>
         {zoneName && (
           <div className="flex items-center gap-1.5 mb-1.5 pb-1.5 border-b border-border/30">
             <div className="w-2.5 h-2.5 rounded-full ring-1 ring-background shrink-0" style={{ backgroundColor: zoneColor }} />
@@ -266,7 +283,7 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
             <div className="w-2 h-2 rounded-full ring-1 ring-background shrink-0" style={{ backgroundColor: entry.color || zoneColor }} />
             <span className="text-muted-foreground text-[10px] truncate">{entry.name}:</span>
             <span className="font-mono font-bold tabular-nums text-[10px]" style={{ color: entry.color || zoneColor }}>
-              {typeof entry.value === 'number' ? entry.value.toFixed(2) : entry.value}
+              {activeTab === 'realtime' && typeof entry.value === 'number' ? entry.value.toFixed(2) : entry.value}
             </span>
           </div>
         ))}
@@ -349,7 +366,7 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
                   label={{ value: `⚠ Low: ${lowSetpoint}`, fill: 'hsl(200, 80%, 50%)', fontSize: isMobile ? 8 : 10, fontWeight: 700 }} />
               )}
               <Area
-                type="monotoneX"
+                type={digital ? 'stepAfter' : 'linear'}
                 dataKey="value"
                 name="Value"
                 stroke={`url(#${gradientId})`}
@@ -384,11 +401,11 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
               <Tooltip content={<CustomTooltip />} />
               {highSetpoint !== undefined && <ReferenceLine y={highSetpoint} stroke="hsl(0, 85%, 55%)" strokeDasharray="6 4" strokeWidth={1.5} />}
               {lowSetpoint !== undefined && <ReferenceLine y={lowSetpoint} stroke="hsl(200, 80%, 50%)" strokeDasharray="6 4" strokeWidth={1.5} />}
-              <Area type="monotoneX" dataKey="max" name="Maximum" stroke="hsl(0, 75%, 60%)" strokeWidth={1.5} fill="url(#range-max-grad)" dot={false}
+              <Area type={digital ? 'stepAfter' : 'linear'} dataKey="max" name="Maximum" stroke="hsl(0, 75%, 60%)" strokeWidth={1.5} fill="url(#range-max-grad)" dot={false}
                 activeDot={{ r: 3, fill: 'hsl(0, 85%, 55%)', stroke: 'hsl(var(--background))', strokeWidth: 1.5 }} {...chartAnimationProps} />
-              <Area type="monotoneX" dataKey="min" name="Minimum" stroke="hsl(200, 70%, 55%)" strokeWidth={1.5} fill="hsl(var(--background))" fillOpacity={1} dot={false}
+              <Area type={digital ? 'stepAfter' : 'linear'} dataKey="min" name="Minimum" stroke="hsl(200, 70%, 55%)" strokeWidth={1.5} fill="hsl(var(--background))" fillOpacity={1} dot={false}
                 activeDot={{ r: 3, fill: 'hsl(200, 80%, 50%)', stroke: 'hsl(var(--background))', strokeWidth: 1.5 }} {...chartAnimationProps} />
-              <Line type="monotoneX" dataKey="avg" name="Average" stroke="url(#range-avg-grad)" strokeWidth={2.5} dot={false}
+              <Line type={digital ? 'stepAfter' : 'linear'} dataKey="avg" name="Average" stroke="url(#range-avg-grad)" strokeWidth={2.5} dot={false}
                 activeDot={renderColorDot} {...chartAnimationProps} />
             </ComposedChart>
           </ResponsiveContainer>
@@ -424,7 +441,7 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
               <Tooltip content={<CustomTooltip />} />
               <ReferenceLine y={0} stroke="hsl(var(--muted-foreground) / 0.5)" strokeWidth={1.5} />
               <Area
-                type="monotoneX"
+                type={digital ? 'stepAfter' : 'linear'}
                 dataKey="roc"
                 name="Rate of Change"
                 stroke="none"
@@ -433,7 +450,7 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
                 {...chartAnimationProps}
               />
               <Line
-                type="monotoneX"
+                type={digital ? 'stepAfter' : 'linear'}
                 dataKey="roc"
                 name="Δ Change"
                 strokeWidth={2.5}
@@ -547,7 +564,7 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100vw-16px)] max-w-5xl h-[92vh] flex flex-col p-3 sm:p-5 overflow-hidden gap-2 sm:gap-4 rounded-xl">
+      <DialogContent aria-describedby={undefined} className="w-[calc(100vw-16px)] max-w-5xl h-[92vh] flex flex-col p-3 sm:p-5 overflow-hidden gap-2 sm:gap-4 rounded-xl">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 sm:gap-3">
             <div className="p-1.5 sm:p-2 rounded-xl bg-primary/10 ring-1 ring-primary/20 shrink-0">
@@ -707,6 +724,10 @@ const SensorTrendModal: React.FC<SensorTrendModalProps> = ({
                           <p className="text-xs sm:text-sm text-muted-foreground">Loading...</p>
                         </div>
                       </div>
+                    ) : historicalError ? (
+                      <p role="alert" className="h-full flex items-center justify-center text-sm text-destructive">
+                        Historical readings could not be loaded for this range.
+                      </p>
                     ) : renderTrendChart()}
                   </div>
                 </div>

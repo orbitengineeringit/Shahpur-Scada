@@ -9,7 +9,7 @@ export const TELEMETRY_LIVE_MS = 5 * 60 * 1000;
 export const TELEMETRY_OFFLINE_MS = 15 * 60 * 1000;
 
 type EngineeringRange = Pick<TagData, 'min' | 'max'> &
-  Partial<Pick<TagData, 'unit' | 'instrumentType'>>;
+  Partial<Pick<TagData, 'id' | 'unit' | 'instrumentType'>>;
 
 /**
  * Universal Sanitization Function:
@@ -38,6 +38,7 @@ export const normalizeTelemetryValue = (
   value: number | string,
   range: EngineeringRange,
 ): number => {
+  if (range.id?.startsWith('OHT2-')) return Number(value);
   const allowNegative = range.min !== undefined && range.min < 0;
   const sanitized = sanitizeRtuValue(value, allowNegative);
   if (sanitized >= range.min && sanitized <= range.max) return sanitized;

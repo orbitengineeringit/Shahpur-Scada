@@ -1,3 +1,4 @@
+import { isPumpRunTag } from '@/config/shahpurSensors';
 import React, { memo, useMemo, useId } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
@@ -152,7 +153,7 @@ const PumpAnalyticsCard: React.FC<PumpAnalyticsCardProps> = memo(({ section }) =
   const { intakeTags, wtpTags } = useScada();
   const pumpIds = useMemo(() => {
     const tags = section === 'intake' ? intakeTags : wtpTags;
-    return tags.filter(t => t.isActive && t.instrumentType === 'pump').map(t => t.id);
+    return tags.filter(t => !t.notInstalled && isPumpRunTag(t.id)).map(t => t.id);
   }, [section, intakeTags, wtpTags]);
 
   const pumpIdsKey = pumpIds.join(',');
@@ -217,6 +218,10 @@ const PumpAnalyticsCard: React.FC<PumpAnalyticsCardProps> = memo(({ section }) =
           <div className={`grid grid-cols-1 sm:grid-cols-2 ${pumpIds.length > 2 ? 'xl:grid-cols-4 lg:grid-cols-2' : ''} gap-5`}>
             {pumpIds.map((pumpId) => {
               const data = analytics.find(a => a.pump_id === pumpId);
+              const pumpName = (section === 'wtp' ? wtpTags : intakeTags).find(tag => tag.id === pumpId)?.label ?? pumpId;
+              if (!data && !history[pumpId]?.length) {
+                return <div key={pumpId} className="rounded-2xl border p-5"><strong>{pumpName}</strong><p className="text-sm text-muted-foreground">Runtime history unavailable</p></div>;
+              }
               const pumpHistory = history[pumpId] || [];
               const runtimeSec = data?.runtime_seconds || 0;
               const startCount = data?.start_count || 0;
@@ -233,7 +238,7 @@ const PumpAnalyticsCard: React.FC<PumpAnalyticsCardProps> = memo(({ section }) =
                 return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
               });
               const isRunning = !!data?.current_state;
-              const pumpDisplayName = pumpId.replace('INT-', '').replace('WTP-', '');
+              const pumpDisplayName = pumpName;
 
               return (
                 <div key={pumpId}

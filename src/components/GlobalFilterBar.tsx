@@ -30,7 +30,7 @@ const ASSET_OPTIONS: { value: AssetFilter; label: string }[] = [
   { value: 'intake', label: 'Intake' },
   { value: 'wtp', label: 'WTP' },
   { value: 'oht-1', label: 'OHT - 1 Bus Station' },
-  { value: 'oht-2', label: 'OHT - 2 (Pending)' },
+  { value: 'oht-2', label: 'OHT - 2' },
 ];
 
 const GlobalFilterBar: React.FC<GlobalFilterBarProps> = ({ filters, onFiltersChange, onApply, compact }) => {

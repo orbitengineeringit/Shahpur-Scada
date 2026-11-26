@@ -1,5 +1,5 @@
 // MPGARUD SCADA-to-GIS Telemetry sync (Version 2.0)
-// Pushes only fresh sensor values for Intake + OHT-1 (Shahpur SCADA).
+// Publish fresh measurements for the commissioned Shahpur stations.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
@@ -8,15 +8,6 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 
-function sanitizeRtuValue(val: number | null | undefined): number {
-  if (val === null || val === undefined) return 0.0;
-  if (!Number.isFinite(val)) return 0.0;
-  if (val < 0) return 0.0;
-  if (val > 0 && val < 0.0001) return 0.0;
-  if (val > 100000000) return 0.0;
-  return Number(val.toFixed(2));
-}
-
 // MQTT tag-id mapping per request
 const TAG = {
   intake: {
@@ -24,7 +15,7 @@ const TAG = {
     lt: "INT-LT", inFlow: "INT-Flow-IN", outFlow: "INT-Flow-OUT",
   },
   wtp: {
-    inFlow: "WTP-ROF-FB1", outFlow: "WTP-Flow-OUT", rawTr: "WTP-TA-IN",
+    rawPh: "WTP-PH-IN", outFlow: "WTP-Flow-OUT", rawTr: "WTP-TA-IN",
     trPh: "WTP-PH", trTr: "WTP-TA", cl: "WTP-CL",
     cwr: "WTP-LT-CW", bw: "WTP-LT-BW", header: "WTP-HeaderPT",
     pt1: "WTP-PT1", pt2: "WTP-PT2",
@@ -39,7 +30,7 @@ const VALID_RANGE: Record<string, { min: number; max: number }> = {
   "INT-PT1": { min: 0, max: 10 }, "INT-PT2": { min: 0, max: 10 },
   "INT-HeaderPT": { min: 0, max: 10 }, "INT-LT": { min: 0, max: 100 },
   "INT-Flow-IN": { min: 0, max: 200 }, "INT-Flow-OUT": { min: 0, max: 200 },
-  "WTP-ROF-FB1": { min: 0, max: 200 }, "WTP-Flow-OUT": { min: 0, max: 200 },
+  "WTP-PH-IN": { min: 0, max: 14 }, "WTP-Flow-OUT": { min: 0, max: 200 },
   "WTP-PH": { min: 0, max: 14 },
   "WTP-TA-IN": { min: 0, max: 100 }, "WTP-TA": { min: 0, max: 100 },
   "WTP-CL": { min: 0, max: 20 }, "WTP-LT-CW": { min: 0, max: 100 },
@@ -58,15 +49,14 @@ const isPercentageLevel = (id: string): boolean =>
   id === "INT-LT" || id === "WTP-LT-CW" || id === "WTP-LT-BW" || /^OHT\d+-LT$/.test(id);
 
 function normalizeReading(id: string, value: number): number | undefined {
-  if (!Number.isFinite(value)) return 0.0;
-  const sanitized = sanitizeRtuValue(value);
+  if (!Number.isFinite(value)) return undefined;
   const range = VALID_RANGE[id];
-  if (!range) return sanitized;
-  if (sanitized >= range.min && sanitized <= range.max) return sanitized;
-  if (isPercentageLevel(id) && sanitized >= range.min - 2 && sanitized <= range.max + 2) {
-    return Math.min(range.max, Math.max(range.min, sanitized));
+  if (!range) return undefined;
+  if (value >= range.min && value <= range.max) return Number(value.toFixed(4));
+  if (isPercentageLevel(id) && value >= range.min - 2 && value <= range.max + 2) {
+    return Math.min(range.max, Math.max(range.min, value));
   }
-  return 0.0;
+  return undefined;
 }
 
 function toIstString(d: Date | string | number): string {
@@ -231,7 +221,7 @@ Deno.serve(async (req) => {
     };
     const stationTimestamp = (ids: string[]): string | undefined => {
       const timestamps = ids
-        .map((id) => fresh(id)?.timestamp)
+        .map((id) => v(id) === undefined ? undefined : fresh(id)?.timestamp)
         .filter((timestamp): timestamp is string => !!timestamp)
         .sort((a, b) => Date.parse(b) - Date.parse(a));
       return timestamps[0];
@@ -272,16 +262,16 @@ Deno.serve(async (req) => {
         districtCode: "427",
         ulbName: "SHAHPUR",
         schemeName: "SHAHPUR WATER SUPPLY SCHEME",
-        intakeWellLevel_mtr: num(v(TAG.intake.lt) ?? 0.0),
-        inletFlow_mld: mld(v(TAG.intake.inFlow) ?? 0.0),
-        outletFlow_mld: mld(v(TAG.intake.outFlow) ?? v(TAG.intake.inFlow) ?? 0.0),
+        intakeWellLevel_mtr: num(v(TAG.intake.lt)),
+        inletFlow_mld: mld(v(TAG.intake.inFlow)),
+        outletFlow_mld: mld(v(TAG.intake.outFlow)),
         headerDesignPressure: 3.0,
-        headerActualPressure: num(v(TAG.intake.header) ?? 0.0),
+        headerActualPressure: num(v(TAG.intake.header)),
         recordDateTime: toIstString(sourceAt),
       });
       requestPayload.intakePumps = [
-        { pumpNumber: 1, ratedPressure: 5.0, actualPressure: num(v(TAG.intake.pt1) ?? 0.0) },
-        { pumpNumber: 2, ratedPressure: 5.0, actualPressure: num(v(TAG.intake.pt2) ?? 0.0) },
+        { pumpNumber: 1, ratedPressure: 5.0, actualPressure: num(v(TAG.intake.pt1)) },
+        { pumpNumber: 2, ratedPressure: 5.0, actualPressure: num(v(TAG.intake.pt2)) },
       ].map(compact).filter((pump) => pump.actualPressure !== undefined);
     } else {
       skippedStations.push("intake");
@@ -320,9 +310,9 @@ Deno.serve(async (req) => {
           districtCode: "427",
           ulbName: "SHAHPUR",
           schemeName: "SHAHPUR WATER SUPPLY SCHEME",
-          inletFlow_mld: mld(v(ohtTags.flow) ?? 0.0),
-          waterLevel_mld: num(v(ohtTags.lt) ?? 0.0),
-          inletPressure: num(v(ohtTags.pt1) ?? v(ohtTags.pt2) ?? 0.0),
+          ...(n === 2 ? { outletFlow_mld: mld(v(ohtTags.flow)) } : { inletFlow_mld: mld(v(ohtTags.flow)) }),
+          waterLevel_mld: num(v(ohtTags.lt)),
+          inletPressure: num(v(ohtTags.pt1) ?? v(ohtTags.pt2)),
           recordDateTime: toIstString(sourceAt),
         }));
       } else {
@@ -346,21 +336,21 @@ Deno.serve(async (req) => {
         districtCode: "427",
         ulbName: "SHAHPUR",
         schemeName: "SHAHPUR WATER SUPPLY SCHEME",
-        inletFlow_mld: mld(v(TAG.wtp.inFlow) ?? 0.0),
-        outletFlow_mld: mld(v(TAG.wtp.outFlow) ?? 0.0),
-        backwashLevel: num(v(TAG.wtp.bw) ?? 0.0),
-        cwrLevel: num(v(TAG.wtp.cwr) ?? 0.0),
-        rawTurbidity: num(v(TAG.wtp.rawTr) ?? 0.0),
-        treatedPh: num(v(TAG.wtp.trPh) ?? 0.0),
-        chlorine: num(v(TAG.wtp.cl) ?? 0.0),
-        treatedTurbidity: num(v(TAG.wtp.trTr) ?? 0.0),
+        rawPh: num(v(TAG.wtp.rawPh)),
+        outletFlow_mld: mld(v(TAG.wtp.outFlow)),
+        backwashLevel: num(v(TAG.wtp.bw)),
+        cwrLevel: num(v(TAG.wtp.cwr)),
+        rawTurbidity: num(v(TAG.wtp.rawTr)),
+        treatedPh: num(v(TAG.wtp.trPh)),
+        chlorine: num(v(TAG.wtp.cl)),
+        treatedTurbidity: num(v(TAG.wtp.trTr)),
         headerDesignPressure: 4.0,
-        headerActualPressure: num(v(TAG.wtp.header) ?? 0.0),
+        headerActualPressure: num(v(TAG.wtp.header)),
         recordDateTime: toIstString(sourceAt),
       });
       wtpUnit.pumps = [
-        { pumpNumber: 1, ratedPressure: 5.0, actualPressure: num(v(TAG.wtp.pt1) ?? 0.0) },
-        { pumpNumber: 2, ratedPressure: 5.0, actualPressure: num(v(TAG.wtp.pt2) ?? 0.0) },
+        { pumpNumber: 1, ratedPressure: 5.0, actualPressure: num(v(TAG.wtp.pt1)) },
+        { pumpNumber: 2, ratedPressure: 5.0, actualPressure: num(v(TAG.wtp.pt2)) },
       ].map(compact).filter((pump) => pump.actualPressure !== undefined);
     } else {
       skippedStations.push("wtp");
@@ -411,7 +401,7 @@ Deno.serve(async (req) => {
           included_stations: [],
           skipped_stations: skippedStations,
           source_latest_at: {},
-          invalid_readings: {},
+          invalid_readings: Object.fromEntries(invalidReadings),
         },
         request_payload: null,
         error: null,

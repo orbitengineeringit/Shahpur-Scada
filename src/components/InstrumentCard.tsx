@@ -1,3 +1,4 @@
+import { useTagConnection } from '@/hooks/useTagConnection';
 import React, { useState, useEffect, useRef, memo, useCallback, useMemo } from 'react';
 import { useScada, TagData } from '@/contexts/ScadaContext';
 import { ShahpurSensor } from '@/config/shahpurSensors';
@@ -53,7 +54,8 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
   const hasAlarmConfig = tag.alarmEnabled && (tag.highSetpoint !== undefined || tag.lowSetpoint !== undefined);
   const isDigital = sensor.type === 'digital';
   const isTotalizer = sensor.type === 'totalizer';
-  const hasLiveValue = tag.status === 'connected';
+  const connection = useTagConnection(tag);
+  const hasLiveValue = tag.source !== 'simulated' && (connection === 'connected' || connection === 'inactive');
   const shownValue = hasLiveValue ? tag.value : 0;
 
   const renderInstrument = () => {
@@ -70,6 +72,9 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
       );
     }
     
+    if (!hasLiveValue && !showNotInstalled) {
+      return <span className="font-mono text-muted-foreground" aria-label="Reading unavailable">—</span>;
+    }
     switch (sensor.instrumentType) {
       case 'pt': {
         const isPt5 = tag.id === 'WTP-PT5';
@@ -174,7 +179,8 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
 
   if (isDigital) {
     return (
-      <div
+      <>
+      <button type="button" aria-label={`View trend for ${sensor.label}`} onClick={() => setShowTrends(true)}
         className="premium-card rounded-xl p-3 sm:p-4 relative overflow-visible opacity-0 animate-fade-in flex flex-col h-full"
         style={{ animationDelay: `${index * 40}ms` }}
       >
@@ -192,7 +198,9 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
             <span className="text-[9px] sm:text-[10px] text-muted-foreground font-mono truncate">{tag.timestamp.toLocaleTimeString()}</span>
           </div>
         </div>
-      </div>
+      </button>
+      {showTrends && <SensorTrendModal open onOpenChange={setShowTrends} tagId={tag.id} label={tag.label} unit={tag.unit} section={section} currentValue={hasLiveValue ? shownValue : undefined} digital />}
+      </>
     );
   }
 
@@ -264,7 +272,7 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
       {showTrends && (
         <SensorTrendModal open={showTrends} onOpenChange={setShowTrends}
           tagId={tag.id} label={tag.label} unit={tag.unit} section={section}
-          highSetpoint={tag.highSetpoint} lowSetpoint={tag.lowSetpoint} currentValue={shownValue} />
+          highSetpoint={tag.highSetpoint} lowSetpoint={tag.lowSetpoint} digital={sensor.type === 'digital'} currentValue={hasLiveValue ? shownValue : undefined} />
       )}
     </>
   );

@@ -49,7 +49,7 @@ const OhtLevelTank: React.FC<OhtLevelTankProps> = ({ value, min, max, unit }) =>
 
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <svg width="100%" height="auto" viewBox="0 0 110 135" className="drop-shadow-md max-w-[260px]">
+      <svg width="100%" viewBox="0 0 110 135" className="drop-shadow-md max-w-[260px]">
         <defs>
           {/* Tank body metallic gradient */}
           <linearGradient id="oht-tank-body" x1="0" y1="0" x2="1" y2="0">

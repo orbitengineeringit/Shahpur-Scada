@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { ShahpurSensor } from '@/config/shahpurSensors';
-import { useScada } from '@/contexts/ScadaContext';
+import { isTagLive } from '@/hooks/useTagConnection';
+import { useScada, type TagData } from '@/contexts/ScadaContext';
+
+function liveReading(tag?: TagData | null): tag is TagData {
+  return !!tag && tag.source !== 'simulated' && isTagLive(tag);
+}
 
 interface CircularGaugeProps {
   cx: number;
   cy: number;
   r: number;
-  value: number;
+  value: number | null;
   min: number;
   max: number;
   label: string;
@@ -14,9 +19,7 @@ interface CircularGaugeProps {
 }
 
 const CircularGauge: React.FC<CircularGaugeProps> = ({ cx, cy, r, value, min, max, label, unit }) => {
-  const [val, setVal] = useState(value);
-  useEffect(() => { setVal(value); }, [value]);
-
+  const val = value ?? 0;
   const pNorm = Math.max(0, Math.min(1, (val - min) / (max - min)));
   const percentage = pNorm * 100;
   const nAngle = -120 + pNorm * 240;
@@ -79,7 +82,7 @@ const CircularGauge: React.FC<CircularGaugeProps> = ({ cx, cy, r, value, min, ma
       })}
 
       {/* Needle */}
-      <g transform={`rotate(${nAngle}, ${cx}, ${cy})`}>
+      <g visibility={value === null ? 'hidden' : 'visible'} transform={`rotate(${nAngle}, ${cx}, ${cy})`}>
         <line x1={cx} y1={cy} x2={cx} y2={cy - nLen} stroke={getCol()} strokeWidth="3" strokeLinecap="round" style={{ transition: 'all 1s ease-in-out' }} />
         <circle cx={cx} cy={cy} r="5" fill="#1e293b" />
         <circle cx={cx} cy={cy} r="2" fill={getCol()} />
@@ -91,7 +94,7 @@ const CircularGauge: React.FC<CircularGaugeProps> = ({ cx, cy, r, value, min, ma
 
       <rect x={cx - (r > 45 ? 36 : 28)} y={cy + r + 10} width={r > 45 ? 72 : 56} height={r > 45 ? 28 : 24} rx="5" fill="hsl(var(--secondary))" stroke="hsl(var(--border))" strokeWidth="1" />
       <text x={cx} y={cy + r + (r > 45 ? 30 : 27)} textAnchor="middle" fontSize={r > 45 ? 15 : 13} fontWeight="800" fill="hsl(var(--foreground))" fontFamily="ui-monospace, monospace">
-        {val.toFixed(1)} <tspan fontSize={r > 45 ? 10 : 8} fill="hsl(var(--muted-foreground))">{unit}</tspan>
+        {value?.toFixed(1) ?? '—'} <tspan fontSize={r > 45 ? 10 : 8} fill="hsl(var(--muted-foreground))">{unit}</tspan>
       </text>
     </g>
   );
@@ -99,32 +102,39 @@ const CircularGauge: React.FC<CircularGaugeProps> = ({ cx, cy, r, value, min, ma
 
 export interface OhtProcessSimulationProps {
   sensors: ShahpurSensor[];
-  tags: any[];
+  tags: TagData[];
   config: any;
 }
 
 const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, tags, config }) => {
   const { setOhtTags } = useScada();
+  const [, refreshAge] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => refreshAge(t => t + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const ltSensor = sensors.find(s => s.instrumentType === 'lt');
   const ltTag = ltSensor ? tags.find(t => t.id === ltSensor.id) : null;
-  const ltVal = ltTag?.status === 'connected' ? ltTag.value : 0;
+  const ltVal = liveReading(ltTag) ? ltTag.value : 0;
 
   const ptSensor = sensors.find(s => s.instrumentType === 'pt');
   const ptTag = ptSensor ? tags.find(t => t.id === ptSensor.id) : null;
-  const ptVal = ptTag?.status === 'connected' ? ptTag.value : 0;
+  const ptVal = liveReading(ptTag) ? ptTag.value : 0;
 
   const flowSensor = sensors.find(s => s.instrumentType === 'flow');
   const flowTag = flowSensor ? tags.find(t => t.id === flowSensor.id) : null;
-  const flowVal = flowTag?.status === 'connected' ? flowTag.value : 0;
+  const flowVal = liveReading(flowTag) ? flowTag.value : 0;
 
   const totalizerSensor = sensors.find(s => s.instrumentType === 'totalizer');
   const totTag = totalizerSensor ? tags.find(t => t.id === totalizerSensor.id) : null;
-  const totVal = totTag?.status === 'connected' ? totTag.value : 0;
+  const secondCounter = sensors.find(s => s.mqttKey === 'TOTALIZER2');
+  const secondCounterTag = secondCounter && tags.find(t => t.id === secondCounter.id);
+  const totalizerText = liveReading(totTag) ? totTag.value.toLocaleString() : '—';
 
   const fcvTag = tags.find(t => t.id?.toLowerCase().includes('fcv'));
   const hasFcvSensor = sensors.some(s => s.instrumentType === 'fcv' && !s.notInstalled);
-  const fcvVal = fcvTag?.status === 'connected' ? fcvTag.value : 0;
+  const fcvVal = liveReading(fcvTag) ? fcvTag.value : 0;
   const fcvOpen = fcvVal > 0;
 
   const fInVal = flowVal;
@@ -163,11 +173,11 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
       <g opacity="0.95">
         <path d={d} fill="none" stroke="#f0f9ff" strokeWidth={sw}
           strokeLinecap="round" strokeLinejoin="round" strokeDasharray={`${dashA} ${gapA}`} opacity="0.85">
-          <animate attributeName="stroke-dashoffset" from={cycleA} to="0" dur={durFast} repeatCount="indefinite" calcMode="linear" />
+          <animate attributeName="stroke-dashoffset" from={flow < 0 ? -cycleA : cycleA} to="0" dur={durFast} repeatCount="indefinite" calcMode="linear" />
         </path>
         <path d={d} fill="none" stroke="#ffffff" strokeWidth={sw * 0.45}
           strokeLinecap="round" strokeLinejoin="round" strokeDasharray={`${dashB} ${gapB}`} opacity="0.55">
-          <animate attributeName="stroke-dashoffset" from={cycleB} to="0" dur={durSlow} repeatCount="indefinite" calcMode="linear" />
+          <animate attributeName="stroke-dashoffset" from={flow < 0 ? -cycleB : cycleB} to="0" dur={durSlow} repeatCount="indefinite" calcMode="linear" />
         </path>
       </g>
     );
@@ -209,8 +219,8 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
 
   // Color-coded status (matching OHT card logic)
   const levelPct = Math.min(100, Math.max(0, ltVal));
-  const statusColor = levelPct >= 70 ? 'hsl(var(--success))' : levelPct >= 40 ? 'hsl(var(--warning))' : 'hsl(var(--destructive))';
-  const statusText = levelPct >= 70 ? 'GOOD' : levelPct >= 40 ? 'MEDIUM' : levelPct > 0 ? 'LOW' : 'EMPTY';
+  const statusColor = !liveReading(ltTag) ? 'hsl(var(--muted-foreground))' : levelPct >= 70 ? 'hsl(var(--success))' : levelPct >= 40 ? 'hsl(var(--warning))' : 'hsl(var(--destructive))';
+  const hasLevel = liveReading(ltTag);
 
   // Side gauge bar dimensions
   const gaugeX = tcx + tw / 2 + 30;
@@ -417,7 +427,7 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
 
             {/* Value */}
             <text x={tcx} y={ty + 48} textAnchor="middle" fontSize="24" fontWeight="800" fill={statusColor} fontFamily="ui-monospace, monospace">
-              {ltVal.toFixed(1)}<tspan fontSize="13" fill="hsl(var(--muted-foreground))"> %</tspan>
+              {hasLevel ? ltVal.toFixed(1) : '—'}<tspan fontSize="13" fill="hsl(var(--muted-foreground))"> %</tspan>
             </text>
 
             {/* OHT name watermark — moved up */}
@@ -430,7 +440,7 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
           <g>
             <path d={`M 400 ${pillarY + pillarH} L 400 ${pillarY + pillarH - 40}`} fill="none" stroke="#475569" strokeWidth="6" />
             <circle cx={400} cy={pillarY + pillarH} r="6" fill="#475569" />
-            <CircularGauge cx={400} cy={pillarY + pillarH - 100} r={55} value={ptVal} min={0} max={ptTag?.max ?? 10} label="PT Inlet" unit="Bar" />
+            <CircularGauge cx={400} cy={pillarY + pillarH - 100} r={55} value={liveReading(ptTag) ? ptVal : null} min={0} max={ptTag?.max ?? 10} label="PT Inlet" unit="Bar" />
           </g>
 
           {/* Outlet Flow Meter & Totalizer (On outlet pipe - right side) */}
@@ -449,20 +459,21 @@ const OhtProcessSimulation: React.FC<OhtProcessSimulationProps> = ({ sensors, ta
 
                 <rect x={efmX - 45} y={hTop + 30} width={90} height={40} rx="4" fill="hsl(var(--secondary))" stroke="hsl(var(--border))" strokeWidth="1" />
                 <rect x={efmX - 42} y={hTop + 33} width={84} height={34} rx="3" fill="hsl(142 71% 45% / 0.1)" />
-                <text x={efmX} y={hTop + 57} textAnchor="middle" fill="hsl(var(--foreground))" style={{ fontSize: '18px', fontFamily: "ui-monospace, monospace", fontWeight: 800 }}>{flowVal.toFixed(2)}</text>
+                <text x={efmX} y={hTop + 57} textAnchor="middle" fill="hsl(var(--foreground))" style={{ fontSize: '18px', fontFamily: "ui-monospace, monospace", fontWeight: 800 }}>{liveReading(flowTag) ? flowVal.toFixed(2) : '—'}</text>
 
                 <rect x={efmX - nW / 2} y={hTop + 16 + hH} width={nW} height={efmY - (hTop + 16 + hH) - 10} fill="#64748b" stroke="#475569" strokeWidth="1" />
                 <rect x={efmX - nW / 2 - 6} y={efmY - 16} width={nW + 12} height={10} rx={3} fill={pVDark} stroke={pVDark} strokeWidth="1.5" />
 
                 <g>
-                  <rect x={efmX - 95} y={efmY + 40} width={190} height={95} rx={12} fill="hsl(199 89% 48% / 0.06)" stroke="hsl(199 89% 48% / 0.5)" strokeWidth="1.5" style={{ filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.12))' }} />
+                  <rect x={efmX - 95} y={efmY + 40} width={190} height={secondCounter ? 117 : 95} rx={12} fill="hsl(199 89% 48% / 0.06)" stroke="hsl(199 89% 48% / 0.5)" strokeWidth="1.5" style={{ filter: 'drop-shadow(0 6px 10px rgba(0,0,0,0.12))' }} />
                   <text x={efmX} y={efmY + 61} textAnchor="middle" fontSize="13" fontWeight="800" fill="hsl(199 89% 55%)" letterSpacing="1px">OUTLET FLOW</text>
-                  <text x={efmX} y={efmY + 87} textAnchor="middle" fontSize="26" fontWeight="900" fill="hsl(var(--foreground))" fontFamily="ui-monospace">{flowVal.toFixed(1)} <tspan fontSize="13" fill="hsl(var(--muted-foreground))" fontWeight="600">m³/h</tspan></text>
+                  <text x={efmX} y={efmY + 87} textAnchor="middle" fontSize="26" fontWeight="900" fill="hsl(var(--foreground))" fontFamily="ui-monospace">{liveReading(flowTag) ? flowVal.toFixed(1) : '—'} <tspan fontSize="13" fill="hsl(var(--muted-foreground))" fontWeight="600">m³/h</tspan></text>
 
                   <rect x={efmX - 75} y={efmY + 99} width={150} height="7" rx="3" fill="hsl(199 89% 48% / 0.2)" />
                   <rect x={efmX - 75} y={efmY + 99} width={150 * Math.max(0, Math.min(1, Math.abs(flowVal) / 50))} height="7" rx="3" fill="hsl(199 89% 48%)" className="transition-all duration-500" />
 
-                  <text x={efmX} y={efmY + 123} textAnchor="middle" fontSize="12" fontWeight="800" fill="hsl(199 89% 55% / 0.8)">TOTALIZER: {totVal.toLocaleString()} m³</text>
+                  <text x={efmX} y={efmY + 123} textAnchor="middle" fontSize="12" fontWeight="800" fill="hsl(199 89% 55% / 0.8)">TOTALIZER: {totalizerText} m³</text>
+                  {secondCounter && <text x={efmX} y={efmY + 145} textAnchor="middle" fontSize="12" fontWeight="800" fill="hsl(199 89% 55% / 0.8)">TOTALIZER 2: {liveReading(secondCounterTag) ? secondCounterTag.value.toLocaleString() : '—'}</text>}
                 </g>
               </g>
             );

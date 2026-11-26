@@ -112,6 +112,7 @@ serve(async (req) => {
         .from('historian_logs')
         .select('value')
         .eq('tag_config_id', tc.id)
+        .not('value', 'is', null)
         .gte('timestamp', bucketStart.toISOString())
         .lt('timestamp', bucketEnd.toISOString());
 

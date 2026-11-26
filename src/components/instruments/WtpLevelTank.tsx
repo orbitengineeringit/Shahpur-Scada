@@ -64,7 +64,7 @@ const WtpLevelTank: React.FC<WtpLevelTankProps> = ({ value, min, max, unit, vari
 
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <svg width="100%" height="auto" viewBox={isClearWater ? '0 0 115 130' : '0 0 105 125'} className={`drop-shadow-md ${isClearWater ? 'max-w-[260px]' : 'max-w-[220px]'}`}>
+      <svg width="100%" viewBox={isClearWater ? '0 0 115 130' : '0 0 105 125'} className={`drop-shadow-md ${isClearWater ? 'max-w-[260px]' : 'max-w-[220px]'}`}>
         <defs>
           {/* Tank wall gradient — concrete/steel look */}
           <linearGradient id={`wtp-tank-wall-${variant}`} x1="0" y1="0" x2="1" y2="0">

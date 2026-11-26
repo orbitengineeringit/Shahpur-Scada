@@ -15,8 +15,8 @@ verify_jwt = false
 [functions.get-mqtt-credentials]
 verify_jwt = true
 
-[functions.plant-assistant]
+[functions.send-alarm-email]
 verify_jwt = false
 
-[functions.send-alarm-email]
+[functions.read-historian-archive]
 verify_jwt = false

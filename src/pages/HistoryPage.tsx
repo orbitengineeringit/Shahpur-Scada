@@ -35,6 +35,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { logError, logWarn } from '@/lib/errorLogger';
+import { readArchiveHistory, readArchivePage, splitHistorianRange, type DateWindow } from '@/lib/historianArchiveClient';
 import { ALL_SENSORS } from '@/config/shahpurSensors';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -62,6 +63,10 @@ const UNINSTALLED_TAG_IDS = [
   'OHT4-PT', 'OHT4-PT1', 'OHT4-PT2', 'OHT4-LT', 'OHT4-Flow', 'OHT4-Flow-IN', 'OHT4-Flow-OUT', 'OHT4-Totalizer', 'OHT4-DecrTotalizer', 'OHT4-FCV', 'OHT4-LEVEL', 'OHT4-PT-1',
 ];
 const UNINSTALLED_TAGS_FILTER = `("${UNINSTALLED_TAG_IDS.join('","')}")`;
+
+const archiveHistoryFilters = (assets: AssetFilter[]) => ({
+  assets, excludeTagIds: UNINSTALLED_TAG_IDS, snapshotsOnly: true,
+});
 
 export const isLegacyMohgaonTag = (tagId: string): boolean => {
   const t = (tagId || '').toUpperCase();
@@ -128,7 +133,7 @@ const getDisplaySection = (section: string, tagId: string): string => {
     if (m) {
       const num = m[1];
       if (num === '1') return 'OHT - 1 Bus Station';
-      if (num === '2') return 'OHT - 2 (Pending)';
+      if (num === '2') return 'OHT - 2';
       return `OHT-${num}`;
     }
     return 'OHT';
@@ -180,9 +185,34 @@ async function fetchWithRetry<T>(
   throw lastError;
 }
 
+const historySensors = new Map(ALL_SENSORS.map(sensor => [sensor.id, sensor]));
+
+export function describeHistoryReading(log: HistorianLog, sensor = historySensors.get(log.tag_id)) {
+  const isFeedback = sensor?.mqttKey?.endsWith('_FB') || /^WTP-Trip[12]$/.test(log.tag_id);
+  const feedback = isFeedback ? (sensor?.instrumentType === 'valve' ? 'Valve feedback' : 'Drive feedback') : undefined;
+  const label = log.tag_config?.label || sensor?.label || log.tag_id;
+  const normalized = (label + ' ' + log.tag_id).toLowerCase();
+  let sensorType = 'Other';
+  if (feedback) sensorType = feedback;
+  else if (sensor?.instrumentType === 'pt' || sensor?.instrumentType === 'combined_pt') sensorType = 'Pressure';
+  else if (normalized.includes('pump')) sensorType = 'Pump';
+  else if (normalized.includes('level') || normalized.includes('-lt')) sensorType = 'Level';
+  else if (normalized.includes('pressure') || normalized.includes('-pt')) sensorType = 'Pressure';
+  else if (normalized.includes('totalizer')) sensorType = 'Totalizer';
+  else if (normalized.includes('flow') || normalized.includes('-ft')) sensorType = 'Flow';
+  else if (normalized.includes('ph')) sensorType = 'pH';
+  else if (normalized.includes('turbidity')) sensorType = 'Turbidity';
+  else if (normalized.includes('chlorine')) sensorType = 'Chlorine';
+  else if (normalized.includes('kw') || normalized.includes('energy')) sensorType = 'Energy';
+
+  const valueOut = log.value == null ? '—' : sensor?.type === 'digital' && !isFeedback
+    ? (log.value === 1 ? 'ON' : 'OFF') : Number(log.value);
+  return { label, sensorType, valueOut };
+}
+
 /** Fail-safe clean CSV download fallback if browser runs out of memory on astronomical datasets */
 function downloadCsvFallback(rows: HistorianLog[], fileName: string, plant: string) {
-  const header = ['Timestamp (IST)', 'Section', 'Sensor Type', 'Label / Tag', 'Value', 'Unit', 'Received At (IST)'];
+  const header = ['Reading timestamp (source)', 'Section', 'Sensor Type', 'Label / Tag', 'Value', 'Unit', 'Received timestamp (source)', 'Saved value'];
   const lines: string[] = [
     `# Plant: ${plant || 'SCADA'} - Historical Data Export\r\n`,
     header.join(',') + '\r\n',
@@ -190,27 +220,12 @@ function downloadCsvFallback(rows: HistorianLog[], fileName: string, plant: stri
   for (let i = 0; i < rows.length; i++) {
     const log = rows[i];
     if (!log) continue;
-    const isPump = log.tag_id.includes('Pump');
-    const label = log.tag_config?.label || log.tag_id;
-    const normalized = (label + ' ' + log.tag_id).toLowerCase();
-    let sensorType = 'Other';
-    if (normalized.includes('pump')) sensorType = 'Pump';
-    else if (normalized.includes('level') || normalized.includes('-lt')) sensorType = 'Level';
-    else if (normalized.includes('pressure') || normalized.includes('-pt')) sensorType = 'Pressure';
-    else if (normalized.includes('totalizer')) sensorType = 'Totalizer';
-    else if (normalized.includes('flow') || normalized.includes('-ft')) sensorType = 'Flow';
-    else if (normalized.includes('ph')) sensorType = 'pH';
-    else if (normalized.includes('turbidity')) sensorType = 'Turbidity';
-    else if (normalized.includes('chlorine')) sensorType = 'Chlorine';
-    else if (normalized.includes('kw') || normalized.includes('energy')) sensorType = 'Energy';
-
-    const valueOut = isPump ? (Number(log.value) >= 1 ? 'ON' : 'OFF') : Number(log.value);
-    const ts = format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss');
+    const { label, sensorType, valueOut } = describeHistoryReading(log);
+    const [ts, rec, savedValue] = historyExportSourceFields(log);
     const sec = getDisplaySection(log.section, log.tag_id);
-    const rec = log.received_at ? format(new Date(log.received_at), 'yyyy-MM-dd HH:mm:ss') : '';
     const safeLabel = `"${String(label).replace(/"/g, '""')}"`;
     const safeUnit = `"${String(log.tag_config?.unit || '').replace(/"/g, '""')}"`;
-    lines.push(`${ts},"${sec}",${sensorType},${safeLabel},${valueOut},${safeUnit},${rec}\r\n`);
+    lines.push(`${ts},"${sec}",${sensorType},${safeLabel},${valueOut},${safeUnit},${rec},${savedValue}\r\n`);
   }
   const blob = new Blob(lines, { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
@@ -222,11 +237,15 @@ function downloadCsvFallback(rows: HistorianLog[], fileName: string, plant: stri
   URL.revokeObjectURL(link.href);
 }
 
+function historyExportSourceFields(log: Pick<HistorianLog, 'timestamp' | 'received_at' | 'value'>): [string, string, string] {
+  return [log.timestamp, log.received_at ?? '', log.value == null ? '' : String(log.value)];
+}
+
 interface HistorianLog {
   id: string;
   tag_id: string;
   section: string;
-  value: number;
+  value: number | null;
   timestamp: string;
   received_at?: string | null;
   tag_config: {
@@ -435,28 +454,6 @@ const HistoryPage: React.FC = () => {
   const pageSize = pageSizeOverride ?? PAGE_SIZES[globalFilters.density];
   const totalPages = Math.ceil(totalCount / pageSize);
 
-  const getSectionFilters = useCallback((): ('intake' | 'oht' | 'wtp')[] => {
-    if (globalFilters.assets.includes('all')) return [];
-    const sections = new Set<'intake' | 'oht' | 'wtp'>();
-    globalFilters.assets.forEach(a => {
-      if (a === 'intake') sections.add('intake');
-      else if (a === 'wtp') sections.add('wtp');
-      else if (a.startsWith('oht')) sections.add('oht');
-    });
-    return [...sections];
-  }, [globalFilters.assets]);
-
-  // Get specific OHT tag_id prefixes for filtering (e.g., 'OHT1-', 'OHT2-')
-  const getOhtTagPrefixes = useCallback((): string[] => {
-    if (globalFilters.assets.includes('all')) return [];
-    return globalFilters.assets
-      .filter(a => a.startsWith('oht-'))
-      .map(a => {
-        const num = a.split('-')[1];
-        return `OHT${num}-`;
-      });
-  }, [globalFilters.assets]);
-
   const fetchLogs = useCallback(async (page: number = 1, sizeOverride?: number) => {
     if (!globalFilters.startDate || !globalFilters.endDate) {
       toast({ title: 'Select Date Range', description: 'Please select both start and end dates.', variant: 'destructive' });
@@ -464,44 +461,50 @@ const HistoryPage: React.FC = () => {
     }
 
     // Cancel any in-flight request
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    abortControllerRef.current = new AbortController();
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     setIsLoading(true);
     try {
       const startTime = startOfDay(globalFilters.startDate).toISOString();
-      const endTime = endOfDay(globalFilters.endDate).toISOString();
-      const sectionFilters = getSectionFilters();
-      const ohtPrefixes = getOhtTagPrefixes();
+      const endTime = new Date(endOfDay(globalFilters.endDate).getTime() + 1).toISOString();
+      const { live, archive } = splitHistorianRange(startTime, endTime);
       const currentSize = sizeOverride ?? pageSize;
-
-      // Run count and data queries in parallel (excluding uninstalled sensors & ad-hoc delta noise)
-      let countQuery = supabase.from('historian_logs').select('*', { count: 'exact', head: true })
-        .gte('timestamp', startTime).lte('timestamp', endTime)
-        .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
-        .or('source.like.%5min%,source.is.null');
-      countQuery = applyAssetFiltersToQuery(countQuery, globalFilters.assets);
-
       const offset = (page - 1) * currentSize;
-      let dataQuery = supabase.from('historian_logs')
-        .select(`id, tag_id, section, value, timestamp, received_at, tag_config:tag_config_id (label, unit)`)
-        .gte('timestamp', startTime).lte('timestamp', endTime)
-        .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
-        .or('source.like.%5min%,source.is.null')
-        .order('timestamp', { ascending: false })
-        .order('section', { ascending: true })
-        .order('tag_id', { ascending: true })
-        .range(offset, offset + currentSize - 1);
-      dataQuery = applyAssetFiltersToQuery(dataQuery, globalFilters.assets);
+      let count = 0;
+      let rows: HistorianLog[] = [];
 
-      const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
+      if (live) {
+        const countQuery = supabase.from('historian_logs').select('*', { count: 'exact', head: true })
+          .gte('timestamp', live.start).lt('timestamp', live.end)
+          .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER).or('source.like.%5min%,source.is.null')
+          .abortSignal(controller.signal);
+        const dataQuery = supabase.from('historian_logs')
+          .select('id, tag_id, section, value, timestamp, received_at, tag_config:tag_config_id (label, unit)')
+          .gte('timestamp', live.start).lt('timestamp', live.end)
+          .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER).or('source.like.%5min%,source.is.null')
+          .order('timestamp', { ascending: false }).order('section').order('tag_id').order('id')
+          .range(offset, offset + currentSize - 1).abortSignal(controller.signal);
+        const [countResult, dataResult] = await Promise.all([
+          applyAssetFiltersToQuery(countQuery, globalFilters.assets), applyAssetFiltersToQuery(dataQuery, globalFilters.assets),
+        ]);
+        if (countResult.error) throw countResult.error;
+        if (dataResult.error) throw dataResult.error;
+        count = countResult.count ?? 0;
+        rows = (dataResult.data ?? []) as HistorianLog[];
+      }
 
-      if (countResult.error) throw countResult.error;
-      if (dataResult.error) throw dataResult.error;
-
-      const total = countResult.count || 0;
+      let total = count;
+      if (archive) {
+        const result = await readArchiveHistory(archive, archiveHistoryFilters(globalFilters.assets),
+          Math.max(0, offset - count), currentSize - rows.length, controller.signal);
+        total += result.count;
+        rows.push(...result.rows.map(row => ({ ...row, section: row.section ?? '', tag_config: null })));
+      }
+      if (controller.signal.aborted) return;
       setTotalCount(total);
-      const filteredData = ((dataResult.data as unknown as HistorianLog[]) || []).filter(log => matchesSelectedAssets(log, globalFilters.assets));
+      const filteredData = rows.filter(log => matchesSelectedAssets(log, globalFilters.assets));
       const sorted = [...filteredData].sort((a, b) => {
         const BUCKET_MS = 5 * 60 * 1000;
         const ta = Math.floor(new Date(a.timestamp).getTime() / BUCKET_MS);
@@ -528,13 +531,13 @@ const HistoryPage: React.FC = () => {
       setCurrentPage(page);
       if (page === 1) toast({ title: 'Data Loaded', description: `Loaded ${deduplicated.length} records on this page (${total.toLocaleString()} total found).` });
     } catch (error: unknown) {
-      if ((error as { name?: string })?.name === 'AbortError') return;
+      if (controller.signal.aborted) return;
       logError('History.fetchLogs', error);
       toast({ title: 'Error', description: 'Failed to fetch historical data.', variant: 'destructive' });
     } finally {
-      setIsLoading(false);
+      if (abortControllerRef.current === controller) setIsLoading(false);
     }
-  }, [globalFilters.startDate, globalFilters.endDate, getSectionFilters, getOhtTagPrefixes, globalFilters.assets, pageSize, toast]);
+  }, [globalFilters.startDate, globalFilters.endDate, globalFilters.assets, pageSize, toast]);
 
   useEffect(() => {
     if (autoRefresh && globalFilters.startDate && globalFilters.endDate) {
@@ -563,10 +566,10 @@ const HistoryPage: React.FC = () => {
     });
 
     try {
-      const startTime = startOfDay(globalFilters.startDate).toISOString();
-      const endTime = endOfDay(globalFilters.endDate).toISOString();
       const startMs = startOfDay(globalFilters.startDate).getTime();
-      const endMs = endOfDay(globalFilters.endDate).getTime();
+      const endMs = endOfDay(globalFilters.endDate).getTime() + 1;
+      const { live, archive } = splitHistorianRange(new Date(startMs).toISOString(), new Date(endMs).toISOString());
+      const archiveFilters = archiveHistoryFilters(globalFilters.assets);
 
       // 1. Pre-fetch tag configs and merge with static sensors
       // Eliminates expensive nested PostgREST joins on 100k+ rows
@@ -599,7 +602,7 @@ const HistoryPage: React.FC = () => {
       // 2. Count & Estimate Phase (with retry & asset-aware fallback estimation)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const applyFilters = (q: any) => {
-        const r = q.gte('timestamp', startTime).lte('timestamp', endTime)
+        const r = q.gte('timestamp', live?.start).lt('timestamp', live?.end)
           .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
           .or('source.like.%5min%,source.is.null');
         return applyAssetFiltersToQuery(r, globalFilters.assets);
@@ -607,22 +610,20 @@ const HistoryPage: React.FC = () => {
 
       let totalCountVal = 0;
       try {
-        const { count, error: countErr } = await fetchWithRetry(async () => {
-          let countQ = supabase.from('historian_logs').select('*', { count: 'exact', head: true });
-          countQ = applyFilters(countQ);
-          return await countQ;
-        }, 2, 500);
-        if (countErr) throw countErr;
-        totalCountVal = count || 0;
+        if (live) {
+          const { count, error: countErr } = await fetchWithRetry(async () => await applyFilters(
+            supabase.from('historian_logs').select('*', { count: 'exact', head: true }),
+          ), 2, 500);
+          if (countErr) throw countErr;
+          totalCountVal = count ?? 0;
+        }
+        if (archive) totalCountVal += (await readArchiveHistory(archive, archiveFilters, 0, 0)).count;
       } catch (countErr) {
         logWarn('History.exportExcel', 'Exact count failed or timed out, estimating total rows', countErr);
         const days = Math.max(1, Math.ceil((endMs - startMs) / (24 * 3600 * 1000)));
-        const tagMultiplier = globalFilters.assets.includes('all') ? 35 : (
-          (globalFilters.assets.includes('intake') ? 6 : 0) +
-          (globalFilters.assets.includes('wtp') ? 21 : 0) +
-          (globalFilters.assets.includes('oht-1') ? 4 : 0) +
-          (globalFilters.assets.includes('oht-2') ? 4 : 0)
-        ) || 35;
+        const tagMultiplier = ALL_SENSORS.filter(sensor =>
+          !sensor.notInstalled && matchesSelectedAssets({ tag_id: sensor.id, section: sensor.section }, globalFilters.assets)
+        ).length;
         totalCountVal = days * tagMultiplier * 288;
       }
 
@@ -645,25 +646,19 @@ const HistoryPage: React.FC = () => {
       // In PostgreSQL, querying a 1-day slice keeps maximum offset < 10,000 rows,
       // completely eliminating deep-offset (OFFSET 80,000+) degradation and statement timeouts!
       const SLICE_DURATION_MS = 24 * 60 * 60 * 1000;
-      interface TimeSlice {
-        sliceStartIso: string;
-        sliceEndIso: string;
-        isLast: boolean;
-      }
+      type TimeSlice = DateWindow & { archived: boolean };
 
       const slices: TimeSlice[] = [];
       for (let t = endMs; t > startMs; t -= SLICE_DURATION_MS) {
         const sStart = Math.max(startMs, t - SLICE_DURATION_MS);
-        slices.push({
-          sliceStartIso: new Date(sStart).toISOString(),
-          sliceEndIso: new Date(t).toISOString(),
-          isLast: t === endMs,
-        });
+        const slice = splitHistorianRange(new Date(sStart).toISOString(), new Date(t).toISOString());
+        if (slice.live) slices.push({ ...slice.live, archived: false });
+        if (slice.archive) slices.push({ ...slice.archive, archived: true });
       }
 
-      // 4. Parallel Slices Fetching & In-stream Deduplication
-      const DEDUP_BUCKET_MS = 5 * 60 * 1000;
-      const latestPerTagBucket = new Map<string, HistorianLog>();
+      // 4. Fetch matching readings in parallel, keyed by their original database ID.
+      const reportSortBucketMs = 5 * 60 * 1000;
+      const exportedReadings = new Map<string, HistorianLog>();
       let fetchedSoFar = 0;
       let nextSliceIdx = 0;
       const SLICE_CONCURRENCY = 3;
@@ -681,22 +676,23 @@ const HistoryPage: React.FC = () => {
             const to = from + PAGE - 1;
 
             const pageRows = await fetchWithRetry(async () => {
+              if (slice.archived) {
+                const result = await readArchivePage({ start: slice.start, end: slice.end,
+                  ...archiveFilters, offset: from, limit: PAGE });
+                if (result.rows.length !== Math.min(PAGE, Math.max(0, result.count - from))) {
+                  throw new Error('Incomplete archive export page');
+                }
+                return result.rows;
+              }
               let q = supabase
                 .from('historian_logs')
                 .select('id, tag_id, section, value, timestamp, received_at, tag_config_id')
-                .gte('timestamp', slice.sliceStartIso);
-
-              if (slice.isLast) {
-                q = q.lte('timestamp', slice.sliceEndIso);
-              } else {
-                q = q.lt('timestamp', slice.sliceEndIso);
-              }
-
-              q = q
+                .gte('timestamp', slice.start).lt('timestamp', slice.end)
                 .not('tag_id', 'in', UNINSTALLED_TAGS_FILTER)
                 .or('source.like.%5min%,source.is.null')
                 .order('timestamp', { ascending: false })
                 .order('tag_id', { ascending: true })
+                .order('id', { ascending: true })
                 .range(from, to);
 
               q = applyAssetFiltersToQuery(q, globalFilters.assets);
@@ -709,26 +705,20 @@ const HistoryPage: React.FC = () => {
 
             for (let r = 0; r < pageRows.length; r++) {
               const raw = pageRows[r];
-              if (!matchesSelectedAssets(raw, globalFilters.assets)) continue;
+              if (!matchesSelectedAssets({ ...raw, section: raw.section ?? '' }, globalFilters.assets)) continue;
 
               const cfg = getLabelAndUnit(raw.tag_id, raw.tag_config_id);
               const log: HistorianLog = {
                 id: raw.id,
                 tag_id: raw.tag_id,
-                section: raw.section,
+                section: raw.section ?? '',
                 value: raw.value,
                 timestamp: raw.timestamp,
                 received_at: raw.received_at,
                 tag_config: cfg,
               };
 
-              // Stream directly into deduplication map to save memory
-              const bucketTs = Math.floor(new Date(log.timestamp).getTime() / DEDUP_BUCKET_MS);
-              const key = `${log.tag_id}|${bucketTs}`;
-              const existing = latestPerTagBucket.get(key);
-              if (!existing || new Date(existing.timestamp).getTime() < new Date(log.timestamp).getTime()) {
-                latestPerTagBucket.set(key, log);
-              }
+              exportedReadings.set(log.id, log);
             }
 
             fetchedSoFar += pageRows.length;
@@ -749,7 +739,8 @@ const HistoryPage: React.FC = () => {
       );
 
       // 5. Asset Filtering & Interval Downsampling
-      let processed: HistorianLog[] = Array.from(latestPerTagBucket.values());
+      let processed = Array.from(exportedReadings.values());
+      exportedReadings.clear();
 
       if (exportInterval !== 'all') {
         const bucketMs = INTERVAL_MS[exportInterval];
@@ -757,7 +748,7 @@ const HistoryPage: React.FC = () => {
         for (const log of processed) {
           const t = new Date(log.timestamp).getTime();
           const bucket = Math.floor(t / bucketMs);
-          const key = `${log.tag_id}|${bucket}`;
+          const key = `${log.section}|${log.tag_id}|${bucket}`;
           const existing = latestByBucket.get(key);
           if (!existing || new Date(existing.timestamp).getTime() < t) {
             latestByBucket.set(key, log);
@@ -770,7 +761,7 @@ const HistoryPage: React.FC = () => {
       // Pre-calculate bucketTs and section order for lightning-fast sort without millions of Date allocations
       const processedWithSortKeys = processed.map(log => ({
         log,
-        bucketTs: Math.floor(new Date(log.timestamp).getTime() / DEDUP_BUCKET_MS),
+        bucketTs: Math.floor(new Date(log.timestamp).getTime() / reportSortBucketMs),
         secOrder: getSectionOrder(log.section, log.tag_id),
       }));
 
@@ -829,17 +820,18 @@ const HistoryPage: React.FC = () => {
       });
 
       ws.columns = [
-        { key: 'ts', width: 22 },
+        { key: 'ts', width: 36 },
         { key: 'section', width: 16 },
         { key: 'sensor', width: 14 },
         { key: 'label', width: 32 },
         { key: 'value', width: 14 },
         { key: 'unit', width: 10 },
-        { key: 'received', width: 23 },
+        { key: 'received', width: 36 },
+        { key: 'savedValue', width: 24 },
       ];
 
       // Row 1: Title banner
-      ws.mergeCells('A1:G1');
+      ws.mergeCells('A1:H1');
       const titleCell = ws.getCell('A1');
       titleCell.value = `💧  ${plantName.toUpperCase()}  —  HISTORICAL RECORDS`;
       titleCell.font = { name: 'Segoe UI', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -848,7 +840,7 @@ const HistoryPage: React.FC = () => {
       ws.getRow(1).height = 38;
 
       // Row 2: Info banner
-      ws.mergeCells('A2:G2');
+      ws.mergeCells('A2:H2');
       const infoCell = ws.getCell('A2');
       const startStr = format(globalFilters.startDate, 'd MMM yyyy');
       const endStr = format(globalFilters.endDate, 'd MMM yyyy');
@@ -884,8 +876,8 @@ const HistoryPage: React.FC = () => {
 
       // Row 4: Header
       const headerRow = ws.getRow(4);
-      const headers = ['⏱  5-min interval', '🏭  Section', '🔧  Sensor Type', '🏷  Label / Tag', '📈  Value', '⚠  Unit', 'Received at (IST)'];
-      const headerColors = ['FF2563EB', 'FFDC2626', 'FF7C3AED', 'FF059669', 'FFEA580C', 'FFCA8A04', 'FF0891B2'];
+      const headers = ['Reading timestamp (source)', '🏭  Section', '🔧  Sensor Type', '🏷  Label / Tag', '📈  Value', '⚠  Unit', 'Received timestamp (source)', 'Saved value'];
+      const headerColors = ['FF2563EB', 'FFDC2626', 'FF7C3AED', 'FF059669', 'FFEA580C', 'FFCA8A04', 'FF0891B2', 'FF60A5FA'];
       headers.forEach((h, i) => {
         const c = headerRow.getCell(i + 1);
         c.value = h;
@@ -898,7 +890,7 @@ const HistoryPage: React.FC = () => {
         };
       });
       headerRow.height = 26;
-      ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: 7 } };
+      ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: 8 } };
 
       // Shared style constants (reused by reference across all rows)
       const STYLES = {
@@ -927,34 +919,20 @@ const HistoryPage: React.FC = () => {
       for (let i = 0; i < exportCount; i++) {
         const log = processed[i];
         if (!log) continue;
-        const isPump = log.tag_id.includes('Pump');
-        const label = log.tag_config?.label || log.tag_id;
-        const normalized = (label + ' ' + log.tag_id).toLowerCase();
-        let sensorType = 'Other';
-        if (normalized.includes('pump')) sensorType = 'Pump';
-        else if (normalized.includes('level') || normalized.includes('-lt')) sensorType = 'Level';
-        else if (normalized.includes('pressure') || normalized.includes('-pt')) sensorType = 'Pressure';
-        else if (normalized.includes('totalizer')) sensorType = 'Totalizer';
-        else if (normalized.includes('flow') || normalized.includes('-ft')) sensorType = 'Flow';
-        else if (normalized.includes('ph')) sensorType = 'pH';
-        else if (normalized.includes('turbidity')) sensorType = 'Turbidity';
-        else if (normalized.includes('chlorine')) sensorType = 'Chlorine';
-        else if (normalized.includes('kw') || normalized.includes('energy')) sensorType = 'Energy';
-
-        const valueOut = isPump ? (Number(log.value) >= 1 ? 'ON' : 'OFF') : Number(log.value);
-        const tsFormatted = format(new Date(log.timestamp), 'yyyy-MM-dd HH:mm:ss');
+        const { label, sensorType, valueOut } = describeHistoryReading(log);
+        const [sourceTimestamp, sourceReceivedAt, savedValue] = historyExportSourceFields(log);
         const secDisplay = getDisplaySection(log.section, log.tag_id);
-        const recFormatted = log.received_at ? format(new Date(log.received_at), 'yyyy-MM-dd HH:mm:ss') : '';
 
         // Add row via array of values (fastest in ExcelJS)
         const row = ws.addRow([
-          tsFormatted,
+          sourceTimestamp,
           secDisplay,
           sensorType,
           label,
           valueOut,
           log.tag_config?.unit || '',
-          recFormatted,
+          sourceReceivedAt,
+          savedValue,
         ]);
 
         const secLower = log.section.toLowerCase();
@@ -962,7 +940,7 @@ const HistoryPage: React.FC = () => {
         const rowFill = secLower === 'oht' ? STYLES.fillOht : secLower === 'intake' ? STYLES.fillIntake : secLower === 'wtp' ? STYLES.fillWtp : (i % 2 === 0 ? STYLES.fillEven : STYLES.fillOdd);
 
         // Apply fast cell-level styling using shared references
-        for (let colIdx = 1; colIdx <= 7; colIdx++) {
+        for (let colIdx = 1; colIdx <= headers.length; colIdx++) {
           const cell = row.getCell(colIdx);
           if (!isLargeExport) {
             cell.fill = rowFill;
@@ -973,7 +951,7 @@ const HistoryPage: React.FC = () => {
             cell.font = secFont;
           } else if (colIdx === 5) {
             if (typeof valueOut === 'number') {
-              cell.numFmt = '#,##0.00####';
+              cell.numFmt = '#,##0.00#####';
               cell.font = STYLES.fontNum;
             } else {
               cell.font = valueOut === 'ON' ? STYLES.fontPumpOn : STYLES.fontPumpOff;
@@ -1185,7 +1163,8 @@ const HistoryPage: React.FC = () => {
                       </TableHeader>
                       <TableBody>
                         {sortedLogs.map((log) => {
-                          const isPump = log.tag_id.includes('Pump');
+                          const historyValue = describeHistoryReading(log).valueOut;
+                          const isPump = historyValue === 'ON' || historyValue === 'OFF';
                           const isWtp = log.section === 'wtp';
                           const isIntake = log.section === 'intake';
                           const isOht = log.section === 'oht';
@@ -1208,7 +1187,8 @@ const HistoryPage: React.FC = () => {
 
                           const logDate = new Date(log.timestamp);
                           const dateStr = format(logDate, 'yyyy-MM-dd');
-                          const timeStr = format(logDate, 'HH:mm:ss');
+                          const fraction = log.timestamp.match(/:\d{2}(\.\d+)/)?.[1] ?? '';
+                          const timeStr = format(logDate, 'HH:mm:ss') + fraction;
 
                           const normalizedLabel = ((log.tag_config?.label || '') + ' ' + log.tag_id).toLowerCase();
                           
@@ -1251,7 +1231,7 @@ const HistoryPage: React.FC = () => {
                               <TableCell className="py-3.5 sm:py-4 pl-4 sm:pl-6 font-mono text-xs text-muted-foreground whitespace-nowrap">
                                 <div className="flex flex-col gap-0.5">
                                   <span className="font-semibold text-foreground/85 text-[11px] sm:text-xs">{dateStr}</span>
-                                  <span className="text-[10px] sm:text-[11px] text-muted-foreground/80 flex items-center gap-1.5 font-medium">
+                                  <time dateTime={log.timestamp} title={log.timestamp} className="text-[10px] sm:text-[11px] text-muted-foreground/80 flex items-center gap-1.5 font-medium">
                                     <span className={cn(
                                       "w-1.5 h-1.5 rounded-full animate-pulse shrink-0",
                                       isIntake && "bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]",
@@ -1259,8 +1239,8 @@ const HistoryPage: React.FC = () => {
                                       isOht && "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]"
                                     )} />
                                     {timeStr}
-                                  </span>
-                                  {log.received_at && <span className="text-[9px] text-muted-foreground">Received {format(new Date(log.received_at), 'HH:mm:ss')}</span>}
+                                  </time>
+                                  {log.received_at && <time dateTime={log.received_at} title={log.received_at} className="text-[9px] text-muted-foreground">Received {format(new Date(log.received_at), 'HH:mm:ss')}</time>}
                                 </div>
                               </TableCell>
                               <TableCell className="py-3.5 sm:py-4 whitespace-nowrap">
@@ -1305,7 +1285,7 @@ const HistoryPage: React.FC = () => {
                                   </span>
                                 </div>
                               </TableCell>
-                              <TableCell className="text-right pr-4 sm:pr-6 py-3.5 sm:py-4 whitespace-nowrap">
+                              <TableCell title={log.value == null ? undefined : String(log.value)} className="text-right pr-4 sm:pr-6 py-3.5 sm:py-4 whitespace-nowrap">
                                 {isPump ? (
                                   Number(log.value) >= 1 ? (
                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.25)] relative animate-pulse">
@@ -1333,7 +1313,7 @@ const HistoryPage: React.FC = () => {
                                       ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 shadow-rose-500/5"
                                       : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 shadow-amber-500/5"
                                   )}>
-                                    {Number(log.value).toFixed(2)}
+                                    {historyValue}
                                   </span>
                                 )}
                               </TableCell>

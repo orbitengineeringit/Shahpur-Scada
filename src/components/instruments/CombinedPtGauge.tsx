@@ -67,7 +67,7 @@ const CombinedPtGauge: React.FC<CombinedPtGaugeProps> = ({
 
   return (
     <div className="flex flex-col items-center w-full">
-      <svg width="100%" height="auto" viewBox={`0 0 ${size} ${size * 0.88}`} style={{ maxWidth: `${size + 80}px` }}>
+      <svg width="100%" viewBox={`0 0 ${size} ${size * 0.88}`} style={{ maxWidth: `${size + 80}px` }}>
         <defs>
           <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%" filterUnits="objectBoundingBox">
             <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />

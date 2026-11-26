@@ -56,7 +56,7 @@ const PtGauge: React.FC<PtGaugeProps> = ({ value, min, max, unit, label, size = 
 
   return (
     <div className="flex flex-col items-center">
-      <svg width="100%" height="auto" viewBox={`0 0 ${size} ${size * 0.85}`} style={{ maxWidth: `${size + 60}px` }}>
+      <svg width="100%" viewBox={`0 0 ${size} ${size * 0.85}`} style={{ maxWidth: `${size + 60}px` }}>
         <defs>
           <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%" filterUnits="objectBoundingBox">
             <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />

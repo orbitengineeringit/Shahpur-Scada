@@ -14,7 +14,6 @@ import { lazy, Suspense, useEffect } from "react";
 import PageSkeleton from "@/components/PageSkeleton";
 import Header from "@/components/Header";
 import LoginPage from "@/pages/LoginPage";
-import FloatingAssistantButton from "@/components/chat/FloatingAssistantButton";
 
 // Eagerly load core pages for instant navigation
 import Index from "./pages/Index";
@@ -27,7 +26,6 @@ const HistoryPage = lazy(() => import("./pages/HistoryPage"));
 const AlarmsPage = lazy(() => import("./pages/AlarmsPage"));
 // MqttSettingsPage removed from client access for security
 const ExportsPage = lazy(() => import("./pages/ExportsPage"));
-const AssistantPage = lazy(() => import("./pages/AssistantPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Eagerly load analytics pages for instant navigation
@@ -108,7 +106,6 @@ const AuthenticatedApp = () => (
               <Route path="/history" element={<Suspense fallback={<PageSkeleton />}><HistoryPage /></Suspense>} />
               <Route path="/alarms" element={<Suspense fallback={<PageSkeleton />}><AlarmsPage /></Suspense>} />
               <Route path="/exports" element={<Suspense fallback={<PageSkeleton />}><ExportsPage /></Suspense>} />
-              {/* <Route path="/assistant" element={<Suspense fallback={<PageSkeleton />}><AssistantPage /></Suspense>} /> */}
               
               {/* Analytics Routes */}
               <Route path="/analytics/intake" element={<IntakeAnalyticsPage />} />
@@ -116,7 +113,6 @@ const AuthenticatedApp = () => (
               <Route path="/analytics/oht" element={<OhtAnalyticsPage />} />
               <Route path="*" element={<Suspense fallback={<PageSkeleton />}><NotFound /></Suspense>} />
             </Routes>
-            {/* <FloatingAssistantButton /> */}
           </BrowserRouter>
         </TooltipProvider>
       </MqttScadaBridge>

@@ -3,7 +3,19 @@
 .env.*
 !.env.example
 *.env
-scripts/
+scripts/*
+!scripts/historian-archive/
+scripts/historian-archive/*
+!scripts/historian-archive/Code.gs
+!scripts/historian-archive/Pull.gs
+!scripts/historian-archive/Readable.gs
+!scripts/historian-archive/ReadableBackfill.gs
+!scripts/historian-archive/backup.mjs
+!scripts/historian-archive/audit-raw.mjs
+!scripts/historian-archive/extend-read-manifest.mjs
+!scripts/historian-archive/prepare-raw-cleanup.mjs
+!scripts/historian-archive/restore-sheet.mjs
+!scripts/historian-archive/README.md
 
 # Logs
 logs

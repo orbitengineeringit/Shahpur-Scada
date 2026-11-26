@@ -1,3 +1,4 @@
+import { isPumpRunTag } from '@/config/shahpurSensors';
 import React, { memo, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useScada } from '@/contexts/ScadaContext';
@@ -32,7 +33,8 @@ const SystemHealthCard: React.FC<SystemHealthCardProps> = memo(({ section }) => 
     const totalOnline = onlineAnalog.length + onlineDigital.length + onlineTotalizer.length;
 
     // Running pumps (value > 0.5 AND online)
-    const runningPumps = digital.filter(t => t.value > 0.5 && isOnline(t));
+    const pumpSignals = digital.filter(t => isPumpRunTag(t.id));
+    const runningPumps = pumpSignals.filter(t => t.value > 0.5 && isOnline(t));
 
     // Pressure sensors
     const ptTags = tags.filter(t => t.instrumentType === 'pt');
@@ -61,7 +63,7 @@ const SystemHealthCard: React.FC<SystemHealthCardProps> = memo(({ section }) => 
       onlineDigital: onlineDigital.length,
       onlineTotalizer: onlineTotalizer.length,
       runningPumps: runningPumps.length,
-      totalPumps: digital.length,
+      totalPumps: pumpSignals.length,
       ptTags,
       flowTag,
       ltTags,
