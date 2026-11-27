@@ -250,8 +250,9 @@ function parsePayload(payload: string): Record<string, string | number>[] {
             // known bad instrument reading into live or historical data.
             const keyName = item.name ?? item.tag ?? item.key;
             const val = item.value ?? item.val;
-            if (keyName !== undefined && val !== undefined) {
-              results.push({ [String(keyName)]: item.err !== undefined && String(item.err) !== '0' ? NaN : val });
+            const hasError = item.err !== undefined && String(item.err) !== '0';
+            if (keyName !== undefined && (hasError || val !== undefined)) {
+              results.push({ [String(keyName)]: hasError ? NaN : val });
             }
           }
         });
@@ -279,8 +280,9 @@ function parsePayload(payload: string): Record<string, string | number>[] {
         if (item && typeof item === "object") {
           const keyName = item.name ?? item.tag ?? item.key;
           const val = item.value ?? item.val;
-          if (keyName !== undefined && val !== undefined) {
-            results.push({ [String(keyName)]: item.err !== undefined && String(item.err) !== '0' ? NaN : val });
+          const hasError = item.err !== undefined && String(item.err) !== '0';
+          if (keyName !== undefined && (hasError || val !== undefined)) {
+            results.push({ [String(keyName)]: hasError ? NaN : val });
           } else {
             results.push(item);
           }
@@ -438,41 +440,37 @@ function mapReadings(msg: ParsedMessage) {
     const p = msg.payload;
 
     const findVal = (...keys: string[]): number | undefined => {
+      let hasFault = false;
       for (const k of keys) {
-        if (k in p && p[k] !== undefined && p[k] !== '' && p[k] !== null) {
-          const n = Number(p[k]);
-          if (!isNaN(n)) return n;
-        }
-        const match = Object.keys(p).find(pk => pk.toUpperCase() === k.toUpperCase());
-        if (match !== undefined && p[match] !== undefined && p[match] !== '' && p[match] !== null) {
-          const n = Number(p[match]);
-          if (!isNaN(n)) return n;
-        }
+        const match = Object.hasOwn(p, k) ? k : Object.keys(p).find(pk => pk.toUpperCase() === k.toUpperCase());
+        const raw = match === undefined ? undefined : p[match];
+        if (raw === undefined || raw === '' || raw === null) continue;
+        if (Number.isNaN(raw)) hasFault = true;
+        const value = Number(raw);
+        if (Number.isFinite(value)) return value;
       }
-      return undefined;
+      return hasFault ? NaN : undefined;
+    };
+    const storeTotalizer = (tagId: string, high?: number, low?: number) => {
+      const fault = Number.isNaN(high) || Number.isNaN(low);
+      const value = high === undefined || low === undefined || fault ? null
+        : sanitizeRtuValue(((65535 * high) + low) / 100);
+      if (value === null && !fault) return;
+      rows.set(tagId, {
+        tag_id: tagId, section: 'intake', value, quality: fault ? 'fault' : 'good',
+        received_at: msg.timestamp.toISOString(), mqtt_topic: msg.topic,
+      });
     };
 
     // Inlet Totalizer: High word (INLETTOTLIZER1 / INTotalizer1H) & Low word (INLETTOTLIZER2 / INTotalizer1L)
     const inH = findVal('INLETTOTLIZER1', 'INLETTOTALIZER1', 'INTotalizer1H', 'INTOTALIZER1H');
     const inL = findVal('INLETTOTLIZER2', 'INLETTOTALIZER2', 'INTotalizer1L', 'INTOTALIZER1L');
-    if (inH !== undefined && inL !== undefined) {
-      const tot = sanitizeRtuValue(((65535 * inH) + inL) / 100);
-      rows.set('INT-Totalizer-IN', {
-        tag_id: 'INT-Totalizer-IN', section: 'intake', value: tot, quality: 'good',
-        received_at: msg.timestamp.toISOString(), mqtt_topic: msg.topic
-      });
-    }
+    storeTotalizer('INT-Totalizer-IN', inH, inL);
 
     // Outlet Totalizer: High word (OUTLETTOTLIZER1 / OUTTotalizer1H) & Low word (OUTLETTOTLIZER2 / OUTTotalizer1L)
     const outH = findVal('OUTLETTOTLIZER1', 'OUTLETTOTALIZER1', 'OUTTotalizer1H', 'OUTTOTALIZER1H');
     const outL = findVal('OUTLETTOTLIZER2', 'OUTLETTOTALIZER2', 'OUTTotalizer1L', 'OUTToalizer1L', 'OUTTOTALIZER1L');
-    if (outH !== undefined && outL !== undefined) {
-      const tot = sanitizeRtuValue(((65535 * outH) + outL) / 100);
-      rows.set('INT-Totalizer-OUT', {
-        tag_id: 'INT-Totalizer-OUT', section: 'intake', value: tot, quality: 'good',
-        received_at: msg.timestamp.toISOString(), mqtt_topic: msg.topic
-      });
-    }
+    storeTotalizer('INT-Totalizer-OUT', outH, outL);
   }
 
   for (const [key, raw] of Object.entries(msg.payload)) {
@@ -490,8 +488,8 @@ function mapReadings(msg: ParsedMessage) {
     }
     const sensor = sensors.find(s => mqttKeyMatches(s.mqttKey, key));
     if (!sensor) continue;
-    if (msg.section === 'wtp' && raw === WTP_INVALID_FEEDBACK) {
-      rows.set(sensor.id, {tag_id:sensor.id, section:'wtp', value:null, quality:'fault',
+    if (Number.isNaN(raw) || (msg.section === 'wtp' && raw === WTP_INVALID_FEEDBACK)) {
+      rows.set(sensor.id, {tag_id:sensor.id, section:sensor.section, value:null, quality:'fault',
         received_at:msg.timestamp.toISOString(), mqtt_topic:msg.topic});
       continue;
     }

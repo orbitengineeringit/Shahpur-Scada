@@ -52,10 +52,13 @@ test('WTP saturation and installed outlet flow survive mapping',()=>{
   assert.equal(readings.find(r=>r.tag_id==='WTP-Flow-IN'),undefined);
   assert.equal(readings.find(r=>r.tag_id==='WTP-Flow-OUT').quality,'good');
 });
-test('uncalibrated or out-of-range sensor readings sanitize gracefully to 0.0',()=>{
+test('explicit instrument errors remain faults and out-of-range readings still sanitize',()=>{
   const payload=Object.assign({},...parsePayload(JSON.stringify({params:{r_data:[{name:'BW_LT',value:'50',err:'1'},{name:'CWR_LT',value:'9999',err:'0'}]}})));
   const readings=map('wtp',payload);
-  for(const row of readings){assert.equal(row.value,0);assert.equal(row.quality,'good');}
+  assert.equal(readings.find(row => row.tag_id === 'WTP-LT-BW')?.quality, 'fault');
+  assert.equal(readings.find(row => row.tag_id === 'WTP-LT-BW')?.value, null);
+  assert.equal(readings.find(row => row.tag_id === 'WTP-LT-CW')?.value, 0);
+  assert.equal(readings.find(row => row.tag_id === 'WTP-LT-CW')?.quality, 'good');
   assert.equal(map('wtp',{}).length,0);
 });
 test('configured legacy topic does not remove commissioned intake path',()=>{
@@ -435,10 +438,12 @@ test('Garud sends fresh valid measurements for commissioned stations',()=>{
   assert.match(gisUiCode, /SAGAR \(427\)/, 'GIS Sync UI must display Sagar district with code 427');
 });
 
-test('Garud request includes OHT-2 and WTP good values without fabricating missing flow or pressure', async () => {
+test('Garud request routes all four stations without fabricating missing flow or pressure', async () => {
   const now = new Date().toISOString();
   const row = (tag_id, value, quality = 'good', received_at = now) => ({tag_id, value, quality, received_at});
   let readings = [
+    row('INT-Flow-IN', 25), row('INT-LT', 42),
+    row('OHT1-Flow', 10), row('OHT1-LT', 32),
     row('OHT2-Flow', -2786.41), row('OHT2-PT', 0.1), row('OHT2-LT', 0.0996094),
     row('WTP-PH-IN', 7.1), row('WTP-CL', 0), row('WTP-LT-CW', null, 'fault'),
     row('WTP-PT1', 2.2, 'good', new Date(Date.now() - 3600000).toISOString()),
@@ -447,7 +452,9 @@ test('Garud request includes OHT-2 and WTP good values without fabricating missi
     const query = {
       select: () => query, limit: () => query, in: () => query,
       order: () => table === 'telemetry_latest' ? {data: readings} : query,
-      maybeSingle: () => ({data: {cron_secret:'test', base_url:'https://example.invalid', oht2_device_id:'SHA_OHT_002'}}),
+      maybeSingle: () => ({data: {cron_secret:'test', base_url:'https://example.invalid',
+        intake_device_id:'SHA_INTK_001', wtp_device_id:'SHA_WTP_001',
+        oht1_device_id:'SHA_OHT_001', oht2_device_id:'SHA_OHT_002'}}),
       insert: async () => ({}),
     };
     return query;
@@ -463,12 +470,19 @@ test('Garud request includes OHT-2 and WTP good values without fabricating missi
   });
   const request = new Request('https://example.invalid', {method:'POST', headers:{'x-cron-key':'test'}});
   const result = await (await handler(request)).json();
-  assert.deepEqual(result.proof.included_stations.sort(), ['oht2', 'wtp']);
+  assert.deepEqual(result.proof.included_stations.sort(), ['intake', 'oht1', 'oht2', 'wtp']);
+  assert.equal(sent[0].intake.intakWell_Device_id, 'SHA_INTK_001');
+  assert.equal(sent[0].intake.inletFlow_mld, 0.6);
+  assert.equal(sent[0].intake.outletFlow_mld, undefined);
+  assert.deepEqual(sent[0].intakePumps, []);
   const unit = sent[0].wtpUnits[0];
-  assert.equal(unit.ohts[0].ohT_Device_id, 'SHA_OHT_002');
-  assert.equal(unit.ohts[0].inletPressure, 0.1);
-  assert.equal(unit.ohts[0].waterLevel_mld, 0.0996);
-  assert.equal(unit.ohts[0].outletFlow_mld, undefined);
+  assert.equal(unit.wtp.wtP_Device_id, 'SHA_WTP_001');
+  assert.equal(unit.ohts[0].ohT_Device_id, 'SHA_OHT_001');
+  assert.equal(unit.ohts[0].inletFlow_mld, 0.24);
+  assert.equal(unit.ohts[1].ohT_Device_id, 'SHA_OHT_002');
+  assert.equal(unit.ohts[1].inletPressure, 0.1);
+  assert.equal(unit.ohts[1].waterLevel_mld, 0.0996);
+  assert.equal(unit.ohts[1].outletFlow_mld, undefined);
   assert.equal(unit.wtp.rawPh, 7.1);
   assert.equal(unit.wtp.chlorine, 0);
   assert.equal(unit.wtp.cwrLevel, undefined);
@@ -543,6 +557,21 @@ test('Intake totalizers combine complete 32-bit register pairs using ((65535 * H
   assert.equal(legacyData.find(r => r.tag_id === 'INT-Totalizer-OUT')?.value, 655.44);
   assert.equal(map('intake', { INLETTOTLIZER1: 16 }).find(r => r.tag_id === 'INT-Totalizer-IN'), undefined);
   assert.equal(map('intake', { INTotalizer1H: 2 }).find(r => r.tag_id === 'INT-Totalizer-IN'), undefined);
+});
+
+test('Intake fault-only packets clear metered flow and totalizer values without clearing healthy readings', () => {
+  const r_data = [
+    { name: 'PUMP1_PT1_ACT', value: '2.45', err: '0' },
+    ...['INLETFLOW', 'OUTLETFLOW', 'INLETTOTLIZER1', 'OUTLETTOTLIZER2']
+      .map(name => ({ name, err: '1' })),
+  ];
+  const rows = map('intake', Object.assign({}, ...parsePayload(JSON.stringify({ params: { r_data } }))));
+  for (const name of ['INT-Flow-IN', 'INT-Flow-OUT', 'INT-Totalizer-IN', 'INT-Totalizer-OUT']) {
+    const row = rows.find(r => r.tag_id === name);
+    assert.equal(row?.quality, 'fault', name);
+    assert.equal(row?.value, null, name);
+  }
+  assert.equal(rows.find(r => r.tag_id === 'INT-PT1')?.value, 2.45);
 });
 
 test('Direct digital motor status takes precedence over PT derivation in any key order', () => {
