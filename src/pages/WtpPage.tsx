@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useScada, type TagData } from '@/contexts/ScadaContext';
 import { getTagConnection } from '@/hooks/useTagConnection';
@@ -8,10 +8,12 @@ import InstrumentCard from '@/components/InstrumentCard';
 import SortableCardGrid, { SortableItem } from '@/components/SortableCardGrid';
 import SortableSectionList from '@/components/SortableSectionList';
 import { WTP_SENSORS } from '@/config/shahpurSensors';
-import { BarChart2, LayoutGrid, Activity, Pause, Play } from 'lucide-react';
+import { BarChart2, LayoutGrid, Activity, Pause, Play, TrendingUp } from 'lucide-react';
 import WtpIcon from '@/components/icons/WtpIcon';
 import { Button } from '@/components/ui/button';
 import WtpProcessSimulation, { WtpDriveStatus, WtpValveStatus } from '@/components/WtpProcessSimulation';
+import { WtpMachineryMaterials, WtpMotorArtwork, WtpValveArtwork } from '@/components/WtpMachinery';
+import { WtpMixerArtwork } from '@/components/WtpVessels';
 import { deriveWtpProcessActivity, isSameWtpSample, readWtpMotorState, readWtpTelemetry, wtpProcessReadouts } from '@/lib/wtpProcessActivity';
 import { wtpMotorFeedback } from '../../supabase/functions/_shared/wtpEquipment';
 
@@ -48,14 +50,28 @@ const cardGroups = sectionIds.map(section => ({
   }).map(sensor => sensor.id),
 })).filter(section => section.sensorIds.length > 0);
 
-function FeedbackCard({ tag, name, children }: { tag: TagData; name: string; children?: React.ReactNode }) {
+function FeedbackCard({ tag, name, artwork, children }: {
+  tag: TagData; name: string; artwork?: React.ReactNode; children?: React.ReactNode;
+}) {
   const [showTrend, setShowTrend] = useState(false);
+  const feedbackId = useId();
   const liveValue = readWtpTelemetry(tag).value;
-  return <article className="h-full"><button type="button" aria-label={`View trend for ${name}`} onClick={() => setShowTrend(true)}
-    className="premium-card h-full min-h-16 w-full rounded-xl p-4 text-left">
-    <span className="block text-xs text-muted-foreground">{name}</span>
-    {children}
+  return <article className="h-full"><button type="button" aria-label={`View trend for ${name}`} aria-describedby={artwork ? feedbackId : undefined} onClick={() => setShowTrend(true)}
+    className={artwork ? 'premium-card wtp-equipment-card' : 'wtp-plc-card h-full min-h-16 w-full rounded-xl p-4 text-left'}>
+    {artwork ? <>
+      <span className="wtp-equipment-header"><span className="wtp-equipment-name">{name}</span><TrendingUp size={14} aria-hidden="true" /></span>
+      <span className="wtp-equipment-artwork" aria-hidden="true">{artwork}</span>
+      <span id={feedbackId} className="wtp-equipment-feedback">{children}</span>
+    </> : <><span className="block text-xs text-muted-foreground">{name}</span>{children}</>}
   </button>{showTrend && <SensorTrendModal open onOpenChange={setShowTrend} tagId={tag.id} label={name} unit={tag.unit} section="wtp" currentValue={liveValue ?? undefined} digital />}</article>;
+}
+
+function motorArtworkKind(runKey: string) {
+  if (runKey.startsWith('ALUM_AG')) return 'alum';
+  if (runKey.startsWith('LIME_AG')) return 'lime';
+  if (runKey.startsWith('PRE_CL') || runKey.startsWith('POST_CL')) return 'chlorine';
+  if (runKey === 'AIR_BLOWER_RUN_FB') return 'blower';
+  return 'pump';
 }
 
 const WtpPage: React.FC = () => {
@@ -72,8 +88,7 @@ const WtpPage: React.FC = () => {
     const timer = window.setInterval(refresh, 1000);
     return () => window.clearInterval(timer);
   }, [wtpTags]);
-  const installedStates = wtpTags.filter(tag => !tag.notInstalled && tag.source === 'mqtt').map(getTagConnection);
-  const liveSignalCount = installedStates.filter(state => state === 'connected' || state === 'inactive').length;
+  const liveSignalCount = wtpTags.filter(tag => tag.source === 'mqtt' && readWtpTelemetry(tag).value !== null).length;
 
   const tagsById = useMemo(() => new Map(wtpTags.map(tag => [tag.id, tag])), [wtpTags]);
   const live = useMemo(() => ({
@@ -89,12 +104,15 @@ const WtpPage: React.FC = () => {
     const motor = motorByRun.get(id);
     if (motor) {
       const state = readWtpMotorState(tag, tagsById.get(motor.tripTag));
-      return <FeedbackCard tag={tag} name={motor.name}><WtpDriveStatus state={state} /></FeedbackCard>;
+      const artwork = motor.runKey === 'FLASH_MIXER_RUN_FB'
+        ? <WtpMixerArtwork state={state} rpm={live.activity.rpm.mixer} />
+        : <WtpMotorArtwork kind={motorArtworkKind(motor.runKey)} name={motor.name} state={state} />;
+      return <FeedbackCard tag={tag} name={motor.name} artwork={artwork}><WtpDriveStatus state={state} /></FeedbackCard>;
     }
     const valveIndex = valveCard.exec(id)?.[1];
     if (valveIndex) {
       const valve = live.activity.fieldValves[Number(valveIndex) - 1];
-      return <FeedbackCard tag={tag} name={valve.name}>
+      return <FeedbackCard tag={tag} name={valve.name} artwork={<WtpValveArtwork position={valve.position} trip={valve.trip} />}>
         <WtpValveStatus valve={valve} />
       </FeedbackCard>;
     }
@@ -176,10 +194,11 @@ const WtpPage: React.FC = () => {
         {viewMode === 'cards' ? (
           <>
             {viewControls}
+            <svg className="wtp-machinery absolute" width="0" height="0" aria-hidden="true"><WtpMachineryMaterials /></svg>
             <SortableSectionList groupKey="wtp-sections" sections={sections} />
             <details className="rounded-lg border p-4">
               <summary className="cursor-pointer font-semibold">PLC diagnostics</summary>
-              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="wtp-instrument-grid mt-3 grid gap-3">
                 {wtpTags.filter(tag => sensorMap.get(tag.id)?.type === 'digital').map(tag => {
                   const reading = readWtpTelemetry(tag);
                   const motor = motorByRun.get(tag.id);

@@ -245,6 +245,14 @@ function Mixer({ id, state, rpm, inletFlow }: {
   </g>;
 }
 
+export function WtpMixerArtwork({ state, rpm }: { state: WtpPumpState; rpm: number | null }) {
+  const id = useId();
+  return <svg className="wtpv-materials" viewBox="448 348 156 270">
+    <Materials id={id} />
+    <Mixer id={id} state={state} rpm={rpm} inletFlow={false} />
+  </svg>;
+}
+
 function Clarifier({ id, state, rpm, inletFlow, flowRate }: {
   id: string; state: WtpPumpState; rpm: number | null; inletFlow: boolean; flowRate: number | null;
 }) {

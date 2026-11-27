@@ -60,6 +60,7 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
     ? readWtpTelemetry(tag).value !== null
     : tag.source !== 'simulated' && (connection === 'connected' || connection === 'inactive');
   const shownValue = hasLiveValue ? tag.value : 0;
+  const instrumentValue = section === 'wtp' && !hasLiveValue ? null : shownValue;
 
   const renderInstrument = () => {
     const showNotInstalled = sensor.notInstalled || tag.notInstalled;
@@ -75,39 +76,38 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
       );
     }
     
-    if (!hasLiveValue && !showNotInstalled) {
-      if (section === 'wtp') return null;
+    if (!hasLiveValue && !showNotInstalled && section !== 'wtp') {
       return <span className="font-mono text-muted-foreground" aria-label="Reading unavailable">—</span>;
     }
     switch (sensor.instrumentType) {
       case 'pt': {
         const isPt5 = tag.id === 'WTP-PT5';
         const ptSize = isPt5 ? 160 : 130;
-        return <PtGauge value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} size={ptSize} variant={isPt5 ? 'cwph' : 'default'} />;
+        return <PtGauge value={instrumentValue} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} size={ptSize} variant={isPt5 ? 'cwph' : 'default'} />;
       }
       case 'combined_pt':
         // Combined Header Pressure — amber/orange, bigger gauge
-        return <PtGauge value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} size={175} variant="combined" />;
+        return <PtGauge value={instrumentValue} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} size={175} variant="combined" />;
       case 'lt':
         if (sensor.id.startsWith('WTP-LOH-')) {
-          return <LossOfHeadIndicator value={shownValue} label={sensor.label} />;
+          return <LossOfHeadIndicator value={instrumentValue} label={sensor.label} />;
         }
         if (section === 'oht') {
           return <OhtLevelTank value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} />;
         }
         if (section === 'wtp') {
           const wtpVariant = sensor.id.includes('CW') ? 'clearwater' : 'backwash';
-          return <WtpLevelTank value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} variant={wtpVariant} />;
+          return <WtpLevelTank value={instrumentValue} min={tag.min} max={tag.max} unit={tag.unit} variant={wtpVariant} />;
         }
         return <LevelBar value={shownValue} min={tag.min} max={tag.max} unit={tag.unit} label={tag.label} />;
       case 'flow': {
         const flowDir = sensor.id?.toLowerCase().includes('in') ? 'inlet' as const
           : sensor.id?.toLowerCase().includes('out') ? 'outlet' as const
           : undefined;
-        return <FlowIndicator value={shownValue} unit={tag.unit} max={tag.max} direction={flowDir} />;
+        return <FlowIndicator value={instrumentValue} unit={tag.unit} max={tag.max} direction={flowDir} />;
       }
       case 'totalizer':
-        return <TotalizerDisplay value={shownValue} unit={tag.unit} />;
+        return <TotalizerDisplay value={instrumentValue} unit={tag.unit} />;
       case 'valve':
         return <ValveIcon isOpen={shownValue > 0.5} />;
       case 'kw':
@@ -127,11 +127,11 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
       case 'temperature':
         return <TemperatureDisplay value={shownValue} unit={tag.unit} min={tag.min} max={tag.max} />;
       case 'ph':
-        return <PhAnalyzer value={shownValue} unit={tag.unit} />;
+        return <PhAnalyzer value={instrumentValue} unit={tag.unit} />;
       case 'turbidity':
-        return <TurbidityAnalyzer value={shownValue} max={tag.max} unit={tag.unit} />;
+        return <TurbidityAnalyzer value={instrumentValue} max={tag.max} unit={tag.unit} />;
       case 'chlorine':
-        return <ChlorineAnalyzer value={shownValue} max={tag.max} unit={tag.unit} />;
+        return <ChlorineAnalyzer value={instrumentValue} max={tag.max} unit={tag.unit} />;
       case 'fcv': {
         const fcvOpen = shownValue > 1;
         return (
@@ -171,7 +171,7 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
         return (
           <div className="flex items-baseline gap-2">
             <span className={`text-3xl font-mono font-bold scada-value ${isFlickering ? 'value-flicker' : ''}`}>
-              {shownValue.toFixed(2)}
+              {instrumentValue?.toFixed(2) ?? '—'}
             </span>
             <span className="text-xs text-muted-foreground">{tag.unit}</span>
           </div>
@@ -210,7 +210,7 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
 
   return (
     <>
-      <div
+      <article
         className="premium-card rounded-xl p-2 sm:p-3 relative overflow-visible cursor-pointer opacity-0 animate-fade-in flex flex-col h-full"
         style={{ animationDelay: `${index * 40}ms` }}
         onClick={() => setShowTrends(true)}
@@ -267,7 +267,7 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
             </div>}
           </div>
         </div>
-      </div>
+      </article>
 
       {showAlarmSettings && (
         <AlarmSettingsModal open={showAlarmSettings} onOpenChange={setShowAlarmSettings}

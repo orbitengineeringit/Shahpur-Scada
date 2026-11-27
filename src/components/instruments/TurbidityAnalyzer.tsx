@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 
 interface TurbidityAnalyzerProps {
-  value: number;
+  value: number | null;
   max: number;
   unit: string;
 }
@@ -13,12 +13,13 @@ interface TurbidityAnalyzerProps {
  * laser beam animation, NTU bar indicator, status LEDs, control buttons
  */
 const TurbidityAnalyzer: React.FC<TurbidityAnalyzerProps> = ({ value, max, unit }) => {
-  const percentage = useMemo(() => Math.min(100, Math.max(0, (value / max) * 100)), [value, max]);
-  const isGood = value <= 5;
-  const isWarning = value > 5 && value <= 10;
-  const isDanger = value > 10;
+  const percentage = useMemo(() => Math.min(100, Math.max(0, ((value ?? 0) / max) * 100)), [value, max]);
+  const isGood = value !== null && value <= 5;
+  const isWarning = value !== null && value > 5 && value <= 10;
+  const isDanger = value !== null && value > 10;
 
   const getStatusColor = () => {
+    if (value === null) return 'hsl(var(--muted-foreground))';
     if (isGood) return 'hsl(var(--success))';
     if (isWarning) return 'hsl(var(--warning))';
     return 'hsl(var(--destructive))';
@@ -28,7 +29,7 @@ const TurbidityAnalyzer: React.FC<TurbidityAnalyzerProps> = ({ value, max, unit 
 
   // Water clarity — more turbid = more opaque fill
   const waterOpacity = useMemo(() => {
-    return Math.min(0.15 + (value / max) * 0.6, 0.75);
+    return Math.min(0.15 + ((value ?? 0) / max) * 0.6, 0.75);
   }, [value, max]);
 
   const waterColor = useMemo(() => {
@@ -116,7 +117,7 @@ const TurbidityAnalyzer: React.FC<TurbidityAnalyzerProps> = ({ value, max, unit 
         <text x="50" y="45" textAnchor="middle"
           fill={getStatusColor()}
           style={{ fontSize: '16px', fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontWeight: 700 }}>
-          {value.toFixed(2)}
+          {value?.toFixed(2) ?? '—'}
         </text>
 
         {/* ===== NTU BAR INDICATOR ===== */}
@@ -149,6 +150,7 @@ const TurbidityAnalyzer: React.FC<TurbidityAnalyzerProps> = ({ value, max, unit 
         {/* Glass vial / sample cell */}
         <rect x="23" y="79" width="20" height="24" rx="6"
           fill="hsl(var(--card))" stroke="hsl(var(--border))" strokeWidth="0.6" />
+        {value !== null && <>
         {/* Water sample inside */}
         <rect x="25" y="81" width="16" height="20" rx="5"
           fill="url(#tb-water)">
@@ -174,6 +176,7 @@ const TurbidityAnalyzer: React.FC<TurbidityAnalyzerProps> = ({ value, max, unit 
           fill="hsl(0 85% 55%)" opacity="0.8">
           <animate attributeName="opacity" values="0.6;1;0.6" dur="1.5s" repeatCount="indefinite" />
         </circle>
+        </>}
         {/* Detector label */}
         <text x="33" y="112" textAnchor="middle" className="fill-muted-foreground"
           style={{ fontSize: '3.5px' }}>DET</text>
@@ -238,13 +241,13 @@ const TurbidityAnalyzer: React.FC<TurbidityAnalyzerProps> = ({ value, max, unit 
           style={{ fontSize: '3.5px', fontWeight: 600 }}>SPAN</text>
 
         {/* ===== STATUS TEXT ===== */}
-        <rect x="30" y="116" width="40" height="7" rx="2"
+        {value !== null && <><rect x="30" y="116" width="40" height="7" rx="2"
           fill={getStatusColor()} fillOpacity="0.12" />
         <text x="50" y="121.5" textAnchor="middle"
           fill={getStatusColor()}
           style={{ fontSize: '5.5px', fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontWeight: 700, letterSpacing: '0.5px' }}>
           {statusLabel}
-        </text>
+        </text></>}
       </svg>
     </div>
   );

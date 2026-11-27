@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 
 interface ChlorineAnalyzerProps {
-  value: number;
+  value: number | null;
   max: number;
   unit: string;
 }
@@ -13,12 +13,13 @@ interface ChlorineAnalyzerProps {
  * sample tubing, and bar indicator
  */
 const ChlorineAnalyzer: React.FC<ChlorineAnalyzerProps> = ({ value, max, unit }) => {
-  const percentage = useMemo(() => Math.min(100, Math.max(0, (value / max) * 100)), [value, max]);
-  const isNormal = value >= 0.2 && value <= 2.0;
-  const isLow = value < 0.2;
-  const isHigh = value > 2.0;
+  const percentage = useMemo(() => Math.min(100, Math.max(0, ((value ?? 0) / max) * 100)), [value, max]);
+  const isNormal = value !== null && value >= 0.2 && value <= 2.0;
+  const isLow = value !== null && value < 0.2;
+  const isHigh = value !== null && value > 2.0;
 
   const getStatusColor = () => {
+    if (value === null) return 'hsl(var(--muted-foreground))';
     if (isNormal) return 'hsl(var(--success))';
     if (isHigh) return 'hsl(var(--destructive))';
     return 'hsl(var(--warning))';
@@ -94,7 +95,7 @@ const ChlorineAnalyzer: React.FC<ChlorineAnalyzerProps> = ({ value, max, unit })
         <text x="50" y="43" textAnchor="middle"
           fill={getStatusColor()}
           style={{ fontSize: '16px', fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontWeight: 700 }}>
-          {value.toFixed(3)}
+          {value?.toFixed(3) ?? '—'}
         </text>
         {/* Unit label on LCD */}
         <text x="50" y="29" textAnchor="middle"
@@ -174,11 +175,11 @@ const ChlorineAnalyzer: React.FC<ChlorineAnalyzerProps> = ({ value, max, unit })
         <rect x="20" y="89" width="16" height="22" rx="3"
           fill="hsl(var(--card))" stroke="hsl(var(--border))" strokeWidth="0.8" />
         {/* Reagent liquid inside */}
-        <rect x="22" y={89 + 22 * (1 - Math.min(percentage / 100 + 0.3, 1))}
+        {value !== null && <rect x="22" y={89 + 22 * (1 - Math.min(percentage / 100 + 0.3, 1))}
           width="12" height={22 * Math.min(percentage / 100 + 0.3, 1)} rx="2"
           fill="url(#cl-reagent)" opacity="0.8">
           <animate attributeName="opacity" values="0.7;0.9;0.7" dur="3s" repeatCount="indefinite" />
-        </rect>
+        </rect>}
         {/* Chamber cap */}
         <rect x="22" y="87" width="12" height="3" rx="1"
           fill="hsl(var(--muted))" stroke="hsl(var(--border))" strokeWidth="0.4" />
@@ -215,13 +216,13 @@ const ChlorineAnalyzer: React.FC<ChlorineAnalyzerProps> = ({ value, max, unit })
           fill="hsl(var(--muted))" stroke="hsl(var(--border))" strokeWidth="0.4" />
 
         {/* ===== STATUS TEXT ===== */}
-        <rect x="32" y="114" width="36" height="8" rx="2"
+        {value !== null && <><rect x="32" y="114" width="36" height="8" rx="2"
           fill={getStatusColor()} fillOpacity="0.12" />
         <text x="50" y="120" textAnchor="middle"
           fill={getStatusColor()}
           style={{ fontSize: '5.5px', fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontWeight: 700, letterSpacing: '0.5px' }}>
           {statusLabel}
-        </text>
+        </text></>}
       </svg>
     </div>
   );

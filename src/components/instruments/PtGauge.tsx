@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 
 interface PtGaugeProps {
-  value: number;
+  value: number | null;
   min: number;
   max: number;
   unit: string;
@@ -14,7 +14,7 @@ const PtGauge: React.FC<PtGaugeProps> = ({ value, min, max, unit, label, size = 
   const isCwph = variant === 'cwph';
   const isCombined = variant === 'combined';
   const percentage = useMemo(() => {
-    return Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
+    return value === null ? 0 : Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
   }, [value, min, max]);
 
   const needleAngle = useMemo(() => {
@@ -22,6 +22,7 @@ const PtGauge: React.FC<PtGaugeProps> = ({ value, min, max, unit, label, size = 
   }, [percentage]);
 
   const getColor = () => {
+    if (value === null) return 'hsl(var(--muted-foreground))';
     if (isCombined) {
       if (percentage > 85) return 'hsl(var(--destructive))';
       if (percentage > 65) return 'hsl(38,92%,65%)';
@@ -129,7 +130,7 @@ const PtGauge: React.FC<PtGaugeProps> = ({ value, min, max, unit, label, size = 
         <circle cx={cx} cy={cy} r={3} fill={getColor()} opacity={0.8} />
 
         {/* Needle — using transform rotate for smooth CSS transition */}
-        <line
+        {value !== null && <line
           x1={0}
           y1={0}
           x2={0}
@@ -142,7 +143,7 @@ const PtGauge: React.FC<PtGaugeProps> = ({ value, min, max, unit, label, size = 
             transition: 'transform 1s cubic-bezier(0.4, 0, 0.2, 1)',
             filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))',
           }}
-        />
+        />}
 
         {/* Needle tip dot */}
         {percentage > 1 && (
@@ -159,7 +160,7 @@ const PtGauge: React.FC<PtGaugeProps> = ({ value, min, max, unit, label, size = 
 
         {/* Value text */}
         <text x={cx} y={cy + (isCombined ? 44 : isCwph ? 42 : 32)} textAnchor="middle" className="fill-foreground font-mono font-bold" style={{ fontSize: isCombined ? '18px' : isCwph ? '16px' : '12px', fill: isCombined ? getColor() : undefined }}>
-          {value.toFixed(2)}
+          {value?.toFixed(2) ?? '—'}
         </text>
         <text x={cx} y={cy + (isCombined ? 60 : isCwph ? 56 : 44)} textAnchor="middle" className="fill-muted-foreground" style={{ fontSize: isCombined ? '11px' : isCwph ? '10px' : '8px' }}>
           {unit}

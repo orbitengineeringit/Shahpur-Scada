@@ -1,5 +1,5 @@
 import { memo, useId, type CSSProperties } from 'react';
-import type { WtpProcessActivity, WtpPumpState } from '@/lib/wtpProcessActivity';
+import type { WtpProcessActivity, WtpPumpState, WtpValveFeedback } from '@/lib/wtpProcessActivity';
 import './WtpMachinery.css';
 
 const steel = 'url(#wtp-mach-steel)';
@@ -232,14 +232,8 @@ const tankStations = [
 
 const dosingPorts = [186, 309, 434, 561, 689, 814];
 
-export default memo(function WtpMachinery({ backwashLevel, activity }: {
-  backwashLevel: number | null;
-  activity: WtpProcessActivity;
-}) {
-  const { driveStates, pumpStates, rpm } = activity;
-  const chlorineFeeding = activity.chlorineFeeding === true;
-  return <g className="wtp-machinery">
-    <defs>
+export function WtpMachineryMaterials() {
+  return <defs>
       <radialGradient id="wtp-mach-shadow"><stop stopColor="var(--wm-shadow)" stopOpacity=".54"/><stop offset=".72" stopColor="var(--wm-shadow)" stopOpacity=".22"/><stop offset="1" stopColor="var(--wm-shadow)" stopOpacity="0"/></radialGradient>
       <radialGradient id="wtp-mach-endcap" cx=".3" cy=".25" r=".85"><stop stopColor="var(--wm-paint-hi)"/><stop offset=".48" stopColor="var(--wm-paint)"/><stop offset="1" stopColor="var(--wm-paint-lo)"/></radialGradient>
       <linearGradient id="wtp-mach-steel">
@@ -266,7 +260,85 @@ export default memo(function WtpMachinery({ backwashLevel, activity }: {
       <g id="wtp-mach-bolt"><path d="M-1.7 -1.2l1.5 -.9 1.8 .8 .2 1.7 -1.5 1 -1.9 -.7z" fill={steel} stroke="#425765" strokeWidth=".6"/><path d="M-1.1 -.9l1.2 -.5" stroke="var(--wm-glint)" strokeWidth=".6"/></g>      <linearGradient id="wtp-mach-gold"><stop stopColor="#96630e" /><stop offset=".35" stopColor="#ffcf37" /><stop offset="1" stopColor="#b97b0a" /></linearGradient>
       <linearGradient id="wtp-mach-slab" x2=".2" y2="1"><stop stopColor="var(--wm-slab-top)" /><stop offset=".45" stopColor="var(--wm-slab-mid)" /><stop offset="1" stopColor="var(--wm-slab-edge)" /></linearGradient>
       <linearGradient id="wtp-mach-water" x2=".1" y2="1"><stop stopColor="var(--wm-water-lit)" /><stop offset=".25" stopColor="var(--wm-water-mid)" /><stop offset="1" stopColor="var(--wm-water-deep)" /></linearGradient>
-    </defs>
+  </defs>;
+}
+
+export function WtpMotorArtwork({ kind, name, state }: {
+  kind: 'pump' | 'blower' | 'alum' | 'lime' | 'chlorine';
+  name: string;
+  state: WtpPumpState;
+}) {
+  if (kind === 'alum' || kind === 'lime') {
+    const { band, liquid } = tankStations[kind === 'alum' ? 0 : 2];
+    return <svg className="wtp-machinery" viewBox="-75 86 150 198">
+      <DosingTank x={0} band={band} liquid={liquid} name={name} state={state} rpm={null} level={null} />
+    </svg>;
+  }
+
+  if (kind === 'chlorine') {
+    const running = state === 'Run';
+    return <svg className="wtp-machinery" viewBox="-58 -47 116 86" data-equipment={name} data-state={state}>
+      <Plinth x={-38} y={19} width={76} height={11} />
+      <path d="M-14 -6H-33Q-39 -6 -39 1V13M13 -7H32Q39 -7 39 -14V-25" fill="none" stroke="#395566" strokeWidth="7" />
+      <path d="M-14 -7H-33Q-37 -7 -37 1V11M13 -8H32Q37 -8 37 -14V-23" fill="none" stroke="#a6bec9" strokeWidth="2.5" />
+      <path d="M-46 11h14v5h-14zM32 -27h14v5H32z" fill={steel} stroke="#425865" />
+      <rect x="-13" y="-36" width="26" height="56" rx="5" fill={blue} stroke="#143f65" strokeWidth="1.5" />
+      <rect x="-16" y="-37" width="32" height="6" rx="2" fill={steel} stroke="#516773" />
+      <path d="M-7 -29v13m5-13v13m5-13v13m5-13v13" stroke="#76afd0" strokeWidth="1.5" />
+      <circle cy="-4" r="19" fill={steel} stroke="#4c6471" strokeWidth="1.7" />
+      <circle cy="-4" r="12.5" fill="#183c51" stroke="#789db0" strokeWidth="1.5" />
+      {[45,135,225,315].map(angle => <use key={angle} href="#wtp-mach-bolt" transform={`translate(0 -4) rotate(${angle}) translate(0 -15)`} />)}
+      <g className={running ? 'wtp-machine-metering-stroke' : undefined}>
+        <path d="M-8 -4Q0 -11 8 -4Q0 3 -8 -4Z" fill="#a3d1db" stroke="#e1f5f6" />
+        <path d="M0 -11v-4m0 18v4" stroke="#9ad3e6" strokeWidth="2" />
+      </g>
+    </svg>;
+  }
+
+  return <svg className="wtp-machinery" viewBox={kind === 'blower' ? '-63 -53 126 94' : '-63 -43 126 84'}>
+    <Plinth x={-46} y={20} width={92} height={12} />
+    {kind === 'blower' && <g transform="scale(1.18)">
+      <path d="M21 -28v-7h26" fill="none" stroke="#305267" strokeWidth="10" strokeLinejoin="round" />
+      <path d="M20 -28v-8h27" fill="none" stroke="#8babbd" strokeWidth="3" strokeLinejoin="round" />
+      <rect x="44" y="-42" width="5" height="14" rx="1.5" fill={steel} stroke="#3c5460" />
+    </g>}
+    <Pump x={0} y={0} scale={1.18} state={state} name={name} rpm={null} air={kind === 'blower'} />
+  </svg>;
+}
+
+export function WtpValveArtwork({ position, trip }: Pick<WtpValveFeedback, 'position' | 'trip'>) {
+  const confirmed = position === 'Open' || position === 'Closed';
+  return <svg className="wtp-machinery wtp-card-valve" viewBox="-64 -55 128 82" data-position={position}>
+    <ellipse cy="21" rx="49" ry="6" fill="url(#wtp-mach-shadow)" />
+    <rect x="-51" y="-8" width="102" height="16" rx="3" fill={steel} stroke="#4b6370" />
+    <path d="M-50 -4H50" stroke="#ecfbff" strokeWidth="2" opacity=".58" />
+    {[-39,39].map(x => <g key={x} transform={`translate(${x} 0)`}>
+      <rect x="-4" y="-13" width="8" height="26" rx="2" fill={steel} stroke="#3a5461" />
+      <path d="M-7 -10h14m-14 20h14" stroke="#384e5a" strokeWidth="2" />
+    </g>)}
+    <path d="M-33 -10 -17 -16H17L33 -10V10L17 16H-17L-33 10Z" fill={blue} stroke="#153d58" strokeWidth="1.5" />
+    <rect x="-5" y="-29" width="10" height="17" rx="1.5" fill={steel} stroke="#485e6a" />
+    <rect x="-22" y="-43" width="44" height="18" rx="4" fill={steel} stroke="#3a5665" />
+    <rect x="-20" y="-46" width="39" height="15" rx="3" fill={blue} stroke="#1e4c68" />
+    <path d="M-14 -42v7m5-7v7m5-7v7m5-7v7" stroke="#7ab7d8" />
+    <circle cx="12" cy="-39" r="3.1" fill={trip === true ? '#ef524c' : 'currentColor'} stroke="#203b4b" />
+    <circle r="16" fill={steel} stroke="#435e6e" strokeWidth="1.4" />
+    {[45,135,225,315].map(angle => <use key={angle} href="#wtp-mach-bolt" transform={`rotate(${angle}) translate(0 -13)`} />)}
+    <circle r="10" fill="#122d3e" stroke="#5a7e91" />
+    {confirmed
+      ? <path className="wtp-card-valve-disc" d="M-7 0H7" stroke="currentColor" strokeWidth="3.1" strokeLinecap="round" />
+      : <path d="M-5 0H5" stroke="currentColor" strokeWidth="2" strokeDasharray="2 2" />}
+  </svg>;
+}
+
+export default memo(function WtpMachinery({ backwashLevel, activity }: {
+  backwashLevel: number | null;
+  activity: WtpProcessActivity;
+}) {
+  const { driveStates, pumpStates, rpm } = activity;
+  const chlorineFeeding = activity.chlorineFeeding === true;
+  return <g className="wtp-machinery">
+    <WtpMachineryMaterials />
     <Shed x={36} y={35} width={895} height={226} />
     <Plinth x={35} y={280} width={885} height={49} />
     {tankStations.map((tank, i) => (

@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 
 interface PhAnalyzerProps {
-  value: number;
+  value: number | null;
   unit: string;
 }
 
@@ -12,9 +12,9 @@ interface PhAnalyzerProps {
  * electrode probe visualization, status LEDs, control buttons
  */
 const PhAnalyzer: React.FC<PhAnalyzerProps> = ({ value, unit }) => {
-  const isNormal = value >= 6.5 && value <= 8.5;
-  const isAcidic = value < 6.5 && value > 0;
-  const isAlkaline = value > 8.5;
+  const isNormal = value !== null && value >= 6.5 && value <= 8.5;
+  const isAcidic = value !== null && value < 6.5 && value > 0;
+  const isAlkaline = value !== null && value > 8.5;
 
   const getStatusColor = () => {
     if (isNormal) return 'hsl(var(--success))';
@@ -25,7 +25,7 @@ const PhAnalyzer: React.FC<PhAnalyzerProps> = ({ value, unit }) => {
 
   // pH to color mapping — realistic pH color spectrum
   const getPhColor = useMemo(() => {
-    if (value <= 0) return 'hsl(var(--muted-foreground))';
+    if (value === null || value <= 0) return 'hsl(var(--muted-foreground))';
     if (value < 3) return 'hsl(0 85% 50%)';       // Strong acid — red
     if (value < 5) return 'hsl(25 90% 55%)';       // Acid — orange
     if (value < 6.5) return 'hsl(45 90% 55%)';     // Weak acid — yellow
@@ -36,7 +36,7 @@ const PhAnalyzer: React.FC<PhAnalyzerProps> = ({ value, unit }) => {
   }, [value]);
 
   const statusLabel = isNormal ? 'NORMAL' : isAcidic ? 'ACIDIC' : isAlkaline ? 'ALKALINE' : '---';
-  const pointerX = 18 + (value / 14) * 64;
+  const pointerX = 18 + ((value ?? 0) / 14) * 64;
 
   return (
     <div className="flex flex-col items-center gap-0.5">
@@ -124,7 +124,7 @@ const PhAnalyzer: React.FC<PhAnalyzerProps> = ({ value, unit }) => {
         <text x="50" y="47" textAnchor="middle"
           fill={getPhColor}
           style={{ fontSize: '17px', fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontWeight: 700 }}>
-          {value.toFixed(2)}
+          {value?.toFixed(2) ?? '—'}
         </text>
 
         {/* ===== pH SPECTRUM BAR ===== */}
@@ -140,7 +140,7 @@ const PhAnalyzer: React.FC<PhAnalyzerProps> = ({ value, unit }) => {
         <line x1={18 + 64 * (8.5 / 14)} y1="59" x2={18 + 64 * (8.5 / 14)} y2="67.5"
           stroke="hsl(var(--foreground))" strokeWidth="0.6" strokeDasharray="1 1" />
         {/* Value pointer triangle */}
-        {value > 0 && (
+        {value !== null && value > 0 && (
           <polygon
             points={`${pointerX - 2.5},59 ${pointerX + 2.5},59 ${pointerX},61`}
             fill={getPhColor}
@@ -229,13 +229,13 @@ const PhAnalyzer: React.FC<PhAnalyzerProps> = ({ value, unit }) => {
           fill="hsl(var(--muted))" stroke="hsl(var(--border))" strokeWidth="0.4" />
 
         {/* ===== STATUS TEXT ===== */}
-        <rect x="30" y="116" width="40" height="7" rx="2"
+        {value !== null && <><rect x="30" y="116" width="40" height="7" rx="2"
           fill={getStatusColor()} fillOpacity="0.12" />
         <text x="50" y="121.5" textAnchor="middle"
           fill={getStatusColor()}
           style={{ fontSize: '5.5px', fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontWeight: 700, letterSpacing: '0.5px' }}>
           {statusLabel}
-        </text>
+        </text></>}
       </svg>
     </div>
   );

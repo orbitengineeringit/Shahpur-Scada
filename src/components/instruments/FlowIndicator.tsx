@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 
 interface FlowIndicatorProps {
-  value: number;
+  value: number | null;
   unit: string;
   max: number;
   direction?: 'inlet' | 'outlet';
@@ -12,8 +12,8 @@ interface FlowIndicatorProps {
  * Blue head with LCD display, flanged pipe body with flow arrow
  */
 const FlowIndicator: React.FC<FlowIndicatorProps> = ({ value, unit, max, direction }) => {
-  const isActive = Math.abs(value) > 0.01;
-  const percentage = useMemo(() => Math.min(100, Math.max(0, (Math.abs(value) / max) * 100)), [value, max]);
+  const isActive = value !== null && Math.abs(value) > 0.01;
+  const percentage = useMemo(() => Math.min(100, Math.max(0, (Math.abs(value ?? 0) / max) * 100)), [value, max]);
 
   const isOutlet = direction === 'outlet';
   const headColor = isOutlet ? "hsl(38 92% 50%" : "hsl(199 89% 48%";
@@ -50,7 +50,7 @@ const FlowIndicator: React.FC<FlowIndicatorProps> = ({ value, unit, max, directi
         <text x="50" y="43" textAnchor="middle"
           className="fill-foreground"
           style={{ fontSize: '9px', fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontWeight: 700 }}>
-          {value.toFixed(2)}
+          {value?.toFixed(2) ?? '—'}
         </text>
 
         {/* Neck/connector */}

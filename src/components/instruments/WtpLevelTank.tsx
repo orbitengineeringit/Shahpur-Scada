@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 
 interface WtpLevelTankProps {
-  value: number;
+  value: number | null;
   min: number;
   max: number;
   unit: string;
@@ -19,7 +19,7 @@ interface WtpLevelTankProps {
  */
 const WtpLevelTank: React.FC<WtpLevelTankProps> = ({ value, min, max, unit, variant }) => {
   const percentage = useMemo(() => {
-    return Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
+    return value === null ? 0 : Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
   }, [value, min, max]);
 
   const isClearWater = variant === 'clearwater';
@@ -47,7 +47,7 @@ const WtpLevelTank: React.FC<WtpLevelTankProps> = ({ value, min, max, unit, vari
   }, [isClearWater]);
 
   const statusText = percentage >= 70 ? 'GOOD' : percentage >= 40 ? 'MEDIUM' : percentage > 0 ? 'LOW' : 'EMPTY';
-  const statusColor = percentage >= 70 ? 'hsl(var(--success))' : percentage >= 40 ? 'hsl(var(--warning))' : 'hsl(var(--destructive))';
+  const statusColor = value === null ? 'hsl(var(--muted-foreground))' : percentage >= 70 ? 'hsl(var(--success))' : percentage >= 40 ? 'hsl(var(--warning))' : 'hsl(var(--destructive))';
 
   // Tank geometry — CWT is bigger than Backwash in real WTP
   const tankLeft = isClearWater ? 6 : 10;
@@ -217,7 +217,7 @@ const WtpLevelTank: React.FC<WtpLevelTankProps> = ({ value, min, max, unit, vari
         <text x="41" y="60" textAnchor="middle"
           fill={statusColor}
           style={{ fontSize: '13px', fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontWeight: 700 }}>
-          {value.toFixed(2)}
+          {value?.toFixed(2) ?? '—'}
         </text>
 
         {/* ===== SIDE LEVEL GAUGE ===== */}
@@ -267,13 +267,13 @@ const WtpLevelTank: React.FC<WtpLevelTankProps> = ({ value, min, max, unit, vari
         })}
 
         {/* ===== STATUS + PERCENTAGE ===== */}
-        <rect x="18" y="115" width="46" height="8" rx="2.5"
+        {value !== null && <><rect x="18" y="115" width="46" height="8" rx="2.5"
           fill={statusColor} fillOpacity="0.12" />
         <text x="41" y="121" textAnchor="middle"
           fill={statusColor}
           style={{ fontSize: '5.5px', fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontWeight: 700 }}>
           {statusText} • {percentage.toFixed(0)}%
-        </text>
+        </text></>}
       </svg>
     </div>
   );
