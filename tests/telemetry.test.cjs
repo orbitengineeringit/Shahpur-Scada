@@ -770,14 +770,50 @@ test('WTP original bytes preserve named readings inside repeated anonymous membe
   const raw = '{"":"id","":{"CWR_LT_SCALED":"7.8615","CWR_LT_SCALED":"0.0000","FLASH_MIXER_RUN_FB":"1","FLASH_MIXER_TRIP_FB":"0","CWR_VALVE1_OPEN_FB":"1","CWR_VALVE1_CLOSE_FB":"0","RAW_PH_SCALED":"8.5","pt3":"1.0065"},"":"1"}';
   const decoded = sharedWtp.decodeWtpEquipment(raw);
   const rows = new Map(map('wtp', decoded).map(row => [row.tag_id,row]));
-  assert.equal(rows.get('WTP-LT-CW').quality,'fault');
-  assert.equal(rows.get('WTP-LT-CW').value,null);
+  assert.equal(rows.get('WTP-LT-CW').quality,'good');
+  assert.equal(rows.get('WTP-LT-CW').value,7.86);
   assert.equal(rows.get('WTP-FLASH_MIXER_RUN_FB').value,1);
   assert.equal(rows.get('WTP-CWR_VALVE1_OPEN_FB').value,1);
   assert.equal(rows.get('WTP-PH-IN').value,8.5);
   assert.equal(rows.get('WTP-PLC-PT3').value,1.01);
   assert.equal(rows.has('WTP-HeaderPT'),false);
   assert.equal(sharedWtp.decodeWtpEquipment('{"":{"TOTALIZER":"604","OUTLET_FLOW":0},"":"1"}').TOTALIZER,604);
+});
+
+test('WTP zero placeholders only yield to one valid measurement, regardless of packet order', () => {
+  const invalid = sharedWtp.WTP_INVALID_FEEDBACK;
+  const fields = [
+    ['pt2', '0.0844'], ['pt3', '0'], ['CWR_LT_SCALED', '43.5203'],
+    ['BACKWASH_LT_SCALED', '48.9161'], ['RAW_TURBIDITY_SCALED', '10'],
+    ['LOH_SCALED', '11.7082'], ['ROF_SCALED', '55.2368'], ['LOH02_SCALED', '-4.3061'],
+    ['pt2', '0'], ['pt3', '1.0065'], ['CWR_LT_SCALED', '0'],
+    ['BACKWASH_LT_SCALED', '0'], ['RAW_TURBIDITY_SCALED', '0'],
+    ['LOH_SCALED', '0'], ['ROF_SCALED', '0'], ['LOH02_SCALED', '0'],
+    ['PT1', '0'], ['PT1', '0'], ['OUTLET_FLOW', '0'], ['TOTALIZER', '0'],
+    ['FLASH_MIXER_RUN_FB', '0'], ['FLASH_MIXER_RUN_FB', '1'],
+    ['RECYCLE_PUMP02_RUN_FB', '1'], ['RECYCLE_PUMP02_TRIP_FB', '1'],
+    ['VALVE4_OPEN_FB', '1'], ['VALVE4_CLOSE_FB', '0'],
+  ];
+  for (const entries of [fields, [...fields].reverse()]) {
+    const decoded = sharedWtp.normalizeWtpFields(entries);
+    for (const [key, value] of Object.entries({
+      PUMP2_PT: 0.0844, PT3: 1.0065, CWT: 43.5203, BACKWASH_TANK: 48.9161,
+      TURBIDITY_INLET: 10, LOH_FB1: 11.7082, ROF_FB1: 55.2368, LOH_FB2: invalid,
+      PUMP1_PT: 0, OUTLET_FLOW: 0, TOTALIZER: 0, FLASH_MIXER_RUN_FB: invalid,
+      RECYCLE_PUMP02_RUN_FB: invalid, RECYCLE_PUMP02_TRIP_FB: invalid,
+      VALVE4_OPEN_FB: 1, VALVE4_CLOSE_FB: 0,
+    })) assert.equal(decoded[key], value, key);
+    const rows = new Map(map('wtp', decoded).map(row => [row.tag_id, row]));
+    assert.equal(rows.get('WTP-LT-CW').value, 43.52);
+    assert.equal(rows.get('WTP-ROF-FB1').quality, 'good');
+  }
+  const conflicts = sharedWtp.normalizeWtpFields([
+    ['PT2', '0'], ['PT2', '1'], ['PT2', '2'], ['PT2', '0'],
+    ['PT3', 'bad'], ['PT3', '1'], ['TOTALIZER', '0'], ['TOTALIZER', '10'],
+  ]);
+  assert.equal(conflicts.PUMP2_PT, invalid);
+  assert.equal(conflicts.PT3, invalid);
+  assert.equal(conflicts.TOTALIZER, invalid);
 });
 
 test('WTP conflicting drive and valve feedback cannot create good historian samples', () => {

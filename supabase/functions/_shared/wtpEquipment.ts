@@ -32,6 +32,12 @@ const aliases: Record<string,string> = {
 const canonical = (key: string) => Object.prototype.hasOwnProperty.call(aliases,key) ? aliases[key] : key;
 const binary = new Set([...wtpAdditionalSensors.filter(s => s.type === 'digital').map(s => s.mqttKey),
   'MOTOR1_INDACTOR','MOTOR1_TRIP','MOTOR2_INDACTOR','MOTOR2_TRIP']);
+// The WTP equipment envelope repeats these measurements with zero placeholders.
+const zeroPlaceholderMeasurements = new Set([
+  'PUMP1_PT', 'PUMP2_PT', 'PT3', 'CWT', 'BACKWASH_TANK', 'OCFM_SCALED',
+  'RAW_PH_SCALED', 'TURBIDITY_INLET', 'PUMP_PH', 'PUMP_TURBIDITY', 'PUMP_CHLORINE',
+  'ROF_FB1', 'LOH_FB1', 'LOH_FB2',
+]);
 export const WTP_INVALID_FEEDBACK = 'invalid-wtp-feedback';
 
 export function normalizeWtpFields(entries: Iterable<[string,unknown]>): Record<string,number | string> {
@@ -42,7 +48,16 @@ export function normalizeWtpFields(entries: Iterable<[string,unknown]>): Record<
     const value = typeof raw === 'number' || (typeof raw === 'string' && raw.trim() !== '') ? Number(raw) : NaN;
     const bad = !Number.isFinite(value) || (binary.has(key) && value !== 0 && value !== 1)
       || (['LOH_SCALED','LOH02_SCALED'].includes(name.toUpperCase()) && (value < 0 || value > 100));
-    result[key] = bad || (key in result && result[key] !== value) ? WTP_INVALID_FEEDBACK : value;
+    const previous = result[key];
+    if (bad || previous === WTP_INVALID_FEEDBACK) {
+      result[key] = WTP_INVALID_FEEDBACK;
+    } else if (previous === undefined || previous === value) {
+      result[key] = value;
+    } else if (zeroPlaceholderMeasurements.has(key) && (previous === 0 || value === 0)) {
+      result[key] = previous === 0 ? value : previous;
+    } else {
+      result[key] = WTP_INVALID_FEEDBACK;
+    }
   }
   function checkPair(a: string, b: string) {
     if (result[a] === 1 && result[b] === 1) result[a] = result[b] = WTP_INVALID_FEEDBACK;
