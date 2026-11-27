@@ -105,6 +105,7 @@ function Pump({ x, y, scale = 1, state, name, rpm, air = false, fluidMoving = fa
         {active && <path d="M0 -8A8 8 0 0 1 8 0" fill="none" stroke="#b4f8fa" strokeWidth="1.45" />}
       </g>
       <circle r="2.4" fill="#e0eaf0" />
+      {active && <circle r="9.2" fill="none" stroke="#61ead9" strokeWidth="1.05" opacity=".77"/>}
     </g>
     <circle cx="-25" cy="-12" r="3.5"
       fill={state === 'Trip' || state === 'Fault' || state === 'Conflict' ? '#ef524c' : state === 'Run' ? '#27c582' : state === 'Stale' ? '#dfa34e' : '#84949c'}
@@ -153,10 +154,14 @@ function DosingTank({ x, band, name, liquid, state, rpm, level }: {
         </>}
         <path d="M0 187v39" stroke="#2a4959" strokeWidth="3.5"/>
         <path d="M-.7 187v39" stroke="#c4d9df" strokeWidth="1.2"/>
-        <g transform="translate(0 227) scale(1 .4)">
+        <g transform="translate(0 227) scale(1.14 .5)">
           <g className={active ? 'wtp-machine-mixer-turn' : undefined}>
-            {[0,120,240].map(angle => <path key={angle} d="M0 0Q12 -5 19 -2L19 4Q12 6 0 2Z" transform={`rotate(${angle})`} fill="#cae5e9" stroke="#46616b" />)}
+            {[0,120,240].map(angle => <g key={angle} transform={`rotate(${angle})`}>
+              <path d="M0 0Q12 -5 19 -2L19 4Q12 6 0 2Z" fill={active && angle === 0 ? '#ffffff' : '#cae5e9'} stroke="#46616b" />
+              <path d="M6 0q6 -3 11 -2" fill="none" stroke="#f5ffff" strokeWidth="1.2" />
+            </g>)}
           </g>
+          <circle r="3" fill="#a8d9e4" stroke="#46616b" />
         </g>
         <path d="M-24 190h6l-8 50h-4z" fill="#fff" opacity=".21"/>
       </g>
@@ -167,6 +172,7 @@ function DosingTank({ x, band, name, liquid, state, rpm, level }: {
 function BackwashTank({ level, draining }: { level: number | null; draining?: boolean }) {
   const height = level === null ? 0 : Math.max(0, Math.min(100, level)) * 1.37;
   const wet = useId();
+  const windowClip = wet + '-window';
   return <g data-equipment="Backwash water tank" data-state={draining && height > 1 ? 'Delivering wash water' : undefined}>
     <title>{`Backwash water tank · ${level === null ? 'Level unavailable' : `${level}%`}`}</title>
     {[1002, 1042, 1104, 1142].map(x => <g key={x} fill={steel} stroke="#748087">
@@ -186,8 +192,14 @@ function BackwashTank({ level, draining }: { level: number | null; draining?: bo
     <rect x="1023" y="114" width="108" height="137" rx="3"
       fill={level === null ? 'url(#wtp-mach-level-unavailable)' : 'var(--wm-empty)'} />
     {level !== null && <g data-water-level={level}>
-      <rect x="1023" y={251 - height} width="108" height={height} fill="url(#wtp-mach-water)" />
-      {height > 1 && <path d={`M1023 ${251 - height} q13 -2 27 0 t27 0 t27 0 t27 0`} fill="none" stroke="#a5f7f5" strokeWidth="2" />}
+      <clipPath id={windowClip}><rect x="1023" y="114" width="108" height="137" rx="3"/></clipPath>
+      <g clipPath={`url(#${windowClip})`}>
+        <g className="wtp-liquid-level" style={{ transform: `translateY(${height ? 251 - height : 255}px)` }}>
+          <rect x="1023" width="108" height="137" fill="url(#wtp-mach-water)" />
+          <path d="M1023 0q13 -2 27 0t27 0t27 0t27 0" fill="none" stroke="#b7fef8" strokeWidth="2.5"/>
+          <path d="M1027 4h100" stroke="#d7f8f6" strokeWidth="1.6" opacity=".42"/>
+        </g>
+      </g>
       {draining && height > 1 && <>
         <defs><clipPath id={wet}><rect x="1023" y={251 - height} width="108" height={height}/></clipPath></defs>
         <g clipPath={`url(#${wet})`}>
@@ -230,7 +242,7 @@ export default memo(function WtpMachinery({ backwashLevel, activity }: {
   activity: WtpProcessActivity;
 }) {
   const { driveStates, pumpStates, rpm } = activity;
-  const chlorineFeeding = activity.chlorineFeeding === true;
+  const chlorineFeeding = activity.chlorineFeeding === true || activity.estimated.chlorineFeed;
   return <g className="wtp-machinery">
     <defs>
       <radialGradient id="wtp-mach-shadow"><stop stopColor="var(--wm-shadow)" stopOpacity=".54"/><stop offset=".72" stopColor="var(--wm-shadow)" stopOpacity=".22"/><stop offset="1" stopColor="var(--wm-shadow)" stopOpacity="0"/></radialGradient>
@@ -289,7 +301,7 @@ export default memo(function WtpMachinery({ backwashLevel, activity }: {
       </g>;
     })}
     <BackwashTank level={backwashLevel} draining={activity.backwashTankOutflow === true} />
-    {[1275, 1424].map((x, i) => driveStates.backwashPumps[i] !== 'No data' && <g key={x}>
+    {[1275, 1424].map((x, i) => <g key={x} className="wtp-backwash-pump" data-available={driveStates.backwashPumps[i] !== 'No data'}>
       <Plinth x={x - 57} y={230} width={110} height={43} />
       <Pump x={x} y={197} scale={1.45} name={`Backwash pump ${i + 1}`}
         state={driveStates.backwashPumps[i]} rpm={rpm.backwashPumps[i]} />
@@ -321,7 +333,9 @@ export default memo(function WtpMachinery({ backwashLevel, activity }: {
       {chlorineFeeding && <path className="wtp-machine-gas" d="M183 796H200" fill="none" stroke="#fff2a2" strokeWidth="2.4" strokeLinecap="round"/>}
     </g>
     <Plinth x={1230} y={901} width={269} height={25} />
-    <Pump x={1294} y={873} state={pumpStates[0]} rpm={rpm.transferPumps[0]} name="CWR pump 01" />
-    <Pump x={1430} y={873} state={pumpStates[1]} rpm={rpm.transferPumps[1]} name="CWR pump 02" />
+    <Pump x={1294} y={873} state={pumpStates[0]} rpm={rpm.transferPumps[0]} name="CWR pump 01"
+      fluidMoving={activity.estimated.transferBranch[0]} />
+    <Pump x={1430} y={873} state={pumpStates[1]} rpm={rpm.transferPumps[1]} name="CWR pump 02"
+      fluidMoving={activity.estimated.transferBranch[1]} />
   </g>;
 });

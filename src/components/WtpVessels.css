@@ -34,16 +34,29 @@
   .wtpv-bubble { animation: wtpv-bubble-rise 3.1s ease-in infinite; }
   .wtpv-scraper { animation: wtpv-turn var(--wtpv-drive-period, 24s) linear infinite; }
   .wtpv-impeller { animation: wtpv-turn var(--wtpv-drive-period, 1.2s) linear infinite; }
+  .wtpv-vortex { transform-origin: 0 0; animation: wtpv-turn var(--wtpv-drive-period, 1.65s) linear infinite; }
   .wtpv-caustics { animation: wtpv-caustics 5.4s linear infinite; }
   .wtpv-current { animation: wtpv-current 2.4s linear infinite; }
   .wtpv-filter-flow { animation: wtpv-filter-flow var(--wtpv-flow-period, 1.8s) linear infinite; }
   .wtpv-drive-coupling { animation: wtpv-turn 1.7s linear infinite; }
-  .wtpv-directional-current { animation: wtpv-directional-flow var(--wtpv-flow-period, 1.4s) linear infinite; }
+  .wtpv-directional-current {
+    animation: wtpv-directional-flow var(--wtpv-flow-period, 1.4s) linear infinite;
+    animation-delay: var(--wtpv-current-delay, 0s);
+  }
   .wtpv-floc { animation: wtpv-settle 5.8s linear infinite; }
+  .wtpv-clarifier-ripple { animation: wtpv-ripple-out 6s ease-out infinite; }
+  .wtpv-weir-trickle { animation: wtpv-weir-spill 1.3s ease-in infinite; }
   .wtpv-lifted-solids { animation: wtpv-wash-up 2.5s ease-out infinite; }
   .wtpv-scour-bubble { animation: wtpv-scour 2.1s ease-in infinite; }
+  .wtpv-percolation { animation: wtpv-percolate var(--wtpv-flow-period, 1.8s) linear infinite; }
 
   [data-paused="true"] .wtpv-materials * { animation-play-state: paused; }
+}
+
+@keyframes wtpv-percolate {
+  0% { transform: translateY(0); opacity: 0; }
+  17%, 65% { opacity: .92; }
+  100% { transform: translateY(55px); opacity: 0; }
 }
 
 @keyframes wtpv-bubble-rise {
@@ -75,6 +88,18 @@
   18% { opacity: .85; }
   82% { opacity: .7; }
   100% { transform: translate(4px, 40px); opacity: 0; }
+}
+
+@keyframes wtpv-ripple-out {
+  0% { transform: scale(.25); opacity: 0; }
+  22% { opacity: .72; }
+  100% { transform: scale(1.12); opacity: 0; }
+}
+
+@keyframes wtpv-weir-spill {
+  0% { transform: translateY(0); opacity: 0; }
+  28% { opacity: .76; }
+  100% { transform: translateY(10px); opacity: 0; }
 }
 
 @keyframes wtpv-wash-up {

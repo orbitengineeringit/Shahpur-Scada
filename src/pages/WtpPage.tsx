@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useScada, type TagData } from '@/contexts/ScadaContext';
 import { getTagConnection, useTagConnection } from '@/hooks/useTagConnection';
@@ -33,11 +33,17 @@ const WtpPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'cards' | 'process'>('process');
 
   const [paused, setPaused] = useState(false);
-  const signalStates = wtpTags.filter(tag => !tag.notInstalled && tag.source === 'mqtt').map(getTagConnection);
-  const liveSignalCount = signalStates.filter(state => state === 'connected' || state === 'inactive').length;
-  const faultSignalCount = signalStates.filter(state => state === 'fault').length;
-
-  const findTag = (sensorId: string) => wtpTags.find(t => t.id === sensorId);
+  const [, setQuality] = useState('');
+  // Keep the headline and equipment states in sync when incoming signals age out.
+  useEffect(() => {
+    const refresh = () => setQuality(wtpTags.map(tag => getTagConnection(tag)).join(','));
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+    return () => window.clearInterval(timer);
+  }, [wtpTags]);
+  const installedStates = wtpTags.filter(tag => !tag.notInstalled && tag.source === 'mqtt').map(getTagConnection);
+  const liveSignalCount = installedStates.filter(state => state === 'connected' || state === 'inactive').length;
+  const faultSignalCount = installedStates.filter(state => state === 'fault').length;
 
   const sensorMap = useMemo(() => {
     const map: Record<string, typeof WTP_SENSORS[0]> = {};
@@ -58,15 +64,15 @@ const WtpPage: React.FC = () => {
     return WTP_SENSORS.filter(s => !s.notInstalled && !grouped.has(s.id)).map(s => s.id);
   }, [rawWaterIds, backwashIds, filterBedIds, clearWaterIds, outletIds]);
 
-  const renderSensorCard = (id: string, pumpComponent?: 'wtp') => {
+  const renderSensorCard = useCallback((id: string, pumpComponent?: 'wtp') => {
     const sensor = sensorMap[id];
-    const tag = findTag(id);
+    const tag = wtpTags.find(candidate => candidate.id === id);
     if (!sensor || !tag) return null;
     if (sensor.type === 'digital' && (sensor.mqttKey?.endsWith('_FB') || id.startsWith('WTP-Trip'))) {
       return <FieldFeedbackCard tag={tag} name={sensor.label} />;
     }
     return <InstrumentCard tag={tag} sensor={sensor} section="wtp" index={0} pumpComponent={pumpComponent} />;
-  };
+  }, [sensorMap, wtpTags]);
 
   const sections = useMemo(() => [
     {
@@ -137,10 +143,10 @@ const WtpPage: React.FC = () => {
         </SortableCardGrid>
       </div>,
     },
-  ], [rawWaterIds, backwashIds, filterBedIds, clearWaterIds, outletIds, fieldIds, wtpTags, sensorMap]);
+  ], [rawWaterIds, backwashIds, filterBedIds, clearWaterIds, outletIds, fieldIds, renderSensorCard]);
 
   const viewControls = (
-    <div className="wtp-view-controls flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 opacity-0 animate-fade-in">
+    <div className={`wtp-view-controls flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 ${viewMode === 'cards' ? 'opacity-0 animate-fade-in' : ''}`}>
       <div className="flex items-center gap-3 min-w-0">
         <div className="wtp-view-icon p-2 rounded-xl bg-accent/10 shrink-0">
           <WtpIcon size={36} />

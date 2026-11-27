@@ -64,6 +64,12 @@ export type WtpProcessActivity = {
   sludgeFlow: Feedback;
   chlorineFeeding: Feedback;
   backwashTankOutflow: Feedback;
+  estimated: {
+    upstreamFlow: boolean;
+    sludgeDraw: boolean;
+    chlorineFeed: boolean;
+    transferBranch: Pair<boolean>;
+  };
   mixing: Feedback;
   clarifying: Feedback;
   dosing: DosingBank<Feedback>;
@@ -267,26 +273,48 @@ export function deriveWtpProcessActivity(tags: readonly TagData[], mapping: WtpP
     backwash: two(i => value(mapping.filters?.[i]?.washFlow)),
     washToWaste: two(i => value(mapping.filters?.[i]?.wasteFlow)),
   };
+  const reportedDrives = fieldDrives.map(([name, prefix]) => ({ name, state: driveState(plcDrive(prefix)) }));
+  const reportedRunning = (name: typeof fieldDrives[number][0]) =>
+    reportedDrives.some(drive => drive.name === name && drive.state === 'Run');
+  const pumpStates = three(i => driveState(transferMapping[i]));
+  const transferRpm = three(i => rpm(transferMapping[i]));
+  const outletFlow = hasFlow(rates.outlet);
+  // Hydraulic estimates are used only for drawing motion. Mapped flow meters stay authoritative.
+  const estimated = {
+    upstreamFlow: !mapping.inletFlow && filters.some((phase, i) =>
+      phase === 'filter' && hasFlow(filterFlow[i]) === true &&
+      valves.filterInlet[i] !== false && valves.filterOutlet[i] !== false &&
+      valves.filterWaste[i] !== true && valves.backwashInlet[i] !== true),
+    sludgeDraw: !mapping.sludgeFlow && valves.sludge !== false &&
+      (mapping.sludge ? driveStates.sludge === 'Run' : reportedRunning('Sludge pump')),
+    chlorineFeed: !mapping.chlorineFlow &&
+      (mapping.chlorine ? driveStates.chlorine === 'Run' : reportedRunning('Post-Cl 01') || reportedRunning('Post-Cl 02')),
+    // The common outlet meter can identify a likely branch only when one monitored pump is running.
+    transferBranch: two(i => outletFlow === true && pumpStates[i] === 'Run' && transferRpm[i] !== 0 &&
+      pumpStates.every((state, index) => index === i || state === 'Off' || state === 'Trip' ||
+        (index === 2 && !transferMapping[index].run && !transferMapping[index].trip))),
+  };
 
   return {
     fieldValves: [1,2,3,4,5,6,7].map(fieldValve),
-    fieldDrives: fieldDrives.map(([name, prefix]) => ({ name, state: driveState(plcDrive(prefix)) })),
+    fieldDrives: reportedDrives,
     filters,
     inletFlow: hasFlow(rates.inlet),
-    outletFlow: hasFlow(rates.outlet),
+    outletFlow,
     clearInflow: hasFlow(rates.clearInflow),
     contactFlow: hasFlow(rates.contact),
     bypassFlow: hasFlow(rates.bypass),
     sludgeFlow: hasFlow(rates.sludge),
     chlorineFeeding: hasFlow(rates.chlorine),
     backwashTankOutflow: hasFlow(rates.backwashTankOutflow),
+    estimated,
     mixing: isRunning(driveStates.mixer),
     clarifying: isRunning(driveStates.clarifier),
     dosing: six(i => isRunning(driveStates.dosing[i])),
     backwashPumps: two(i => isRunning(driveStates.backwashPumps[i])),
     blowers: two(i => isRunning(driveStates.blowers[i])),
     driveStates,
-    pumpStates: three(i => driveState(transferMapping[i])),
+    pumpStates,
     rates,
     rpm: {
       mixer: rpm(mapping.mixer),
@@ -296,7 +324,7 @@ export function deriveWtpProcessActivity(tags: readonly TagData[], mapping: WtpP
       dosingMixers: six(i => rpm(mapping.dosing?.[i]?.mixer)),
       backwashPumps: two(i => rpm(mapping.backwashPumps?.[i])),
       blowers: two(i => rpm(mapping.blowers?.[i])),
-      transferPumps: three(i => rpm(transferMapping[i])),
+      transferPumps: transferRpm,
     },
     dosingLevels: six(i => value(mapping.dosing?.[i]?.level)),
     valves,

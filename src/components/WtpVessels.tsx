@@ -128,10 +128,15 @@ function Basin({ x, y, width, height, id, name, level = null, showDesignSection 
 
     <svg x="18" y="16" width={innerWidth} height={innerHeight} viewBox={`0 0 ${innerWidth} ${innerHeight}`} overflow="hidden">
       <rect width={innerWidth} height={innerHeight} fill={level === null ? `url(#${id}unknown)` : 'var(--wv-basin-interior)'}/>
+      {(level !== null || fillHeight > 0) && <g className="wtp-liquid-level"
+        style={{ transform: `translateY(${fillHeight ? surfaceY : innerHeight + 3}px)` }}>
+        <rect width={innerWidth} height={innerHeight} fill={sludge ? '#88643e' : `url(#${id}liquid)`}/>
+        <path d={`M0 0h${innerWidth}v7q-${innerWidth / 2} 4 -${innerWidth} 0z`}
+          fill={sludge ? '#a68355' : `url(#${id}surface)`}/>
+        <rect width={innerWidth} height={innerHeight} fill={`url(#${id}vignette)`}/>
+        {!sludge && <path d={`M1 1.5H${innerWidth - 1}`} stroke="#baf6ef" strokeOpacity=".68" strokeWidth="2"/>}
+      </g>}
       {fillHeight > 0 && <g>
-        <rect x="0" y={surfaceY} width={innerWidth} height={fillHeight} fill={sludge ? '#88643e' : `url(#${id}liquid)`}/>
-        <path d={`M0 ${surfaceY}h${innerWidth}v${Math.min(11, fillHeight)}q-${innerWidth / 2} 4 -${innerWidth} 0z`} fill={sludge ? '#a68355' : `url(#${id}surface)`}/>
-        <rect y={surfaceY} width={innerWidth} height={fillHeight} fill={`url(#${id}vignette)`}/>
         {!sludge && <svg y={surfaceY} width={innerWidth} height={fillHeight} overflow="hidden">
           <rect x="-67" width={innerWidth+134} height={Math.min(17,fillHeight)} fill={`url(#${id}caustics)`} opacity=".58" className={active ? 'wtpv-caustics' : undefined}/>
           <rect width={innerWidth} height={Math.min(3,fillHeight)} fill={`url(#${id}meniscus)`}/>
@@ -190,19 +195,31 @@ function WaterBubbles({ width, depth }: { width: number; depth: number }) {
   </g>;
 }
 
-function Mixer({ id, state, rpm }: { id: string; state: WtpPumpState; rpm: number | null }) {
+function Mixer({ id, state, rpm, inletFlow }: {
+  id: string; state: WtpPumpState; rpm: number | null; inletFlow: boolean;
+}) {
   const active = state === 'Run' && rpm !== 0;
   return <g data-vessel="Flash mixer" data-state={state} data-active={active} style={vesselMotion(null, rpm)}>
     <path d="M476 452Q524 434 577 452V586Q571 604 526 604Q479 602 476 585Z" fill={`url(#${id}steel)`} stroke="#536772" strokeWidth="2"/>
     <path d="M481 458Q525 470 571 458V575Q526 592 481 575Z" fill="#69878c"/>
     <path d="M481 495Q525 480 571 495V575Q525 589 481 575Z" fill={`url(#${id}liquid)`}/>
     <ellipse cx="526" cy="496" rx="45" ry="7" fill={`url(#${id}surface)`} stroke="#8edcde"/>
+    {active && <g transform="translate(526 496) scale(1 .19)" data-process="mixer-surface-vortex">
+      <g className="wtpv-vortex">
+        <path d="M-39 0A39 39 0 0 1 20 -33M38 -5A38 38 0 0 1 -14 35M-24 10A26 26 0 0 1 20 -17"
+          fill="none" stroke="#ddfff9" strokeWidth="3" strokeLinecap="round"/>
+        <path d="M-15 5A16 16 0 0 0 11 10M4 -9A10 10 0 0 1 6 7" fill="none" stroke="#92ebee" strokeWidth="4"/>
+      </g>
+    </g>}
     <svg x="482" y="499" width="88" height="76" overflow="hidden">
-      <rect x="-67" width="222" height="12" fill={`url(#${id}caustics)`} opacity=".57" className={active ? 'wtpv-caustics' : undefined}/>
-      {active && <g data-process="mixer-recirculation" opacity=".84">
-        <Current d="M0 19h12q8 1 9 13l2 12q2 14 16 15" width={3.4}/>
-        <Current d="M44 54q31 4 36-17 5-18-11-24-10-4-24 4" width={3.2}/>
-        <Current d="M43 48q-22 4-29-6-6-9 3-16" width={2.5}/>
+      <rect x="-67" width="222" height="12" fill={`url(#${id}caustics)`} opacity=".57" className={active || inletFlow ? 'wtpv-caustics' : undefined}/>
+      {inletFlow && !active && <g data-process="mixer-through-flow">
+        <Current d="M0 19q20 5 42 1t46-1" width={2.7}/>
+      </g>}
+      {active && <g data-process="mixer-recirculation" opacity=".94">
+        <Current d="M6 19C17 10 28 17 31 29S37 54 53 54C74 54 85 40 80 28" width={3.4}/>
+        <Current d="M80 28C74 15 56 13 46 23S32 43 22 42Q10 41 6 31" width={2.8}/>
+        <Current d="M18 54C27 64 49 68 70 58" color="#93ecf6" width={2.6}/>
         <WaterBubbles width={88} depth={76}/>
       </g>}
     </svg>
@@ -244,8 +261,13 @@ function Clarifier({ id, state, rpm, inletFlow, flowRate }: {
       <rect x="565" y="402" width="540" height="98" fill={`url(#${id}caustics)`} opacity=".44" className={inletFlow ? 'wtpv-caustics' : undefined}/>
       <ellipse cx="839" cy="451" rx="202" ry="46" fill={`url(#${id}vignette)`}/>
       {inletFlow && <g data-process="clarifier-overflow">
-        <Current d="M848 453q78-6 128-24t60 16" width={2.8}/>
-        <Current d="M831 450q-76-14-129-3t-62-9" width={2.8}/>
+        {[0, 1, 2].map(index => <g key={index} transform="translate(839 451)">
+          <ellipse className="wtpv-clarifier-ripple" rx="174" ry="38" fill="none"
+            stroke="#bdffed" strokeWidth="2.1" opacity=".43" style={{ animationDelay: `-${index * 2}s` }}/>
+        </g>)}
+        <Current d="M651 457q62 36 188 36t188-36" width={3.2}/>
+        <Current d="M865 452q65-2 113-14t58 8" width={2.8}/>
+        <Current d="M814 448q-64-12-114-3t-60-7" width={2.8}/>
       </g>}
     </g>
     {[78,123,169].map(r=><ellipse key={r} cx="839" cy="453" rx={r} ry={r*.215} fill="none" stroke="#94dedc" opacity=".64" strokeWidth="1.4"/>)}
@@ -274,6 +296,12 @@ function Clarifier({ id, state, rpm, inletFlow, flowRate }: {
     <path d="M642 463Q840 526 1037 464V537Q986 571 899 574L861 615H822L783 574Q674 571 642 538Z" fill={`url(#${id}glass)`}/>
     <path d="M636 452Q641 494 836 502Q1027 501 1041 455" fill="none" stroke={`url(#${id}steel)`} strokeWidth="9"/>
     <path d="M649 463Q715 499 840 498Q960 496 1027 462" fill="none" stroke="#cedcdb" strokeWidth="2.9" strokeDasharray="3 4" opacity=".82"/>
+    {inletFlow && <g data-process="clarifier-weir">
+      <Current d="M651 467Q720 502 840 503Q959 501 1028 465" color="#d5fff3" width={2.2}/>
+      {[[684,480],[726,492],[770,499],[814,502],[860,502],[906,498],[950,491],[994,478]].map(([x, y], index) =>
+        <path key={x} className="wtpv-weir-trickle" d={`M${x} ${y}q1 3 0 7`} stroke="#b5fff3" strokeWidth="1.5"
+          fill="none" strokeLinecap="round" opacity=".62" style={{ animationDelay: `-${index * .31}s` }}/>)}
+    </g>}
     <path d="M634 550Q697 594 781 595L821 629H862L903 596Q1005 590 1042 551V560Q1006 601 911 609L865 637H815L769 608Q667 600 634 567Z" fill={`url(#${id}stone)`}/>
     <g fill="none" stroke="#e3a00c" strokeWidth="3"><ellipse cx="840" cy="421" rx="204" ry="48"/><ellipse cx="840" cy="432" rx="204" ry="48"/>
       {Array.from({ length: 26 },(_,i)=>{const a=i*Math.PI/13;const x=840+204*Math.cos(a), y=421+48*Math.sin(a);return <path key={i} d={`M${x} ${y}v28`}/>;})}
@@ -311,8 +339,12 @@ function Filter({ y, id, number, mode, flow, washFlow }: {
       {[15,42,69,96,123].map(cx => <path key={cx} d={`M${cx - 3} 87h6l-1 3h-4z`} fill="#b0c6c4"/>)}
       {downflow && (
         <g data-process={mode === 'rinse' ? 'rinse-downflow' : 'downflow-and-underdrain'}>
-          {[15,42,69,96,123].map(cx => <Current key={cx} d={`M${cx - 6} 19q9 11 6 25t0 20v24`} width={2.7}/>)}
-          <Current d="M8 92H135" width={2.45}/>
+          {[15,42,69,96,123].map((cx, index) => <g key={cx} style={{ '--wtpv-current-delay': `-${index * .17}s` } as CSSProperties}>
+            <Current d={`M${cx - 6} 19q9 11 6 25t0 20v24`} width={2.35}/>
+            <path className="wtpv-percolation" d={`M${cx} 23v10m3 -6v4`} fill="none" stroke="#e4fffa" strokeWidth="2.25"
+              strokeLinecap="round" style={{ animationDelay: `-${index * .29 + x * .005}s` }}/>
+          </g>)}
+          <Current d="M8 92H135" width={3.2}/>
         </g>
       )}
       {backwashing && (
@@ -343,8 +375,8 @@ export default memo(function WtpVessels({ activity, clearLevel }: {
   activity: WtpProcessActivity; clearLevel: number | null;
 }) {
   const { driveStates, rates, rpm } = activity;
-  const inletFlow = activity.inletFlow === true;
-  const sludgeFlow = activity.sludgeFlow === true;
+  const inletFlow = activity.inletFlow === true || activity.estimated.upstreamFlow;
+  const sludgeFlow = activity.sludgeFlow === true || activity.estimated.sludgeDraw;
   const contactFlow = activity.contactFlow === true;
   const clearInflow = activity.clearInflow === true;
   const clearOutflow = activity.outletFlow === true;
@@ -353,7 +385,7 @@ export default memo(function WtpVessels({ activity, clearLevel }: {
     <Materials id={id}/>
     <Basin id={id} name="Raw water channel" x={82} y={484} width={315} height={113} showDesignSection
       inflow={inletFlow} outflow={inletFlow} rate={rates.inlet} inletHeight={22} outletHeight={18}/>
-    <Mixer id={id} state={driveStates.mixer} rpm={rpm.mixer}/>
+    <Mixer id={id} state={driveStates.mixer} rpm={rpm.mixer} inletFlow={inletFlow}/>
     <Clarifier id={id} state={driveStates.clarifier} rpm={rpm.clarifier} inletFlow={inletFlow} flowRate={rates.inlet}/>
     {activity.filters.map((mode, i) => (
       <Filter key={i} id={id} y={i === 0 ? 353 : 524} number={i + 1} mode={mode}

@@ -116,9 +116,48 @@ test('WTP measured flow never implies unmonitored equipment or a backwash phase'
   assert.equal(view.inletFlow, null);
   assert.equal(view.mixing, null);
   assert.equal(view.clarifying, null);
+  assert.equal(view.estimated.upstreamFlow, true);
   assert.equal(view.backwashTankOutflow, null);
   assert.deepEqual(Array.from(view.dosing), Array(6).fill(null));
   assert.deepEqual(Array.from(view.backwashPumps), [null, null]);
+});
+
+test('WTP upstream motion estimates stop without usable filtration evidence', () => {
+  const flow = wtpReading('WTP-ROF-FB1', 42);
+  const derive = wtpLive.deriveWtpProcessActivity;
+  for (const unsuitable of [
+    { value: 0 }, { status: 'fault' }, { source: 'simulated' },
+    { lastDataTime: new Date(Date.now() - 6 * 60000) },
+  ]) {
+    assert.equal(derive([{ ...flow, ...unsuitable }]).estimated.upstreamFlow, false);
+  }
+  assert.equal(derive([flow, wtpReading('phase', 1)], {
+    filters: [{ phase: { tag: 'phase', values: { 1: 'backwash' } } }],
+  }).estimated.upstreamFlow, false);
+  assert.equal(derive([flow, wtpReading('filter-outlet', 0)], {
+    filters: [{ outletOpen: 'filter-outlet' }],
+  }).estimated.upstreamFlow, false);
+  const metered = derive([flow, wtpReading('inlet-meter', 0)], { inletFlow: 'inlet-meter' });
+  assert.equal(metered.estimated.upstreamFlow, false);
+  assert.equal(metered.inletFlow, false);
+});
+
+test('WTP downstream motion estimates require healthy feedback from the corresponding pump', () => {
+  const derive = wtpLive.deriveWtpProcessActivity;
+  const feedback = (name, trip = 0) => [
+    wtpReading(`WTP-${name}_RUN_FB`, 1), wtpReading(`WTP-${name}_TRIP_FB`, trip),
+  ];
+  const samples = [...feedback('SLDP_PUMP'), ...feedback('POST_CL02')];
+  const view = derive(samples);
+  assert.equal(view.estimated.sludgeDraw, true);
+  assert.equal(view.estimated.chlorineFeed, true);
+  assert.equal(view.sludgeFlow, null);
+  assert.equal(view.chlorineFeeding, null);
+  assert.equal(derive(feedback('SLDP_PUMP', 1)).estimated.sludgeDraw, false);
+  assert.equal(derive(feedback('POST_CL02', 1)).estimated.chlorineFeed, false);
+  assert.equal(derive(feedback('PRE_CL02')).estimated.chlorineFeed, false);
+  assert.equal(derive([...samples, wtpReading('sludge-valve', 0)], { sludgeOpen: 'sludge-valve' }).estimated.sludgeDraw, false);
+  assert.equal(derive(samples, { chlorineFlow: 'chlorine-meter' }).estimated.chlorineFeed, false);
 });
 
 test('WTP rotation uses independent digital run and trip feedback', () => {
@@ -135,6 +174,22 @@ test('WTP rotation uses independent digital run and trip feedback', () => {
     wtpReading('WTP-Pump2', 1, { lastDataTime: new Date(Date.now() - 6 * 60000) }),
   ]).pumpStates), ['No data', 'Stale', 'No data']);
   assert.equal(wtpLive.deriveWtpProcessActivity([wtpReading('WTP-Pump1', 7)]).pumpStates[0], 'Fault');
+});
+
+test('WTP estimates a transfer branch only with outlet flow and a single eligible pump', () => {
+  const derive = wtpLive.deriveWtpProcessActivity;
+  const sample = (outlet, run1, run2, trip2 = 0) => [
+    wtpReading('WTP-Flow-OUT', outlet), wtpReading('WTP-Pump1', run1),
+    wtpReading('WTP-Pump2', run2), wtpReading('WTP-Trip1', 0), wtpReading('WTP-Trip2', trip2),
+  ];
+  const branch = (tags, mapping) => Array.from(derive(tags, mapping).estimated.transferBranch);
+  assert.deepEqual(branch(sample(25, 1, 0)), [true, false]);
+  assert.deepEqual(branch(sample(25, 0, 1)), [false, true]);
+  assert.deepEqual(branch(sample(0, 1, 0)), [false, false]);
+  assert.deepEqual(branch(sample(25, 1, 1)), [false, false]);
+  assert.deepEqual(branch(sample(25, 1, 1, 1)), [false, false]);
+  assert.deepEqual(branch(sample(25, 1, 0).filter(tag => tag.id !== 'WTP-Trip2')), [false, false]);
+  assert.deepEqual(branch([...sample(25, 1, 0), wtpReading('rpm1', 0)], { transferPumps: [{ rpm: 'rpm1' }] }), [false, false]);
 });
 
 test('HMI mixer, numbered agitators and valves require their own feedback', () => {

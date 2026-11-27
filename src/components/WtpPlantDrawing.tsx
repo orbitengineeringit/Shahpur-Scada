@@ -21,12 +21,13 @@ const palette = {
   polymer: ['#1c621a', '#2a942b', '#74cf4d', '#deffac'],
 };
 
-function Pipe({ d, route, fluid = 'water', active, rate, width = 16, flowPath = d }: {
+function Pipe({ d, route, fluid = 'water', active, estimated, rate, width = 16, flowPath = d }: {
   d: string; route?: string; fluid?: keyof typeof palette; active?: boolean | null; rate?: number | null;
-  width?: number; flowPath?: string;
+  estimated?: boolean; width?: number; flowPath?: string;
 }) {
   const [edge, shadow, body, gloss] = palette[fluid];
   const period = rate && rate > 0 ? `${Math.max(0.62, 2.35 / (1 + rate / 72))}s` : undefined;
+  const tracerPeriod = rate && rate > 0 ? Math.max(2.2, 5.7 / (1 + rate / 65)) : 4.8;
   return (
     <g className="wtp-pipe" data-route={route} fill="none" strokeLinejoin="round" strokeLinecap="round">
       <path d={d} stroke="var(--wtp-pipe-shadow)" strokeWidth={width + 2} transform="translate(2 4)" />
@@ -35,9 +36,18 @@ function Pipe({ d, route, fluid = 'water', active, rate, width = 16, flowPath = 
       <path d={d} stroke={body} strokeWidth={width * .58} transform="translate(-1 -1)" />
       <path d={d} stroke={body} strokeOpacity=".45" strokeWidth={width * .12} transform="translate(2 3)" />
       <path d={d} stroke={gloss} strokeWidth={width * .15} transform="translate(-1.8 -2)" />
-      {active && <g className="wtp-pipe-motion" data-fluid={fluid} style={{ '--wtp-flow-period': period } as CSSProperties}>
-        <path d={flowPath}/>
-        <path className="wtp-flow-bubbles" d={flowPath}/>
+      {(active || estimated) && <g className="wtp-pipe-motion" data-fluid={fluid} data-estimated={estimated} style={{
+        '--wtp-flow-period': period,
+        '--wtp-tracer-period': `${tracerPeriod}s`,
+      } as CSSProperties}>
+        <path className="wtp-flow-glass" d={flowPath} strokeWidth={width * .42}/>
+        <path className="wtp-flow-streak" d={flowPath} strokeWidth={Math.min(4, width * .28)}/>
+        {[0, 1, 2].map(index => <g key={index} className="wtp-flow-tracer" style={{
+          offsetPath: `path("${flowPath}")`,
+          animationDelay: `-${index * tracerPeriod / 3}s`,
+        }}>
+          <path d="M-4 -3L1 0L-4 3M1 -3L6 0L1 3" strokeWidth="1.7"/>
+        </g>)}
       </g>}
     </g>
   );
@@ -67,7 +77,8 @@ function PressureGauge({ x, caption, value }: { x: number; caption: string; valu
     {[-120,-96,-72,-48,-24,0,24,48,72,96,120].map(tick =>
       <path key={tick} d="M0 -15V-19" transform={`rotate(${tick})`} stroke="var(--wtp-dial-ink)" />
     )}
-    {angle !== null && <path d="M-2 3L0 -16L2 3Z" fill="var(--wtp-needle)" transform={`rotate(${angle})`}/>}
+    {angle !== null && <path className="wtp-gauge-needle" d="M-2 3L0 -16L2 3Z" fill="var(--wtp-needle)"
+      style={{ transform: `rotate(${angle}deg)` }}/>}
     <circle r="2.5" fill="#3d535d"/>
     <text y="13" textAnchor="middle" fontSize="8" fill="var(--wtp-dial-ink)">{value === null ? '—' : 'bar'}</text>
     <text y="34" textAnchor="middle" fontSize="10" fontWeight="700" fill="var(--wtp-caption)">{caption}</text>
@@ -76,7 +87,7 @@ function PressureGauge({ x, caption, value }: { x: number; caption: string; valu
 
 export default memo(function WtpPlantDrawing(props: PlantProps) {
   const { activity, clearLevel, backwashLevel, inletTurbidity } = props;
-  const { filters, rates, valves } = activity;
+  const { estimated, filters, rates, valves } = activity;
   const filterFeeds = filters.map((phase, index) => (phase === 'filter' || phase === 'rinse') &&
     valves.filterInlet[index] !== false && (rates.filterBed[index] ?? 0) > 0);
   const filterFeedRate = filterFeeds.reduce((rate, moving, index) => moving ? rate + (rates.filterBed[index] ?? 0) : rate, 0);
@@ -107,10 +118,10 @@ export default memo(function WtpPlantDrawing(props: PlantProps) {
         [849,622,226,28],[1408,487,171,14],[1408,657,171,14],[197,756,165,14],[730,784,126,12],
         [911,928,245,14],[425,925,152,12],[1365,927,156,12]].map(([cx,cy,rx,ry])=>
         <ellipse key={cx+'-'+cy} cx={cx+8} cy={cy+3} rx={rx} ry={ry} fill={`url(#${id}-shadow)`}/>)}
-      <Pipe route="raw-inlet" d="M-12 522H98" active={activity.inletFlow} rate={rates.inlet}/>
-      <Pipe route="inlet-to-mixer" d="M386 518H480" active={activity.inletFlow} rate={rates.inlet}/>
-      <Pipe route="mixer-to-clarifier" d="M570 518H644" active={activity.inletFlow} rate={rates.inlet}/>
-      <Pipe route="clarifier-outlet" d={clarifierOutlet}/>
+      <Pipe route="raw-inlet" d="M-12 522H98" active={activity.inletFlow} rate={rates.inlet} estimated={estimated.upstreamFlow}/>
+      <Pipe route="inlet-to-mixer" d="M386 518H480" active={activity.inletFlow} rate={rates.inlet} estimated={estimated.upstreamFlow}/>
+      <Pipe route="mixer-to-clarifier" d="M570 518H644" active={activity.inletFlow} rate={rates.inlet} estimated={estimated.upstreamFlow}/>
+      <Pipe route="clarifier-outlet" d={clarifierOutlet} estimated={estimated.upstreamFlow}/>
       <Pipe route="filter-feed-header" d="M1150 688V558" active={filterFeedRate > 0} rate={filterFeedRate}/>
       <Pipe route="filter-1-feed" d="M1150 558V410Q1150 390 1170 390H1260" active={filterFeeds[0]} rate={rates.filterBed[0]}/>
       <Pipe route="filter-2-feed" d="M1150 558H1260" active={filterFeeds[1]} rate={rates.filterBed[1]}/>
@@ -123,13 +134,16 @@ export default memo(function WtpPlantDrawing(props: PlantProps) {
       <Pipe route="sludge-withdrawal" d="M684 570V637Q684 655 665 655H446Q424 655 424 678V733H595Q609 733 609 718V699Q609 683 626 683H686V746"
         fluid="sludge" width={12}/>
       <Pipe route="sludge-recirculation" d="M751 746V683H890Q911 683 911 702V722H947"
-        fluid="sludge" width={10} active={activity.sludgeFlow} rate={rates.sludge}/>
+        fluid="sludge" width={10} active={activity.sludgeFlow} estimated={estimated.sludgeDraw} rate={rates.sludge}/>
       <Pipe route="chlorine-feed" d="M198 797H232Q242 797 242 808V831Q242 839 252 839H339"
-        fluid="lime" width={6} active={activity.chlorineFeeding} rate={rates.chlorine}/>
+        fluid="lime" width={6} active={activity.chlorineFeeding} estimated={estimated.chlorineFeed} rate={rates.chlorine}/>
       <Pipe route="contact-inlet" d="M209 901V891Q209 877 227 877H310" active={activity.contactFlow} rate={rates.contact}/>
       <Pipe route="contact-to-clearwell" d="M550 875H687" active={activity.clearInflow} rate={rates.clearInflow}/>
-      <Pipe route="treated-water-outlet" d={dischargePath} active={activity.outletFlow} rate={rates.outlet}/>
-      {[1314, 1448].map((x, index) => <Pipe key={x} route={`transfer-pump-${index + 1}`} d={`M${x} 857V807`}/>)}
+      <Pipe route="treated-water-outlet" d={dischargePath} flowPath="M1450 807H1474Q1496 807 1496 829V859H1550"
+        active={activity.outletFlow} rate={rates.outlet}/>
+      {[1314, 1450].map((x, index) => <Pipe key={x} route={`transfer-pump-${index + 1}`}
+        d={`M${x} 857V807`} flowPath={index === 0 ? 'M1314 843V807H1450' : 'M1450 843V807'}
+        estimated={estimated.transferBranch[index]}/>)}
       <path d="M1548 844H1615L1633 860L1615 876H1548L1555 860Z" fill="var(--wtp-panel)" stroke="var(--wtp-actuator)" strokeWidth="3"/>
       <path d="M1574 638L1585 631H1650L1664 640V739H1574Z" fill="var(--wtp-bypass)" stroke="#797e78" strokeWidth="2"/>
       <path d="M1584 636H1653L1644 644H1580Z" fill="var(--wtp-steel-edge)"/>

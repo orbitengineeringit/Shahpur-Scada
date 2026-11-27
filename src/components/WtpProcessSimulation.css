@@ -68,25 +68,11 @@
   color: hsl(var(--card-foreground));
 }
 
-/* Header and status bar take their natural heights; the drawing gets the remaining viewport. */
-#root:has(> .wtp-fit-page) {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
-}
-
-.wtp-fit-page,
-.wtp-fit-page > main,
-.wtp-fit-page .wtp-process {
-  flex: 1 1 0;
-  min-height: 0;
-}
-
 .wtp-fit-page > main {
   display: flex;
   flex-direction: column;
-  padding-block: 0.35rem;
+  min-width: 0;
+  padding: .5rem clamp(.45rem, 1vw, 1.25rem);
 }
 
 .wtp-process-controls > .wtp-view-controls {
@@ -94,7 +80,7 @@
   margin-bottom: 0.35rem;
 }
 
-.wtp-fit-page .wtp-process {
+.wtp-process {
   display: flex;
   flex-direction: column;
 }
@@ -105,22 +91,60 @@
 }
 
 .wtp-process-stage {
-  flex: 1 1 0;
-  min-height: 0;
-  container-type: size;
-  display: grid;
-  place-items: center;
   background: var(--wtp-floor);
   border-bottom: 1px solid hsl(var(--border));
+  overflow: auto;
+  overscroll-behavior-inline: contain;
 }
 
 .wtp-process-drawing {
   position: relative;
-  inline-size: min(100cqw, calc(100cqh * 1672 / 941));
+  inline-size: 100%;
   aspect-ratio: 1672 / 941;
   container-type: inline-size;
   isolation: isolate;
   color: var(--wtp-ink);
+}
+
+.wtp-map-navigation {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: .3rem;
+  padding: .4rem .55rem;
+  border-block-start: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.wtp-map-navigation > button {
+  min-block-size: 2.75rem;
+  padding: .15rem .3rem;
+  border: 1px solid var(--wtp-panel-border);
+  border-radius: .4rem;
+  color: var(--wtp-ink);
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.wtp-map-navigation > button[aria-pressed="true"] {
+  background: var(--wtp-plate-bottom);
+  color: #fff;
+}
+
+.wtp-process-stage[data-zoomed="true"] {
+  max-block-size: min(56dvh, 33rem);
+}
+
+.wtp-process-stage[data-zoomed="true"] .wtp-process-drawing {
+  inline-size: max(100%, 67rem);
+}
+
+.wtp-process-stage[data-focus="clear-water"] .wtp-process-drawing {
+  inline-size: max(185%, 34rem);
+}
+
+.wtp-process .wtp-view-controls h2 {
+  white-space: normal;
+  line-height: 1.13;
 }
 
 .wtp-plant-svg {
@@ -159,9 +183,23 @@
   min-width: max-content;
   padding: 0.38em 0.6em;
   border: 1px solid var(--wtp-panel-border);
-  background: var(--wtp-panel);
-  box-shadow: 0 2px 4px #0c3c582b;
+  background: linear-gradient(145deg, var(--wtp-panel), color-mix(in srgb, var(--wtp-panel), var(--wtp-track) 36%));
+  box-shadow: 0 2px 4px #0c3c582b, inset 0 1px 0 #ffffff26;
   color: var(--wtp-ink);
+}
+
+.wtp-map-label--readout .wtp-reading-value {
+  font-size: 1.23em;
+}
+
+.wtp-map-label--equipment[data-active="true"] {
+  border-color: #40bfc8;
+  background: linear-gradient(#147685, #0c4759);
+}
+
+.wtp-map-label--pump[data-active="true"] {
+  border-color: var(--wtp-run);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--wtp-run), transparent 75%);
 }
 
 .wtp-map-reading {
@@ -169,7 +207,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 0.62em;
-  font-size: 0.93em;
+  font-size: 1em;
 }
 
 .wtp-map-reading + .wtp-map-reading {
@@ -192,7 +230,8 @@
 
 .wtp-level-track > div {
   height: 100%;
-  background: var(--wtp-indicator);
+  background: linear-gradient(90deg, var(--wtp-plate-top), var(--wtp-indicator));
+  transform-origin: left center;
 }
 
 .wtp-map-label--sight-glass {
@@ -206,6 +245,8 @@
 .wtp-map-label--sight-glass > span {
   position: absolute;
   inset: auto 0 0;
+  height: 100%;
+  transform-origin: center bottom;
   border-top: 1px solid #b0f9ff;
   background: linear-gradient(to top, #058cb5, #35e3ef);
 }
@@ -239,9 +280,11 @@
   padding: 0.25em 0.26em;
   border: 1px solid var(--wtp-panel-border);
   background: var(--wtp-panel);
-  font-size: 0.72cqw;
+  font-size: 0.8cqw;
 }
 
+.wtp-map-label--pump .wtp-reading-value { font-size: 1.17em; }
+.wtp-backwash-pump[data-available="false"] { opacity: .68; }
 .wtp-device-status {
   color: var(--wtp-muted);
   font-size: 0.9em;
@@ -250,6 +293,19 @@
 .wtp-device-status[data-tone="running"] { color: var(--wtp-run); }
 .wtp-device-status[data-tone="alarm"] { color: var(--wtp-alarm); }
 .wtp-device-status[data-tone="caution"] { color: var(--wtp-caution); }
+
+.wtp-flow-estimate {
+  display: block;
+  width: max-content;
+  margin-inline: auto;
+  padding: .05em .35em;
+  border: 1px solid currentColor;
+  border-radius: .3em;
+  color: #573e0b;
+  background: #fff1c9;
+  font-weight: 700;
+  font-size: .9em;
+}
 
 .wtp-field-feedback {
   grid-column: 1 / -1;
@@ -266,21 +322,23 @@
 }
 .wtp-field-drives { --field-columns: 6; }
 .wtp-valve-bank {
-  position: absolute;
   display: grid;
   border: 1px solid var(--wtp-panel-border);
   border-radius: .4em;
   color: var(--wtp-ink);
   background: var(--wtp-panel);
-  font-size: .87cqw;
 }
 .wtp-general-valves {
+  position: absolute;
   left: 71.5%; right: 1%; top: 2%;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  font-size: .9cqw;
 }
 .wtp-cwr-valves {
-  left: 45%; width: 18%; top: 90%;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.wtp-mobile-valves {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .wtp-valve-caption {
   grid-column: 1/-1;
@@ -289,14 +347,32 @@
   font-weight: 700;
   border-bottom: 1px solid var(--wtp-panel-border);
 }
-.wtp-valve-indicator { display: grid; gap: .12em; text-align: center; padding: .3em 0; }
-.wtp-valve-indicator + .wtp-valve-indicator { border-left: 1px solid var(--wtp-panel-border); }
-.wtp-valve-indicator span { font-weight: 700; }
-.wtp-valve-indicator svg { width: 1.25em; vertical-align: middle; margin-right: .15em; }
-.wtp-valve-indicator small { font-size: .78em; }
+.wtp-valve-indicator {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: .13em;
+  min-width: 0;
+  padding: .35em .1em;
+  text-align: center;
+  line-height: 1.15;
+}
+.wtp-valve-indicator + .wtp-valve-indicator { border-inline-start: 1px solid var(--wtp-panel-border); }
+.wtp-valve-indicator > span { font-weight: 750; }
+.wtp-valve-indicator > strong { font-size: .91em; }
+.wtp-general-valves .wtp-valve-indicator > strong { font-size: .82em; }
+.wtp-valve-drawing { width: 3.55em; max-width: 95%; }
+.wtp-valve-indicator small { display: grid; font-size: .76em; color: var(--wtp-muted); }
+.wtp-valve-indicator small [data-trip="true"] { color: var(--wtp-alarm); font-weight: 800; }
+.wtp-valve-disc { transform-origin: 31px 25px; }
+.wtp-valve-indicator[data-position="Closed"] .wtp-valve-disc { transform: rotate(90deg); }
 .wtp-valve-indicator[data-position="Open"] :is(svg,strong) { color: var(--wtp-run); }
 .wtp-valve-indicator:is([data-position="Closed"],[data-position="Conflict"],[data-position="Fault"]) :is(svg,strong) { color: var(--wtp-alarm); }
-.wtp-valve-indicator:is([data-position="Stale"],[data-position="Unconfirmed"]) strong { color: var(--wtp-caution); }
+.wtp-valve-indicator:is([data-position="Stale"],[data-position="Unconfirmed"]) :is(svg,strong) { color: var(--wtp-caution); }
+.wtp-valve-indicator[data-trip="true"] svg circle:first-of-type { fill: var(--wtp-alarm); }
+.wtp-drive-icon { width: 1.65em; height: 1.35em; color: var(--wtp-muted); flex: none; align-self: center; }
+.wtp-drive-rotor { transform-origin: 20px 12px; }
+.wtp-field-drives [data-drive="Run"] .wtp-drive-icon { color: #a8f7cb; }
 .wtp-field-row > div {
   display: flex;
   align-items: baseline;
@@ -310,14 +386,10 @@
 .wtp-field-row > div + div { border-inline-start: 1px solid var(--wtp-panel-border); }
 .wtp-field-row span { font-weight: 650; }
 .wtp-field-row strong { font-size: 1em; }
-.wtp-field-row small { font-size: .91em; color: var(--wtp-muted); }
-.wtp-field-row [data-position] { color: var(--wtp-muted); }
-.wtp-field-row [data-position="Open"] { color: var(--wtp-run); }
-.wtp-field-row :is([data-position="Closed"],[data-position="Fault"],[data-position="Conflict"]) { color: var(--wtp-alarm); }
-.wtp-field-row :is([data-position="Unconfirmed"],[data-position="Stale"]) { color: var(--wtp-caution); }
 @media (max-width: 720px) {
-  .wtp-field-row { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: .27rem; }
-  .wtp-field-row > div { display: grid; }
+  .wtp-field-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .35rem 0; font-size: .75rem; }
+  .wtp-field-row > div { display: grid; justify-items: center; }
+  .wtp-general-valves { display: none; }
 }
 
 .wtp-map-label--outlet {
@@ -325,63 +397,120 @@
   font-weight: 800;
   translate: -40% -50%;
 }
+.wtp-map-label--outlet[data-active="true"] { color: var(--wtp-indicator); }
+
+.wtp-process-measurements {
+  display: grid;
+  align-content: start;
+  gap: .55rem;
+  min-width: 0;
+  padding: .65rem;
+  background: hsl(var(--card));
+  color: var(--wtp-ink);
+  font-size: .85rem;
+}
+
+.wtp-measurements-heading {
+  font-size: .82rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
 
 .wtp-outlet-readings {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .3rem;
   margin: 0;
-  padding: 0.8rem 1rem;
 }
 
 .wtp-outlet-readings > div {
-  flex: 1 1 8rem;
+  min-width: 0;
+  padding: .31rem .42rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: .42rem;
+  background: var(--wtp-panel);
 }
 
 .wtp-outlet-readings dt {
   margin-bottom: 0.14rem;
   color: hsl(var(--muted-foreground));
-  font-size: 0.75rem;
+  font-size: .72rem;
+  line-height: 1.18;
 }
 
 .wtp-outlet-readings dd {
   margin: 0;
-  font-size: 0.94rem;
+  font-size: clamp(.95rem, 5cqw, 1.22rem);
+  line-height: 1.18;
 }
+
+.wtp-outlet-readings dd .wtp-reading-unavailable[data-status="Fault"] { color: var(--wtp-alarm); }
+.wtp-outlet-readings dd .wtp-reading-unavailable[data-status="Stale"] { color: var(--wtp-caution); }
+
+@container (min-width: 40rem) {
+  .wtp-outlet-readings { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@media (min-width: 721px) {
+  .wtp-mobile-valves { display: none; }
+}
+
+.wtp-pipe-motion { color: #e7ffff; }
+.wtp-pipe-motion:is([data-fluid="sludge"], [data-fluid="alum"], [data-fluid="lime"]) { color: #fff2ba; }
+.wtp-pipe-motion[data-fluid="polymer"] { color: #ecffcb; }
+.wtp-pipe-motion[data-estimated="true"] { color: #fff0bf; --wtp-flow-period: 2.6s; }
+.wtp-flow-glass { stroke: currentColor; opacity: .29; }
+.wtp-flow-streak { stroke: currentColor; stroke-dasharray: 16 44; opacity: .55; }
+.wtp-pipe-motion[data-estimated="true"] .wtp-flow-streak { stroke-dasharray: 5 7 5 13; opacity: .85; }
+.wtp-flow-tracer { display: none; stroke: currentColor; offset-anchor: center; }
 
 @media (prefers-reduced-motion: no-preference) {
   .wtp-motion-toggle { display: inline-flex; }
-  .wtp-pipe-motion path {
-    stroke: #e7ffff;
-    stroke-width: 3.8;
-    stroke-dasharray: 12 48;
+  .wtp-flow-streak {
     animation: wtp-pipe-motion var(--wtp-flow-period, 1.36s) linear infinite;
   }
-
-  .wtp-pipe-motion .wtp-flow-bubbles {
-    stroke-width: 1.8;
-    stroke-dasharray: 1 8 1 50;
-    animation-delay: -0.42s;
-    opacity: 0.66;
+  @supports (offset-path: path("M0 0H1")) {
+    .wtp-flow-tracer { display: block; animation: wtp-flow-travel var(--wtp-tracer-period) linear infinite; }
   }
-
-  .wtp-pipe-motion[data-fluid="sludge"] path { stroke: #ffdda0; }
-  .wtp-pipe-motion[data-fluid="air"] path { stroke: #f1fbff; stroke-dasharray: 1 9; }
   .wtp-bypass-current {
     animation: wtp-pipe-motion 1.6s linear infinite;
   }
+  .wtp-liquid-level, .wtp-level-track > div { transition: transform 560ms ease-out; }
+  .wtp-valve-disc { transition: transform 220ms ease-out; }
+  .wtp-gauge-needle { transition: transform 420ms ease-out; }
+  .wtp-field-drives [data-drive="Run"] .wtp-drive-rotor { animation: wtp-drive-turn 1s linear infinite; }
 }
 
-.wtp-process-drawing[data-paused="true"] .wtp-plant-svg * {
+.wtp-process[data-paused="true"] :is(.wtp-plant-svg *, .wtp-drive-rotor) {
   animation-play-state: paused;
 }
 
+.wtp-process[data-paused="true"] :is(.wtp-valve-disc, .wtp-gauge-needle, .wtp-liquid-level, .wtp-level-track > div) { transition: none; }
+
+@keyframes wtp-drive-turn { to { transform: rotate(360deg); } }
 @keyframes wtp-pipe-motion {
   to { stroke-dashoffset: -60; }
 }
 
-/* Share the side rail between navigation and readings so the plant uses the full panel height. */
-@media (min-width: 960px) and (min-aspect-ratio: 8/5) and (min-height: 480px) {
+@keyframes wtp-flow-travel {
+  0% { offset-distance: 0%; opacity: 0; }
+  9%, 89% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+/* Let the rail size its rows before fitting the landscape diagram into the remaining height. */
+@media (min-width: 960px) and (min-aspect-ratio: 7/5) and (min-height: 560px) {
+  #root:has(> .wtp-fit-page) {
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+  }
+
+  .wtp-fit-page {
+    flex: 1;
+    min-height: 0;
+  }
+
   .wtp-fit-page > main {
     max-width: none;
     padding: 0.2rem clamp(0.5rem, 1vw, 1.25rem);
@@ -389,9 +518,12 @@
 
   .wtp-fit-page .wtp-process {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) clamp(13.75rem, 16vw, 17rem);
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    flex: 1;
+    grid-template-columns: minmax(0, 1fr) clamp(14rem, 16vw, 18.5rem);
+    grid-template-rows: auto minmax(min-content, 1fr) auto;
   }
+
+  .wtp-map-navigation, .wtp-outlet-readings .wtp-mobile-reading { display: none; }
 
   .wtp-process-controls {
     grid-column: 2;
@@ -403,8 +535,14 @@
     flex-direction: column;
     align-items: stretch;
     margin: 0;
-    padding: 0.65rem 0.75rem;
+    gap: .45rem;
+    padding: .55rem .6rem .3rem;
   }
+
+  .wtp-process-controls .wtp-view-icon { display: none; }
+  .wtp-process-controls .wtp-view-actions { gap: .25rem; }
+  .wtp-process-controls :is(.wtp-motion-toggle, .wtp-analytics-button) { padding-inline: .45rem; }
+  .wtp-process-controls .wtp-motion-toggle > span { display: none; }
 
   .wtp-view-controls h2 {
     white-space: normal;
@@ -415,54 +553,42 @@
   .wtp-process-stage {
     grid-column: 1;
     grid-row: 1 / 3;
+    display: grid;
+    place-items: center;
+    container-type: size;
+    overflow: hidden;
     border-bottom: 0;
   }
 
-  .wtp-outlet-readings {
+  .wtp-process-stage[data-zoomed] { max-block-size: none; }
+  .wtp-process-stage[data-zoomed] .wtp-process-drawing {
+    inline-size: min(100cqw, calc(100cqh * 1672 / 941));
+  }
+
+  .wtp-process-measurements {
     grid-column: 2;
     grid-row: 2;
-    display: grid;
-    align-content: center;
-    gap: clamp(0.35rem, 2dvh, 1.5rem);
     border-inline-start: 1px solid hsl(var(--border));
   }
+
+  .wtp-outlet-readings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wtp-outlet-readings > div:nth-child(5) { grid-column: 1 / -1; }
 
   .wtp-fit-page > .statusbar-gradient-border {
     padding-block: 0.3rem;
   }
 }
-/* Keep every reading visible in short landscape windows. */
-@media (min-width: 960px) and (min-aspect-ratio: 8/5) and (min-height: 480px) and (max-height: 700px) {
-  .wtp-outlet-readings {
-    padding: 0.35rem 0.8rem;
-    gap: 0.3rem;
-  }
 
-  .wtp-outlet-readings > div {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 0.35rem;
-  }
+@media (min-width: 960px) and (min-aspect-ratio: 7/5) and (min-height: 560px) and (max-width: 1510px) {
+  .wtp-process-controls .wtp-analytics-button > span { display: none; }
 }
 
-@media (min-width: 960px) and (min-aspect-ratio: 8/5) and (min-height: 480px) and (max-height: 550px) {
-  .wtp-process-controls > .wtp-view-controls {
-    gap: 0.5rem;
-  }
-
-  .wtp-process-controls :is(.wtp-view-icon, .wtp-motion-toggle span, .wtp-analytics-button span) {
-    display: none;
-  }
-
-  .wtp-process-controls :is(.wtp-motion-toggle, .wtp-analytics-button) {
-    justify-content: center;
-    width: 2.25rem;
-    height: 2.25rem;
-    padding: 0;
-  }
-
-  .wtp-process-controls .wtp-view-actions {
-    gap: 0.4rem;
-  }
+@media (min-width: 960px) and (min-aspect-ratio: 7/5) and (min-height: 560px) and (max-height: 700px) {
+  .wtp-process-controls > .wtp-view-controls { padding-top: .4rem; gap: .3rem; }
+  .wtp-process-measurements { padding: .42rem; gap: .32rem; }
+  .wtp-outlet-readings { gap: .22rem; }
+  .wtp-outlet-readings > div { padding: .21rem .28rem; }
+  .wtp-outlet-readings dd { font-size: 1.02rem; }
+  .wtp-cwr-valves .wtp-valve-drawing { width: 2.6em; }
+  .wtp-cwr-valves .wtp-valve-indicator { padding-block: .22em; }
 }
