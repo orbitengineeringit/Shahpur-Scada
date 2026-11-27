@@ -1,5 +1,6 @@
 import type { TagData } from '@/contexts/ScadaContext';
 import { getTagConnection } from '@/hooks/useTagConnection';
+import { resolveWtpMotorFeedback } from '../../supabase/functions/_shared/wtpEquipment';
 
 type Pair<T> = readonly [T, T];
 type TransferBank<T> = readonly [T, T, T];
@@ -8,8 +9,29 @@ type Slots<T extends readonly unknown[]> = { [Index in keyof T]?: T[Index] };
 type Reading = number | null;
 type Feedback = boolean | null;
 
+// Inventory shared by the process drawing and the instrument card sections.
+export const wtpProcessReadouts = {
+  inletPh: { id: 'WTP-PH-IN', label: 'Inlet pH', decimals: 2, group: 'raw-water' },
+  inletTurbidity: { id: 'WTP-TA-IN', label: 'Inlet Turbidity', decimals: 1, group: 'raw-water' },
+  backwashLevel: { id: 'WTP-LT-BW', label: 'Backwash Water Tank Level', decimals: 1, group: 'backwash' },
+  filterFlow: { id: 'WTP-ROF-FB1', label: 'Filter 1 Flow', decimals: 1, group: 'filter-bed' },
+  filterHead1: { id: 'WTP-LOH-FB1', label: 'Filter 1 Loss of Head', decimals: 1, group: 'filter-bed' },
+  filterHead2: { id: 'WTP-LOH-FB2', label: 'Filter 2 Loss of Head', decimals: 1, group: 'filter-bed' },
+  clearWaterLevel: { id: 'WTP-LT-CW', label: 'Clear Water Storage Tank Level', decimals: 1, group: 'clear-water' },
+  pressure1: { id: 'WTP-PT1', label: 'CWR Pump 01 Pressure', decimals: 2, group: 'clear-water' },
+  pressure2: { id: 'WTP-PT2', label: 'CWR Pump 02 Pressure', decimals: 2, group: 'clear-water' },
+  headerPressure: { id: 'WTP-HeaderPT', label: 'CWR Header Pressure', decimals: 2, group: 'clear-water' },
+  outletFlow: { id: 'WTP-Flow-OUT', label: 'Outlet Flow', decimals: 1, group: 'outlet' },
+  outletPh: { id: 'WTP-PH', label: 'Outlet pH', decimals: 2, group: 'outlet' },
+  outletChlorine: { id: 'WTP-CL', label: 'Outlet Chlorine', decimals: 2, group: 'outlet' },
+  outletTurbidity: { id: 'WTP-TA', label: 'Outlet Turbidity', decimals: 2, group: 'outlet' },
+  outletTotalizer: { id: 'WTP-Totalizer-OUT', label: 'Outlet Totalizer', decimals: 2, group: 'outlet' },
+  ocfm: { id: 'WTP-OCFM', label: 'OCFM', decimals: 2, group: 'process-instruments' },
+  plcPressure: { id: 'WTP-PLC-PT3', label: 'Pressure Transmitter 3', decimals: 2, group: 'process-instruments' },
+} as const;
+
 export type WtpFilterMode = 'idle' | 'filter' | 'air-scour' | 'backwash' | 'rinse';
-export type WtpPumpState = 'Run' | 'Off' | 'Trip' | 'Conflict' | 'Fault' | 'Stale' | 'No data';
+export type WtpPumpState = 'Run' | 'Off' | 'Trip' | 'Fault' | 'Stale' | 'No data';
 export type WtpValveFeedback = {
   name: string;
   position: 'Open' | 'Closed' | 'Unconfirmed' | 'Conflict' | 'Stale' | 'No data' | 'Fault';
@@ -64,12 +86,6 @@ export type WtpProcessActivity = {
   sludgeFlow: Feedback;
   chlorineFeeding: Feedback;
   backwashTankOutflow: Feedback;
-  estimated: {
-    upstreamFlow: boolean;
-    sludgeDraw: boolean;
-    chlorineFeed: boolean;
-    transferBranch: Pair<boolean>;
-  };
   mixing: Feedback;
   clarifying: Feedback;
   dosing: DosingBank<Feedback>;
@@ -142,6 +158,18 @@ export function readWtpTelemetry(tag?: TagData): WtpReading {
   return { value: tag.value, unit, status: 'No data' };
 }
 
+export function isSameWtpSample(run?: TagData, trip?: TagData) {
+  return !!run?.lastDataTime && run.lastDataTime.getTime() === trip?.lastDataTime?.getTime() &&
+    run.mqttTopic === trip?.mqttTopic;
+}
+
+export function readWtpMotorState(runTag?: TagData, tripTag?: TagData): WtpPumpState {
+  const run = readWtpTelemetry(runTag);
+  const trip = readWtpTelemetry(tripTag);
+  return resolveWtpMotorFeedback(run.value, trip.value, isSameWtpSample(runTag, tripTag))
+    ?? (run.value !== null ? 'Fault' : run.status);
+}
+
 function two<T>(get: (index: number) => T): Pair<T> {
   return [get(0), get(1)];
 }
@@ -202,17 +230,7 @@ export function deriveWtpProcessActivity(tags: readonly TagData[], mapping: WtpP
   };
 
   function driveState(drive?: DriveTags): WtpPumpState {
-    const trip = read(drive?.trip);
-    const run = read(drive?.run);
-    if (trip.value === 1 && run.value === 1) return 'Conflict';
-    if (trip.value === 1) return 'Trip';
-    if (trip.status === 'Fault' || run.status === 'Fault') return 'Fault';
-    if (run.value !== null && digital(run.value) === null) return 'Fault';
-    if (drive?.trip && trip.value === null && run.value !== null) return trip.status;
-    if (trip.value !== null && digital(trip.value) === null) return 'Fault';
-    if (run.value === 1) return 'Run';
-    if (run.value === 0) return 'Off';
-    return run.status;
+    return readWtpMotorState(indexed.get(drive?.run ?? ''), indexed.get(drive?.trip ?? ''));
   }
 
   function fieldValve(index: number): WtpValveFeedback {
@@ -274,26 +292,9 @@ export function deriveWtpProcessActivity(tags: readonly TagData[], mapping: WtpP
     washToWaste: two(i => value(mapping.filters?.[i]?.wasteFlow)),
   };
   const reportedDrives = fieldDrives.map(([name, prefix]) => ({ name, state: driveState(plcDrive(prefix)) }));
-  const reportedRunning = (name: typeof fieldDrives[number][0]) =>
-    reportedDrives.some(drive => drive.name === name && drive.state === 'Run');
   const pumpStates = three(i => driveState(transferMapping[i]));
   const transferRpm = three(i => rpm(transferMapping[i]));
   const outletFlow = hasFlow(rates.outlet);
-  // Hydraulic estimates are used only for drawing motion. Mapped flow meters stay authoritative.
-  const estimated = {
-    upstreamFlow: !mapping.inletFlow && filters.some((phase, i) =>
-      phase === 'filter' && hasFlow(filterFlow[i]) === true &&
-      valves.filterInlet[i] !== false && valves.filterOutlet[i] !== false &&
-      valves.filterWaste[i] !== true && valves.backwashInlet[i] !== true),
-    sludgeDraw: !mapping.sludgeFlow && valves.sludge !== false &&
-      (mapping.sludge ? driveStates.sludge === 'Run' : reportedRunning('Sludge pump')),
-    chlorineFeed: !mapping.chlorineFlow &&
-      (mapping.chlorine ? driveStates.chlorine === 'Run' : reportedRunning('Post-Cl 01') || reportedRunning('Post-Cl 02')),
-    // The common outlet meter can identify a likely branch only when one monitored pump is running.
-    transferBranch: two(i => outletFlow === true && pumpStates[i] === 'Run' && transferRpm[i] !== 0 &&
-      pumpStates.every((state, index) => index === i || state === 'Off' || state === 'Trip' ||
-        (index === 2 && !transferMapping[index].run && !transferMapping[index].trip))),
-  };
 
   return {
     fieldValves: [1,2,3,4,5,6,7].map(fieldValve),
@@ -307,7 +308,6 @@ export function deriveWtpProcessActivity(tags: readonly TagData[], mapping: WtpP
     sludgeFlow: hasFlow(rates.sludge),
     chlorineFeeding: hasFlow(rates.chlorine),
     backwashTankOutflow: hasFlow(rates.backwashTankOutflow),
-    estimated,
     mixing: isRunning(driveStates.mixer),
     clarifying: isRunning(driveStates.clarifier),
     dosing: six(i => isRunning(driveStates.dosing[i])),

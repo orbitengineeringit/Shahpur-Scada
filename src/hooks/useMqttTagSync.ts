@@ -1,7 +1,7 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { MqttMessage } from '@/contexts/MqttContext';
-import { WTP_INVALID_FEEDBACK } from '../../supabase/functions/_shared/wtpEquipment';
+import { resolveWtpMotorFeedback, WTP_INVALID_FEEDBACK, wtpMotorFeedback } from '../../supabase/functions/_shared/wtpEquipment';
 import { type TagData, getDefaultSetpoints } from '@/contexts/ScadaContext';
 import { toast } from 'sonner';
 import { useAlarm } from '@/contexts/AlarmContext';
@@ -354,6 +354,13 @@ export const useMqttTagSync = (
     const latestValues = new Map<string, number>();
     tags.forEach(t => latestValues.set(t.id, t.value));
 
+    if (section === 'wtp') {
+      for (const motor of wtpMotorFeedback) {
+        const run = effectivePayload[motor.runKey];
+        if (run !== undefined && run !== 0) alarmActiveSince.current.delete(`${motor.tripTag}-TripAlarm`);
+      }
+    }
+
     for (const [mqttKey, rawValue] of Object.entries(effectivePayload)) {
       if (
         !validKeys.includes(mqttKey) &&
@@ -443,6 +450,7 @@ export const useMqttTagSync = (
 
       const isNaNOrInfinite = rawValue === WTP_INVALID_FEEDBACK || !Number.isFinite(validatedValue);
       if (isNaNOrInfinite) {
+        alarmActiveSince.current.delete(`${sensorId}-TripAlarm`);
         const faultKey = `${sensorId}-SignalFault`;
         const faultStart = alarmActiveSince.current.get(faultKey);
         if (!faultStart) {
@@ -653,10 +661,14 @@ export const useMqttTagSync = (
         pumpValue = displayValue > 1.5 ? 1 : 0;
       }
 
-      // --- Trip Alarm Logic (WTP-Trip1 / WTP-Trip2, no debounce) ---
+      // Both motor bits must come from this MQTT message to confirm a trip.
       if (section === 'wtp' && (sensor.id === 'WTP-Trip1' || sensor.id === 'WTP-Trip2' || sensor.mqttKey.endsWith('TRIP_FB'))) {
         const tripKey = `${sensorId}-TripAlarm`;
-        if (displayValue >= 1) {
+        const motor = wtpMotorFeedback.find(pair => pair.tripTag === sensorId);
+        const confirmed = motor
+          ? resolveWtpMotorFeedback(effectivePayload[motor.runKey], rawValue, true) === 'Trip'
+          : displayValue === 1;
+        if (confirmed) {
           if (!alarmActiveSince.current.get(tripKey)) {
             alarmActiveSince.current.set(tripKey, nowTime);
             addAlarm({

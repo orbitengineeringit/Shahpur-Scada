@@ -19,7 +19,6 @@
   --wtp-panel-border: #a5bdc8;
   --wtp-ink: #13364c;
   --wtp-muted: #4f626d;
-  --wtp-caution: #835100;
   --wtp-alarm: #9b252a;
   --wtp-run: #125e3a;
   --wtp-track: #d5e4e8;
@@ -50,7 +49,6 @@
   --wtp-panel-border: #516e7b;
   --wtp-ink: #e5f4fa;
   --wtp-muted: #b5c6ce;
-  --wtp-caution: #ffd383;
   --wtp-alarm: #ffacaa;
   --wtp-run: #91e4b1;
   --wtp-track: #344954;
@@ -262,16 +260,6 @@
   font-weight: 650;
 }
 
-.wtp-reading-unavailable {
-  color: hsl(var(--muted-foreground));
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.wtp-map-label .wtp-reading-unavailable { color: var(--wtp-muted); }
-.wtp-map-label .wtp-reading-unavailable[data-status="Stale"] { color: var(--wtp-caution); }
-.wtp-map-label .wtp-reading-unavailable[data-status="Fault"] { color: var(--wtp-alarm); }
-
 .wtp-map-label--pump {
   display: grid;
   justify-items: center;
@@ -286,26 +274,12 @@
 .wtp-map-label--pump .wtp-reading-value { font-size: 1.17em; }
 .wtp-backwash-pump[data-available="false"] { opacity: .68; }
 .wtp-device-status {
-  color: var(--wtp-muted);
+  color: var(--wtp-muted, hsl(var(--muted-foreground)));
   font-size: 0.9em;
 }
 
-.wtp-device-status[data-tone="running"] { color: var(--wtp-run); }
-.wtp-device-status[data-tone="alarm"] { color: var(--wtp-alarm); }
-.wtp-device-status[data-tone="caution"] { color: var(--wtp-caution); }
-
-.wtp-flow-estimate {
-  display: block;
-  width: max-content;
-  margin-inline: auto;
-  padding: .05em .35em;
-  border: 1px solid currentColor;
-  border-radius: .3em;
-  color: #573e0b;
-  background: #fff1c9;
-  font-weight: 700;
-  font-size: .9em;
-}
+.wtp-device-status[data-tone="running"] { color: var(--wtp-run, hsl(var(--success))); }
+.wtp-device-status[data-tone="alarm"] { color: var(--wtp-alarm, hsl(var(--destructive))); }
 
 .wtp-field-feedback {
   grid-column: 1 / -1;
@@ -362,13 +336,19 @@
 .wtp-valve-indicator > strong { font-size: .91em; }
 .wtp-general-valves .wtp-valve-indicator > strong { font-size: .82em; }
 .wtp-valve-drawing { width: 3.55em; max-width: 95%; }
-.wtp-valve-indicator small { display: grid; font-size: .76em; color: var(--wtp-muted); }
-.wtp-valve-indicator small [data-trip="true"] { color: var(--wtp-alarm); font-weight: 800; }
+.wtp-valve-status { display: grid; color: var(--wtp-muted, hsl(var(--muted-foreground))); }
+.wtp-valve-indicator .wtp-valve-status { font-size: .76em; }
+.wtp-valve-status [data-trip="true"], [data-valve-position="Closed"] { color: var(--wtp-alarm, hsl(var(--destructive))); }
+.wtp-valve-status [data-trip="true"] { font-weight: 800; }
+[data-valve-position="Open"] { color: var(--wtp-run, hsl(var(--success))); }
+
+.wtp-instrument-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 10.5rem), 1fr));
+}
 .wtp-valve-disc { transform-origin: 31px 25px; }
 .wtp-valve-indicator[data-position="Closed"] .wtp-valve-disc { transform: rotate(90deg); }
 .wtp-valve-indicator[data-position="Open"] :is(svg,strong) { color: var(--wtp-run); }
-.wtp-valve-indicator:is([data-position="Closed"],[data-position="Conflict"],[data-position="Fault"]) :is(svg,strong) { color: var(--wtp-alarm); }
-.wtp-valve-indicator:is([data-position="Stale"],[data-position="Unconfirmed"]) :is(svg,strong) { color: var(--wtp-caution); }
+.wtp-valve-indicator[data-position="Closed"] :is(svg,strong) { color: var(--wtp-alarm); }
 .wtp-valve-indicator[data-trip="true"] svg circle:first-of-type { fill: var(--wtp-alarm); }
 .wtp-drive-icon { width: 1.65em; height: 1.35em; color: var(--wtp-muted); flex: none; align-self: center; }
 .wtp-drive-rotor { transform-origin: 20px 12px; }
@@ -444,8 +424,6 @@
   line-height: 1.18;
 }
 
-.wtp-outlet-readings dd .wtp-reading-unavailable[data-status="Fault"] { color: var(--wtp-alarm); }
-.wtp-outlet-readings dd .wtp-reading-unavailable[data-status="Stale"] { color: var(--wtp-caution); }
 
 @container (min-width: 40rem) {
   .wtp-outlet-readings { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -458,10 +436,8 @@
 .wtp-pipe-motion { color: #e7ffff; }
 .wtp-pipe-motion:is([data-fluid="sludge"], [data-fluid="alum"], [data-fluid="lime"]) { color: #fff2ba; }
 .wtp-pipe-motion[data-fluid="polymer"] { color: #ecffcb; }
-.wtp-pipe-motion[data-estimated="true"] { color: #fff0bf; --wtp-flow-period: 2.6s; }
 .wtp-flow-glass { stroke: currentColor; opacity: .29; }
 .wtp-flow-streak { stroke: currentColor; stroke-dasharray: 16 44; opacity: .55; }
-.wtp-pipe-motion[data-estimated="true"] .wtp-flow-streak { stroke-dasharray: 5 7 5 13; opacity: .85; }
 .wtp-flow-tracer { display: none; stroke: currentColor; offset-anchor: center; }
 
 @media (prefers-reduced-motion: no-preference) {

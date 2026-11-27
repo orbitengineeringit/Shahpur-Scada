@@ -11,7 +11,7 @@ function vesselMotion(flow: number | null, rpm?: number | null, slowDrive = fals
 }
 
 const liveDriveFill = {
-  Run: '#38c395', Off: '#8c9ca4', Trip: '#ea5f56', Conflict: '#ea5f56', Fault: '#ea5f56', Stale: '#dfad59', 'No data': '#667883',
+  Run: '#38c395', Off: '#8c9ca4', Trip: '#ea5f56', Fault: '#667883', Stale: '#667883', 'No data': '#667883',
 };
 
 function Current({ d, color = 'var(--wv-water-glint)', width = 2.6 }: { d: string; color?: string; width?: number }) {
@@ -315,8 +315,8 @@ function Clarifier({ id, state, rpm, inletFlow, flowRate }: {
 function Filter({ y, id, number, mode, flow, washFlow }: {
   y: number; id: string; number: number; mode: WtpFilterMode | null; flow: number | null; washFlow: number | null;
 }) {
-  const backwashing = mode === 'backwash' && washFlow !== 0;
-  const downflow = (mode === 'filter' || mode === 'rinse') && flow !== 0;
+  const backwashing = mode === 'backwash' && (washFlow ?? 0) > 0;
+  const downflow = (mode === 'filter' || mode === 'rinse') && (flow ?? 0) > 0;
   const active = backwashing || downflow || mode === 'air-scour';
   const sandTop = backwashing ? 29 : 39;
   return <g transform={`translate(1249 ${y})`} style={vesselMotion(backwashing ? washFlow : flow)}
@@ -375,8 +375,8 @@ export default memo(function WtpVessels({ activity, clearLevel }: {
   activity: WtpProcessActivity; clearLevel: number | null;
 }) {
   const { driveStates, rates, rpm } = activity;
-  const inletFlow = activity.inletFlow === true || activity.estimated.upstreamFlow;
-  const sludgeFlow = activity.sludgeFlow === true || activity.estimated.sludgeDraw;
+  const inletFlow = activity.inletFlow === true;
+  const sludgeFlow = activity.sludgeFlow === true && activity.valves.sludge !== false;
   const contactFlow = activity.contactFlow === true;
   const clearInflow = activity.clearInflow === true;
   const clearOutflow = activity.outletFlow === true;

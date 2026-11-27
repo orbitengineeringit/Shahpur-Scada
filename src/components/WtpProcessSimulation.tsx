@@ -1,7 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import WtpPlantDrawing from './WtpPlantDrawing';
-import { useScada } from '@/contexts/ScadaContext';
-import { deriveWtpProcessActivity, readWtpTelemetry, type WtpPumpState, type WtpValveFeedback } from '@/lib/wtpProcessActivity';
+import { wtpProcessReadouts, type WtpProcessActivity, type WtpReading, type WtpPumpState, type WtpValveFeedback } from '@/lib/wtpProcessActivity';
 import './WtpProcessSimulation.css';
 
 const WIDTH = 1672;
@@ -12,7 +11,7 @@ const processViews = [
   { id: 'clear-water', label: 'Clear water', x: 1230, y: 820 },
 ];
 
-type Reading = ReturnType<typeof readWtpTelemetry>;
+type Reading = WtpReading;
 
 const format = (value: number, decimals: number) => value.toLocaleString('en-IN', {
   maximumFractionDigits: decimals,
@@ -20,9 +19,7 @@ const format = (value: number, decimals: number) => value.toLocaleString('en-IN'
 });
 
 function ReadingValue({ reading, decimals = 1 }: { reading: Reading; decimals?: number }) {
-  if (reading.value === null) {
-    return <span className="wtp-reading-unavailable" data-status={reading.status}>{reading.status}</span>;
-  }
+  if (reading.value === null) return null;
   return (
     <span className="wtp-reading-value">
       {format(reading.value, decimals)}{reading.unit && <small> {reading.unit}</small>}
@@ -46,6 +43,7 @@ function MapLabel({ x, y, kind = 'equipment', active, children }: {
 }
 
 function MapReading({ label, reading, decimals }: { label: string; reading: Reading; decimals?: number }) {
+  if (reading.value === null) return null;
   return (
     <div className="wtp-map-reading">
       <span>{label}</span>
@@ -56,25 +54,19 @@ function MapReading({ label, reading, decimals }: { label: string; reading: Read
 
 const levelFraction = (value: number) => Math.max(0, Math.min(100, value)) / 100;
 
-function DeviceStatus({ state }: { state: WtpPumpState }) {
-  const tone = state === 'Trip' || state === 'Fault' || state === 'Conflict' ? 'alarm'
-    : state === 'Run' ? 'running' : state === 'Stale' ? 'caution' : 'neutral';
-  const label = state === 'No data' ? 'Unavailable' : state === 'Off' ? 'Stopped' : state === 'Run' ? 'Running' : state;
-  return <strong className="wtp-device-status" data-tone={tone} title={state === 'No data' ? 'Status unavailable' : undefined}>{label}</strong>;
+export function WtpDriveStatus({ state }: { state: WtpPumpState }) {
+  if (state !== 'Run' && state !== 'Off' && state !== 'Trip') return null;
+  const tone = state === 'Trip' ? 'alarm' : state === 'Run' ? 'running' : 'neutral';
+  return <strong className="wtp-device-status" data-tone={tone}>{state === 'Run' ? 'ON' : state.toUpperCase()}</strong>;
 }
 
-function FlowEstimate({ children, basis }: { children: ReactNode; basis: string }) {
-  return <span className="wtp-flow-estimate" title={basis}>{children}</span>;
-}
-
-function DeviceLabel({ x, y, name, state, pressure, estimate }: {
-  x: number; y: number; name: string; state: WtpPumpState; pressure?: Reading; estimate?: ReactNode;
+function DeviceLabel({ x, y, name, state, pressure }: {
+  x: number; y: number; name: string; state: WtpPumpState; pressure?: Reading;
 }) {
   return (
     <MapLabel x={x} y={y} kind="pump" active={state === 'Run'}>
       <span>{name}</span>
-      <DeviceStatus state={state} />
-      {estimate}
+      <WtpDriveStatus state={state} />
       {pressure && <ReadingValue reading={pressure} decimals={2} />}
     </MapLabel>
   );
@@ -111,10 +103,18 @@ function ValveIndicator({ valve }: { valve: WtpValveFeedback }) {
         ? <path className="wtp-valve-disc" d="M25 25h12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
         : <path d="M27 25h8" stroke="currentColor" strokeWidth="2" strokeDasharray="2 2" />}
     </svg>
-    <strong>{valve.position}</strong>
-    <small><span data-trip={valve.trip === true}>{valve.trip === true ? 'Trip' : valve.trip === false ? 'No trip' : 'Trip —'}</span>
-      <span>{valve.remote === true ? 'Remote' : valve.remote === false ? 'Remote off' : 'Mode —'}</span></small>
+    <WtpValveStatus valve={valve} />
   </div>;
+}
+
+export function WtpValveStatus({ valve }: { valve: WtpValveFeedback }) {
+  return <>
+    {(valve.position === 'Open' || valve.position === 'Closed') && <strong data-valve-position={valve.position}>{valve.position}</strong>}
+    {(valve.trip === true || valve.remote !== null) && <small className="wtp-valve-status">
+      {valve.trip === true && <span data-trip="true">TRIP</span>}
+      {valve.remote !== null && <span>{valve.remote ? 'Remote' : 'Remote off'}</span>}
+    </small>}
+  </>;
 }
 
 function DriveRotor() {
@@ -129,8 +129,9 @@ function DriveRotor() {
   </svg>;
 }
 
-export default function WtpProcessSimulation({ paused, controls }: { paused: boolean; controls: ReactNode }) {
-  const { wtpTags } = useScada();
+export default function WtpProcessSimulation({ paused, controls, activity, readings }: {
+  paused: boolean; controls: ReactNode; activity: WtpProcessActivity; readings: ReadonlyMap<string, WtpReading>;
+}) {
   const stageRef = useRef<HTMLDivElement>(null);
   const drawingRef = useRef<HTMLDivElement>(null);
   const [processView, setProcessView] = useState(0);
@@ -151,46 +152,24 @@ export default function WtpProcessSimulation({ paused, controls }: { paused: boo
     observer.observe(drawing);
     return () => observer.disconnect();
   }, [processView]);
-  const activity = deriveWtpProcessActivity(wtpTags);
-  const { estimated } = activity;
-  const upstreamEstimate = estimated.upstreamFlow
-    ? <FlowEstimate basis="Estimated from live filter-bed flow">Estimated flow</FlowEstimate>
-    : null;
-  const read = (id: string) => readWtpTelemetry(wtpTags.find(tag => tag.id === `WTP-${id}`));
-  const inletTurbidity = read('TA-IN');
-  const inletPh = read('PH-IN');
-  const filterFlow = read('ROF-FB1');
-  const filterHead1 = read('LOH-FB1');
-  const filterHead2 = read('LOH-FB2');
-  const outletFlow = read('Flow-OUT');
-  const backwashLevel = read('LT-BW');
-  const clearWaterLevel = read('LT-CW');
-  const pressure1 = read('PT1');
-  const pressure2 = read('PT2');
-  const headerPressure = read('HeaderPT');
+  const read = (key: keyof typeof wtpProcessReadouts): Reading =>
+    readings.get(wtpProcessReadouts[key].id) ?? { value: null, unit: '', status: 'No data' };
+  const inletTurbidity = read('inletTurbidity');
+  const inletPh = read('inletPh');
+  const filterFlow = read('filterFlow');
+  const filterHead1 = read('filterHead1');
+  const filterHead2 = read('filterHead2');
+  const backwashLevel = read('backwashLevel');
+  const clearWaterLevel = read('clearWaterLevel');
+  const pressure1 = read('pressure1');
+  const pressure2 = read('pressure2');
+  const headerPressure = read('headerPressure');
   const [pump1, pump2] = activity.pumpStates;
   const blower = activity.fieldDrives.find(d => d.name === 'Air blower')!;
   const sludge = activity.fieldDrives.find(d => d.name === 'Sludge pump')!;
-  const outletReadings = [
-    { label: 'Outlet flow', reading: outletFlow, decimals: 1 },
-    { label: 'Outlet pH', reading: read('PH'), decimals: 2 },
-    { label: 'Outlet chlorine', reading: read('CL'), decimals: 2 },
-    { label: 'Outlet turbidity', reading: read('TA'), decimals: 2 },
-    { label: 'Outlet totalizer', reading: read('Totalizer-OUT'), decimals: 2 },
-    { label: 'OCFM', reading: read('OCFM'), decimals: 2 },
-    { label: 'Pressure transmitter 3', reading: read('PLC-PT3'), decimals: 2 },
-  ];
-  const processReadings = [
-    { label: 'Inlet pH', reading: inletPh, decimals: 2 },
-    { label: 'Inlet turbidity', reading: inletTurbidity },
-    { label: 'Backwash tank', reading: backwashLevel },
-    { label: 'Clear water tank', reading: clearWaterLevel },
-    { label: 'Filter 1 flow', reading: filterFlow },
-    { label: 'Filter 1 head loss', reading: filterHead1 },
-    { label: 'Filter 2 head loss', reading: filterHead2 },
-    { label: 'CWR pump 1 pressure', reading: pressure1, decimals: 2 },
-    { label: 'CWR pump 2 pressure', reading: pressure2, decimals: 2 },
-  ];
+  const waterReadouts = Object.values(wtpProcessReadouts);
+  const alwaysShown = (entry: typeof waterReadouts[number]) =>
+    entry.group === 'outlet' || entry.group === 'process-instruments';
 
   return (
     <section className="wtp-process" aria-label="WTP live process" data-paused={paused}>
@@ -225,43 +204,39 @@ export default function WtpProcessSimulation({ paused, controls }: { paused: boo
           {activity.driveStates.backwashPumps.map((state, index) =>
             <DeviceLabel key={index} x={index === 0 ? 1275 : 1424} y={266} name={`Backwash pump ${index + 1}`} state={state} />)}
 
-          <MapLabel x={237} y={402} kind="readout">
+          {(inletPh.value !== null || inletTurbidity.value !== null) && <MapLabel x={237} y={402} kind="readout">
             <MapReading label="Inlet pH" reading={inletPh} decimals={2} />
             <MapReading label="Inlet turbidity" reading={inletTurbidity} />
-          </MapLabel>
+          </MapLabel>}
           <MapLabel x={90} y={468}>Raw Water Inlet</MapLabel>
-          <MapLabel x={241} y={578}>Raw Water Channel{upstreamEstimate}</MapLabel>
-          <DeviceLabel x={528} y={615} name="Flash Mixer" state={activity.driveStates.mixer} estimate={upstreamEstimate} />
-          <DeviceLabel x={854} y={650} name="Clariflocculator" state={activity.driveStates.clarifier} estimate={upstreamEstimate} />
+          <MapLabel x={241} y={578}>Raw Water Channel</MapLabel>
+          <DeviceLabel x={528} y={615} name="Flash Mixer" state={activity.driveStates.mixer} />
+          <DeviceLabel x={854} y={650} name="Clariflocculator" state={activity.driveStates.clarifier} />
 
           {activity.filters.map((filter, index) => (
             <MapLabel key={index} x={1405} y={index === 0 ? 351 : 530} active={filter !== null && filter !== 'idle'}>
               Filter 0{index + 1}{filter ? ' · ' + filterModeLabel[filter] : ''}
             </MapLabel>
           ))}
-          <MapLabel x={1405} y={486} kind="readout">
+          {(filterFlow.value !== null || filterHead1.value !== null) && <MapLabel x={1405} y={486} kind="readout">
             <MapReading label="Flow" reading={filterFlow} />
             <MapReading label="Loss of head" reading={filterHead1} />
-          </MapLabel>
-          <MapLabel x={1405} y={660} kind="readout">
+          </MapLabel>}
+          {filterHead2.value !== null && <MapLabel x={1405} y={660} kind="readout">
             <MapReading label="Loss of head" reading={filterHead2} />
-          </MapLabel>
+          </MapLabel>}
           <MapLabel x={1603} y={704}>Filter Bypass</MapLabel>
 
           <DeviceLabel x={200} y={753} name={blower.name} state={blower.state} />
-          <MapLabel x={720} y={772}>Sludge Recirculation Sump
-            {estimated.sludgeDraw && <FlowEstimate basis="Estimated from sludge pump run feedback">Estimated draw</FlowEstimate>}
-          </MapLabel>
+          <MapLabel x={720} y={772}>Sludge Recirculation Sump</MapLabel>
           <DeviceLabel x={897} y={767} name={sludge.name} state={sludge.state} />
-          <MapLabel x={148} y={839}>Chlorine Feed
-            {estimated.chlorineFeed && <FlowEstimate basis="Estimated from post-chlorination pump run feedback">Estimated feed</FlowEstimate>}
-          </MapLabel>
+          <MapLabel x={148} y={839}>Chlorine Feed</MapLabel>
           <MapLabel x={425} y={918}>Chlorine Contact Chamber</MapLabel>
           <MapLabel x={910} y={917}>Clear Water Storage Tank</MapLabel>
-          <MapLabel x={909} y={824} kind="readout">
+          {clearWaterLevel.value !== null && <MapLabel x={909} y={824} kind="readout">
             <MapReading label="Level" reading={clearWaterLevel} />
-            {clearWaterLevel.value !== null && <LevelTrack value={clearWaterLevel.value} />}
-          </MapLabel>
+            <LevelTrack value={clearWaterLevel.value} />
+          </MapLabel>}
           <MapLabel x={1115.5} y={869.5} kind="sight-glass">
             {clearWaterLevel.value !== null && <span className="wtp-liquid-level" aria-hidden="true"
               style={{ transform: `scaleY(${levelFraction(clearWaterLevel.value)})` }} />}
@@ -269,10 +244,7 @@ export default function WtpProcessSimulation({ paused, controls }: { paused: boo
 
           <MapLabel x={1368} y={780} kind="readout">
             <span className="wtp-readout-title">Clear Water Transfer Pumps</span>
-            {(headerPressure.value !== null || headerPressure.status !== 'No data') && <MapReading label="Header pressure" reading={headerPressure} decimals={2} />}
-            {estimated.transferBranch.some(Boolean) && <FlowEstimate basis="Estimated from outlet flow and transfer pump feedback">
-              Estimated flow · Pump {estimated.transferBranch[0] ? '01' : '02'}
-            </FlowEstimate>}
+            <MapReading label="Header pressure" reading={headerPressure} decimals={2} />
           </MapLabel>
           <DeviceLabel x={1294} y={907} name="CWR Pump 01" state={pump1} pressure={pressure1} />
           <DeviceLabel x={1430} y={907} name="CWR Pump 02" state={pump2} pressure={pressure2} />
@@ -282,18 +254,14 @@ export default function WtpProcessSimulation({ paused, controls }: { paused: boo
       <aside className="wtp-process-measurements" aria-label="Water measurements and valve feedback">
         <h3 className="wtp-measurements-heading">Water readings</h3>
         <dl className="wtp-outlet-readings" aria-label="Water measurements">
-          {outletReadings.map(({ label, reading, decimals }) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd><ReadingValue reading={reading} decimals={decimals} /></dd>
-            </div>
-          ))}
-          {processReadings.map(({ label, reading, decimals }) => (
-            <div key={label} className="wtp-mobile-reading">
-              <dt>{label}</dt>
-              <dd><ReadingValue reading={reading} decimals={decimals} /></dd>
-            </div>
-          ))}
+          {[...waterReadouts.filter(alwaysShown), ...waterReadouts.filter(entry => !alwaysShown(entry))].map(entry => {
+            const reading = readings.get(entry.id);
+            if (!reading || reading.value === null) return null;
+            return <div key={entry.id} className={alwaysShown(entry) ? undefined : 'wtp-mobile-reading'}>
+              <dt>{entry.label}</dt>
+              <dd><ReadingValue reading={reading} decimals={entry.decimals} /></dd>
+            </div>;
+          })}
         </dl>
         <div className="wtp-valve-bank wtp-cwr-valves" role="group" aria-label="Clear water reservoir valve feedback">
           <span className="wtp-valve-caption">Clear water valves</span>
@@ -307,7 +275,7 @@ export default function WtpProcessSimulation({ paused, controls }: { paused: boo
       <div className="wtp-field-feedback" aria-label="PLC equipment and valve feedback">
         <div className="wtp-field-row wtp-field-drives" aria-label="Drive feedback">
           {activity.fieldDrives.filter(d => d !== blower && d !== sludge).map(({name, state}) => <div key={name} data-drive={state}>
-            <DriveRotor /><span>{name}</span><DeviceStatus state={state} />
+            <DriveRotor /><span>{name}</span><WtpDriveStatus state={state} />
           </div>)}
         </div>
 

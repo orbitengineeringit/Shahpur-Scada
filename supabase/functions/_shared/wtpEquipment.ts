@@ -30,6 +30,21 @@ const aliases: Record<string,string> = {
   CWR_PUMP2_RUN_FB:'MOTOR2_INDACTOR', CWR_PUMP2_TRIP_FB:'MOTOR2_TRIP', ALUM_AG02_TRIP_FB:'ALUM_AG02TRIP_FB',
 };
 const canonical = (key: string) => Object.prototype.hasOwnProperty.call(aliases,key) ? aliases[key] : key;
+
+export const wtpMotorFeedback = [
+  { name: 'CWR Pump 01', runTag: 'WTP-Pump1', tripTag: 'WTP-Trip1', runKey: 'MOTOR1_INDACTOR' },
+  { name: 'CWR Pump 02', runTag: 'WTP-Pump2', tripTag: 'WTP-Trip2', runKey: 'MOTOR2_INDACTOR' },
+  ...Object.entries(drives).map(([prefix, name]) => ({
+    name, runTag: `WTP-${prefix}_RUN_FB`, tripTag: `WTP-${canonical(prefix + '_TRIP_FB')}`,
+    runKey: prefix + '_RUN_FB',
+  })),
+];
+
+export function resolveWtpMotorFeedback(run: unknown, trip: unknown, sameSample: boolean) {
+  if (run === 1) return 'Run';
+  if (run === 0) return trip === 1 && sameSample ? 'Trip' : 'Off';
+}
+
 const binary = new Set([...wtpAdditionalSensors.filter(s => s.type === 'digital').map(s => s.mqttKey),
   'MOTOR1_INDACTOR','MOTOR1_TRIP','MOTOR2_INDACTOR','MOTOR2_TRIP']);
 // The WTP equipment envelope repeats these measurements with zero placeholders.
@@ -62,8 +77,6 @@ export function normalizeWtpFields(entries: Iterable<[string,unknown]>): Record<
   function checkPair(a: string, b: string) {
     if (result[a] === 1 && result[b] === 1) result[a] = result[b] = WTP_INVALID_FEEDBACK;
   }
-  for (const base of Object.keys(drives)) checkPair(base + '_RUN_FB',canonical(base + '_TRIP_FB'));
-  for (const n of [1,2]) checkPair('MOTOR' + n + '_INDACTOR','MOTOR' + n + '_TRIP');
   for (const base of valves) checkPair(base + '_OPEN_FB',base + '_CLOSE_FB');
   return result;
 }

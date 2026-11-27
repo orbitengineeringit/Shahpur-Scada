@@ -68,12 +68,6 @@
     animation: wtp-machine-stroke var(--wtp-motor-period, 1.2s) ease-in-out infinite;
   }
 
-  .wtp-machine-liquid {
-    stroke-dasharray: 8 5 1 4;
-    animation: wtp-machine-stream 0.72s linear infinite;
-  }
-
-  .wtp-machine-air,
   .wtp-machine-gas {
     stroke-dasharray: 1 5;
     animation: wtp-machine-stream 0.4s linear infinite;

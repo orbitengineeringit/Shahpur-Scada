@@ -54,15 +54,15 @@ function Guardrail({ x, y, width, height = 38 }: { x: number; y: number; width: 
   </g>;
 }
 
-function Pump({ x, y, scale = 1, state, name, rpm, air = false, fluidMoving = false }: {
+function Pump({ x, y, scale = 1, state, name, rpm, air = false }: {
   x: number; y: number; scale?: number; state: WtpPumpState; name: string; rpm: number | null;
-  air?: boolean; fluidMoving?: boolean;
+  air?: boolean;
 }) {
   const active = state === 'Run' && rpm !== 0;
   const bladePath = air ? 'M0 -1 Q-3 -8 4 -7 Q8 -5 4 -2 L1 1Z' : 'M0 -1 Q1 -8 6 -6 Q3 -4 3 0 Z';
   return <g transform={`translate(${x} ${y}) scale(${scale})`} style={driveTiming(rpm, 1.05)}
     data-equipment={name} data-state={state}>
-    <title>{`${name} · ${state}`}</title>
+    <title>{name}</title>
     <ellipse cx="4" cy="22" rx="43" ry="5" fill="url(#wtp-mach-shadow)" />
     <path d="M-35 16 h70 l3 5 h-76 z" fill={steel} stroke="#485765" />
     <path d="M-24 8 h7 v8 h-10 z M13 8 h7 l4 8 H12 z" fill="#153c68" />
@@ -88,11 +88,6 @@ function Pump({ x, y, scale = 1, state, name, rpm, air = false, fluidMoving = fa
     <path d="M7 1 Q5 -9 15 -13 V-27 H27 V-6 Q36 1 29 10 Q22 18 13 12 Q8 9 7 1Z" fill={blue} stroke="#143f65" strokeWidth="1.8" />
     <rect x="12" y="-30" width="18" height="5" rx="1.2" fill={steel} stroke="#354958" />
     <path d="M18 -17V-25h6v8" fill="#224154" stroke="#6b9db3" strokeWidth=".8"/>
-    {active && fluidMoving && (
-      <path className={air ? 'wtp-machine-air' : 'wtp-machine-liquid'}
-        d="M21 2c5 3 9-1 7-7l-4-8v-12"
-        fill="none" stroke={air ? '#e1f7e7' : '#8af5ff'} strokeWidth="1.6" strokeLinecap="round"/>
-    )}
     <circle cx="19" cy="1" r="11" fill="#35566a" stroke={active ? '#8adce9' : '#a3bcc9'} strokeWidth="2.2" />
     {[0,60,120,180,240,300].map(angle => <use key={angle} href="#wtp-mach-bolt" transform={`translate(19 1) rotate(${angle}) translate(0 -11.5) scale(.65)`} />)}
     {[-29,30].map(dx => <use key={dx} href="#wtp-mach-bolt" transform={`translate(${dx} 17)`} />)}
@@ -108,7 +103,7 @@ function Pump({ x, y, scale = 1, state, name, rpm, air = false, fluidMoving = fa
       {active && <circle r="9.2" fill="none" stroke="#61ead9" strokeWidth="1.05" opacity=".77"/>}
     </g>
     <circle cx="-25" cy="-12" r="3.5"
-      fill={state === 'Trip' || state === 'Fault' || state === 'Conflict' ? '#ef524c' : state === 'Run' ? '#27c582' : state === 'Stale' ? '#dfa34e' : '#84949c'}
+      fill={state === 'Trip' ? '#ef524c' : state === 'Run' ? '#27c582' : '#84949c'}
       stroke="#273e4b" />
   </g>;
 }
@@ -122,7 +117,7 @@ function DosingTank({ x, band, name, liquid, state, rpm, level }: {
   const cutaway = useId();
   return <g transform={`translate(${x} 0)`} style={driveTiming(rpm, 2.3)}
     data-equipment={name} data-state={state} data-water-level={level ?? undefined}>
-    <title>{`${name} agitator · ${state}`}</title>
+    <title>{`${name} agitator`}</title>
     <ellipse cy="272" rx="55" ry="6" fill="url(#wtp-mach-shadow)" />
     <path d="M-45 248 v23 h7 v-23 M38 248 v23 h7 v-23" fill={steel} />
     <path d="M-50 136 Q-50 116 0 114 Q50 116 50 136 V247 Q49 265 0 267 Q-48 265 -50 247 Z" fill={steel} stroke="#63737b" strokeWidth="1.6" />
@@ -174,7 +169,7 @@ function BackwashTank({ level, draining }: { level: number | null; draining?: bo
   const wet = useId();
   const windowClip = wet + '-window';
   return <g data-equipment="Backwash water tank" data-state={draining && height > 1 ? 'Delivering wash water' : undefined}>
-    <title>{`Backwash water tank · ${level === null ? 'Level unavailable' : `${level}%`}`}</title>
+    <title>Backwash water tank</title>
     {[1002, 1042, 1104, 1142].map(x => <g key={x} fill={steel} stroke="#748087">
       <path d={`M${x} 255 h12 v72 h-12 Z`} /><ellipse cx={x + 6} cy="327" rx="9" ry="2" />
     </g>)}
@@ -242,7 +237,7 @@ export default memo(function WtpMachinery({ backwashLevel, activity }: {
   activity: WtpProcessActivity;
 }) {
   const { driveStates, pumpStates, rpm } = activity;
-  const chlorineFeeding = activity.chlorineFeeding === true || activity.estimated.chlorineFeed;
+  const chlorineFeeding = activity.chlorineFeeding === true;
   return <g className="wtp-machinery">
     <defs>
       <radialGradient id="wtp-mach-shadow"><stop stopColor="var(--wm-shadow)" stopOpacity=".54"/><stop offset=".72" stopColor="var(--wm-shadow)" stopOpacity=".22"/><stop offset="1" stopColor="var(--wm-shadow)" stopOpacity="0"/></radialGradient>
@@ -297,7 +292,7 @@ export default memo(function WtpMachinery({ backwashLevel, activity }: {
         {[45,135,225,315].map(angle=><use key={angle} href="#wtp-mach-bolt" transform={`rotate(${angle}) translate(0 -9) scale(.65)`}/>)}
         <rect x="-12" y="-34" width="24" height="5" rx="1" fill={steel} stroke="var(--wm-metal-edge)" strokeWidth=".8"/>
         <path d="M-4 -28v10m4 -10v10m4 -10v10" stroke="var(--wm-paint-hi)" strokeWidth="1"/>
-        <title>{`${name} dosing pump · ${state}`}</title>
+        <title>{`${name} dosing pump`}</title>
       </g>;
     })}
     <BackwashTank level={backwashLevel} draining={activity.backwashTankOutflow === true} />
@@ -333,9 +328,7 @@ export default memo(function WtpMachinery({ backwashLevel, activity }: {
       {chlorineFeeding && <path className="wtp-machine-gas" d="M183 796H200" fill="none" stroke="#fff2a2" strokeWidth="2.4" strokeLinecap="round"/>}
     </g>
     <Plinth x={1230} y={901} width={269} height={25} />
-    <Pump x={1294} y={873} state={pumpStates[0]} rpm={rpm.transferPumps[0]} name="CWR pump 01"
-      fluidMoving={activity.estimated.transferBranch[0]} />
-    <Pump x={1430} y={873} state={pumpStates[1]} rpm={rpm.transferPumps[1]} name="CWR pump 02"
-      fluidMoving={activity.estimated.transferBranch[1]} />
+    <Pump x={1294} y={873} state={pumpStates[0]} rpm={rpm.transferPumps[0]} name="CWR pump 01" />
+    <Pump x={1430} y={873} state={pumpStates[1]} rpm={rpm.transferPumps[1]} name="CWR pump 02" />
   </g>;
 });

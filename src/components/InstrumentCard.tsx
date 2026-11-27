@@ -1,4 +1,5 @@
 import { useTagConnection } from '@/hooks/useTagConnection';
+import { readWtpTelemetry } from '@/lib/wtpProcessActivity';
 import React, { useState, useEffect, useRef, memo, useCallback, useMemo } from 'react';
 import { useScada, TagData } from '@/contexts/ScadaContext';
 import { ShahpurSensor } from '@/config/shahpurSensors';
@@ -55,7 +56,9 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
   const isDigital = sensor.type === 'digital';
   const isTotalizer = sensor.type === 'totalizer';
   const connection = useTagConnection(tag);
-  const hasLiveValue = tag.source !== 'simulated' && (connection === 'connected' || connection === 'inactive');
+  const hasLiveValue = section === 'wtp'
+    ? readWtpTelemetry(tag).value !== null
+    : tag.source !== 'simulated' && (connection === 'connected' || connection === 'inactive');
   const shownValue = hasLiveValue ? tag.value : 0;
 
   const renderInstrument = () => {
@@ -73,6 +76,7 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
     }
     
     if (!hasLiveValue && !showNotInstalled) {
+      if (section === 'wtp') return null;
       return <span className="font-mono text-muted-foreground" aria-label="Reading unavailable">—</span>;
     }
     switch (sensor.instrumentType) {
@@ -215,7 +219,7 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
           <div className="flex items-center justify-between mb-1.5 sm:mb-2 shrink-0">
             <div className="min-w-0">
               <span className="block text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{sensor.label}</span>
-              {!hasLiveValue && (
+              {!hasLiveValue && section !== 'wtp' && (
                 <span className="text-[9px] font-bold uppercase tracking-wide text-destructive">No live data</span>
               )}
             </div>
@@ -258,9 +262,9 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
               </div>
             )}
 
-            <div className="flex items-center gap-1 mt-1">
+            {(hasLiveValue || section !== 'wtp') && <div className="flex items-center gap-1 mt-1">
               <span className="text-[9px] sm:text-[10px] text-muted-foreground font-mono truncate">{tag.timestamp.toLocaleTimeString()}</span>
-            </div>
+            </div>}
           </div>
         </div>
       </div>
@@ -280,6 +284,10 @@ const InstrumentCard: React.FC<InstrumentCardProps> = memo(({ tag, sensor, secti
   return (
     prev.tag.value === next.tag.value &&
     prev.tag.timestamp === next.tag.timestamp &&
+    prev.tag.lastDataTime === next.tag.lastDataTime &&
+    prev.tag.source === next.tag.source &&
+    prev.tag.notInstalled === next.tag.notInstalled &&
+    prev.tag.unit === next.tag.unit &&
     prev.tag.highSetpoint === next.tag.highSetpoint &&
     prev.tag.lowSetpoint === next.tag.lowSetpoint &&
     prev.tag.alarmEnabled === next.tag.alarmEnabled &&

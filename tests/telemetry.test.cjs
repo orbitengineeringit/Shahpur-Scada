@@ -104,6 +104,24 @@ function wtpReading(id, value, options = {}) {
   return { ...tag, id, value, source: 'mqtt', lastDataTime: new Date(), ...options };
 }
 
+test('WTP Cards View includes each process reading, drive and valve once', () => {
+  const config = load('src/config/shahpurSensors.ts').exports;
+  const { context } = load('src/pages/WtpPage.tsx', {
+    '@/lib/wtpProcessActivity': wtpLive,
+    '@/config/shahpurSensors': config,
+  });
+  const groups = vm.runInContext('cardGroups', context);
+  const cardIds = Array.from(groups).flatMap(group => Array.from(group.sensorIds));
+  const expectedIds = [
+    ...Object.values(wtpLive.wtpProcessReadouts).map(({ id }) => id),
+    ...sharedWtp.wtpMotorFeedback.map(({ runTag }) => runTag),
+    ...config.WTP_SENSORS.filter(sensor => /VALVE[1-7]_OPEN_FB$/.test(sensor.id)).map(sensor => sensor.id),
+  ];
+  assert.deepEqual(cardIds.sort(), expectedIds.sort());
+  assert.equal(groups.find(group => group.id === 'valves').sensorIds.length, 7);
+  assert.equal(groups.some(group => group.sensorIds.includes('WTP-TEM')), false);
+});
+
 test('WTP measured flow never implies unmonitored equipment or a backwash phase', () => {
   const samples = [
     wtpReading('WTP-ROF-FB1', 42),
@@ -119,48 +137,38 @@ test('WTP measured flow never implies unmonitored equipment or a backwash phase'
   assert.equal(view.inletFlow, null);
   assert.equal(view.mixing, null);
   assert.equal(view.clarifying, null);
-  assert.equal(view.estimated.upstreamFlow, true);
   assert.equal(view.backwashTankOutflow, null);
   assert.deepEqual(Array.from(view.dosing), Array(6).fill(null));
   assert.deepEqual(Array.from(view.backwashPumps), [null, null]);
 });
 
-test('WTP upstream motion estimates stop without usable filtration evidence', () => {
+test('WTP filter readings require fresh valid flow and do not imply inlet flow', () => {
   const flow = wtpReading('WTP-ROF-FB1', 42);
   const derive = wtpLive.deriveWtpProcessActivity;
   for (const unsuitable of [
     { value: 0 }, { status: 'fault' }, { source: 'simulated' },
     { lastDataTime: new Date(Date.now() - 6 * 60000) },
   ]) {
-    assert.equal(derive([{ ...flow, ...unsuitable }]).estimated.upstreamFlow, false);
+    assert.equal(derive([{ ...flow, ...unsuitable }]).filters[0], null);
   }
   assert.equal(derive([flow, wtpReading('phase', 1)], {
     filters: [{ phase: { tag: 'phase', values: { 1: 'backwash' } } }],
-  }).estimated.upstreamFlow, false);
-  assert.equal(derive([flow, wtpReading('filter-outlet', 0)], {
-    filters: [{ outletOpen: 'filter-outlet' }],
-  }).estimated.upstreamFlow, false);
+  }).inletFlow, null);
   const metered = derive([flow, wtpReading('inlet-meter', 0)], { inletFlow: 'inlet-meter' });
-  assert.equal(metered.estimated.upstreamFlow, false);
   assert.equal(metered.inletFlow, false);
 });
 
-test('WTP downstream motion estimates require healthy feedback from the corresponding pump', () => {
+test('WTP sludge and chlorine motors do not imply fluid flow', () => {
   const derive = wtpLive.deriveWtpProcessActivity;
   const feedback = (name, trip = 0) => [
     wtpReading(`WTP-${name}_RUN_FB`, 1), wtpReading(`WTP-${name}_TRIP_FB`, trip),
   ];
   const samples = [...feedback('SLDP_PUMP'), ...feedback('POST_CL02')];
   const view = derive(samples);
-  assert.equal(view.estimated.sludgeDraw, true);
-  assert.equal(view.estimated.chlorineFeed, true);
+  assert.equal(view.fieldDrives.find(d => d.name === 'Sludge pump').state, 'Run');
+  assert.equal(view.fieldDrives.find(d => d.name === 'Post-Cl 02').state, 'Run');
   assert.equal(view.sludgeFlow, null);
   assert.equal(view.chlorineFeeding, null);
-  assert.equal(derive(feedback('SLDP_PUMP', 1)).estimated.sludgeDraw, false);
-  assert.equal(derive(feedback('POST_CL02', 1)).estimated.chlorineFeed, false);
-  assert.equal(derive(feedback('PRE_CL02')).estimated.chlorineFeed, false);
-  assert.equal(derive([...samples, wtpReading('sludge-valve', 0)], { sludgeOpen: 'sludge-valve' }).estimated.sludgeDraw, false);
-  assert.equal(derive(samples, { chlorineFlow: 'chlorine-meter' }).estimated.chlorineFeed, false);
 });
 
 test('WTP rotation uses independent digital run and trip feedback', () => {
@@ -171,7 +179,7 @@ test('WTP rotation uses independent digital run and trip feedback', () => {
     wtpReading('WTP-Trip2', 0),
     wtpReading('WTP-PT2', 8.2),
   ];
-  assert.deepEqual(Array.from(wtpLive.deriveWtpProcessActivity(active).pumpStates), ['Conflict', 'Off', 'No data']);
+  assert.deepEqual(Array.from(wtpLive.deriveWtpProcessActivity(active).pumpStates), ['Run', 'Off', 'No data']);
   assert.deepEqual(Array.from(wtpLive.deriveWtpProcessActivity([
     wtpReading('WTP-Pump1', 1, { source: 'simulated' }),
     wtpReading('WTP-Pump2', 1, { lastDataTime: new Date(Date.now() - 6 * 60000) }),
@@ -179,20 +187,64 @@ test('WTP rotation uses independent digital run and trip feedback', () => {
   assert.equal(wtpLive.deriveWtpProcessActivity([wtpReading('WTP-Pump1', 7)]).pumpStates[0], 'Fault');
 });
 
-test('WTP estimates a transfer branch only with outlet flow and a single eligible pump', () => {
-  const derive = wtpLive.deriveWtpProcessActivity;
-  const sample = (outlet, run1, run2, trip2 = 0) => [
-    wtpReading('WTP-Flow-OUT', outlet), wtpReading('WTP-Pump1', run1),
-    wtpReading('WTP-Pump2', run2), wtpReading('WTP-Trip1', 0), wtpReading('WTP-Trip2', trip2),
+test('WTP requires a fresh same-sample stopped RUN bit to confirm a trip', () => {
+  const state = wtpLive.readWtpMotorState;
+  const now = Date.now();
+  const sample = { lastDataTime: new Date(now), mqttTopic: 'site' };
+  const trip = wtpReading('WTP-Trip1', 1, sample);
+  const stopped = wtpReading('WTP-Pump1', 0, sample);
+  assert.equal(state(stopped, trip), 'Trip');
+  assert.equal(state({ ...stopped, value: 1 }, trip), 'Run');
+  assert.equal(state({ ...stopped, value: 1 }), 'Run');
+  assert.equal(state(stopped), 'Off');
+  assert.equal(state(undefined, trip), 'No data');
+  assert.equal(state({ ...stopped, status: 'fault' }, trip), 'Fault');
+  assert.equal(state(stopped, { ...trip, lastDataTime: new Date(now - 10) }), 'Off');
+  assert.equal(state(stopped, { ...trip, lastDataTime: new Date(now - 6 * 60_000) }), 'Off');
+  assert.equal(state(stopped, { ...trip, mqttTopic: 'other' }), 'Off');
+  assert.equal(sharedWtp.resolveWtpMotorFeedback(0, 1, true), 'Trip');
+  assert.equal(sharedWtp.resolveWtpMotorFeedback(1, 1, true), 'Run');
+  assert.equal(sharedWtp.resolveWtpMotorFeedback(sharedWtp.WTP_INVALID_FEEDBACK, 1, true), undefined);
+});
+
+test('scheduled WTP alarms use same-packet motor feedback and keep standalone valve trips', async () => {
+  const now = Date.now();
+  const packetRows = (fields, timestamp = now, topic = 'site') => mapReadings({
+    section: 'wtp', payload: sharedWtp.normalizeWtpFields(Object.entries(fields)),
+    topic, timestamp: new Date(timestamp),
+  });
+  const latest = [
+    ...packetRows({
+      CWR_PUMP1_RUN_FB: 1, CWR_PUMP1_TRIP_FB: 1,
+      CWR_PUMP2_RUN_FB: 0, CWR_PUMP2_TRIP_FB: 1,
+      FLASH_MIXER_TRIP_FB: 1, POST_CL01_TRIP_FB: 1, VALVE6_TRIP_FB: 1,
+    }),
+    ...packetRows({ FLASH_MIXER_RUN_FB: 0 }, now - 100),
   ];
-  const branch = (tags, mapping) => Array.from(derive(tags, mapping).estimated.transferBranch);
-  assert.deepEqual(branch(sample(25, 1, 0)), [true, false]);
-  assert.deepEqual(branch(sample(25, 0, 1)), [false, true]);
-  assert.deepEqual(branch(sample(0, 1, 0)), [false, false]);
-  assert.deepEqual(branch(sample(25, 1, 1)), [false, false]);
-  assert.deepEqual(branch(sample(25, 1, 1, 1)), [false, false]);
-  assert.deepEqual(branch(sample(25, 1, 0).filter(tag => tag.id !== 'WTP-Trip2')), [false, false]);
-  assert.deepEqual(branch([...sample(25, 1, 0), wtpReading('rpm1', 0)], { transferPumps: [{ rpm: 'rpm1' }] }), [false, false]);
+  const alarms = [];
+  const client = {
+    from(table) {
+      const query = {
+        select: () => query, order: () => query, limit: () => query, eq: () => query,
+        gte: () => ({ data: table === 'telemetry_latest' ? latest : [] }),
+        maybeSingle: () => ({ data: table === 'gis_config' ? { cron_secret: 'test' } : null }),
+        upsert: async () => ({}), update: () => query, in: () => ({ data: [] }),
+        insert: async rows => { if (table === 'alarms') alarms.push(...rows); return {}; },
+      };
+      return query;
+    },
+    rpc: async () => ({}),
+  };
+  let handler;
+  load('supabase/functions/scada-ingest/index.ts', {
+    'https://esm.sh/@supabase/supabase-js@2.45.0': { createClient: () => client },
+    'npm:mqtt@5.10.4': {},
+  }, { Deno: { env: { get: () => undefined }, serve: fn => { handler = fn; } }, Response });
+  const response = await handler(new Request('https://example.invalid', {
+    method: 'POST', headers: { 'x-cron-key': 'test' }, body: '{}',
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(alarms.map(alarm => alarm.tag_id).sort(), ['WTP-Trip2', 'WTP-VALVE6_TRIP_FB']);
 });
 
 test('HMI mixer, numbered agitators and valves require their own feedback', () => {
@@ -211,7 +263,7 @@ test('HMI mixer, numbered agitators and valves require their own feedback', () =
   assert.deepEqual(Array.from(view.blowers), [null, null]);
   assert.equal(view.fieldDrives.find(d => d.name === 'Air blower').state, 'Run');
   assert.deepEqual(Array.from(view.fieldValves.slice(0,4), v => v.position), ['Open','No data','Unconfirmed','Conflict']);
-  assert.equal(wtpLive.deriveWtpProcessActivity([samples[0]]).mixing, null);
+  assert.equal(wtpLive.deriveWtpProcessActivity([samples[0]]).mixing, true);
 });
 
 test('WTP preserves fresh zero and distinguishes unavailable analog readings', () => {
@@ -884,7 +936,7 @@ test('WTP zero placeholders only yield to one valid measurement, regardless of p
       PUMP2_PT: 0.0844, PT3: 1.0065, CWT: 43.5203, BACKWASH_TANK: 48.9161,
       TURBIDITY_INLET: 10, LOH_FB1: 11.7082, ROF_FB1: 55.2368, LOH_FB2: invalid,
       PUMP1_PT: 0, OUTLET_FLOW: 0, TOTALIZER: 0, FLASH_MIXER_RUN_FB: invalid,
-      RECYCLE_PUMP02_RUN_FB: invalid, RECYCLE_PUMP02_TRIP_FB: invalid,
+      RECYCLE_PUMP02_RUN_FB: 1, RECYCLE_PUMP02_TRIP_FB: 1,
       VALVE4_OPEN_FB: 1, VALVE4_CLOSE_FB: 0,
     })) assert.equal(decoded[key], value, key);
     const rows = new Map(map('wtp', decoded).map(row => [row.tag_id, row]));
@@ -900,16 +952,19 @@ test('WTP zero placeholders only yield to one valid measurement, regardless of p
   assert.equal(conflicts.TOTALIZER, invalid);
 });
 
-test('WTP conflicting drive and valve feedback cannot create good historian samples', () => {
-  const decoded = sharedWtp.decodeWtpEquipment(JSON.stringify({equipment_data:{
-    RECYCLE_PUMP02_RUN_FB:1, RECYCLE_PUMP02_TRIP_FB:1, VALVE4_OPEN_FB:1, VALVE4_CLOSE_FB:1,
-    AIR_BLOWER_RUN_FB:2, VALVE5_OPEN_FB:0, VALVE5_CLOSE_FB:0, LOH02_SCALED:-4.0116,
-    ALUM_AG02_RUN_FB:1, ALUM_AG02TRIP_FB:1, CWR_PUMP1_RUN_FB:0, CWR_PUMP1_TRIP_FB:0,
-  }}));
+test('WTP preserves distinct RUN/TRIP bits while rejecting duplicate disagreement and invalid feedback', () => {
+  const decoded = sharedWtp.decodeWtpEquipment('{"equipment_data":{' +
+    '"RECYCLE_PUMP02_RUN_FB":1,"RECYCLE_PUMP02_TRIP_FB":1,"VALVE4_OPEN_FB":1,"VALVE4_CLOSE_FB":1,' +
+    '"AIR_BLOWER_RUN_FB":1,"AIR_BLOWER_TRIP_FB":1,"AIR_BLOWER_RUN_FB":0,"AIR_BLOWER_TRIP_FB":0,' +
+    '"VALVE5_OPEN_FB":0,"VALVE5_CLOSE_FB":0,"LOH02_SCALED":-4.0116,' +
+    '"ALUM_AG02_RUN_FB":1,"ALUM_AG02TRIP_FB":1,"CWR_PUMP1_RUN_FB":0,"CWR_PUMP1_TRIP_FB":0}}');
   const rows = new Map(map('wtp',decoded).map(row => [row.tag_id,row]));
-  for (const key of ['RECYCLE_PUMP02_RUN_FB','RECYCLE_PUMP02_TRIP_FB','VALVE4_OPEN_FB','VALVE4_CLOSE_FB',
-    'AIR_BLOWER_RUN_FB','ALUM_AG02TRIP_FB','ALUM_AG02_RUN_FB','LOH-FB2']) {
+  for (const key of ['VALVE4_OPEN_FB','VALVE4_CLOSE_FB','AIR_BLOWER_RUN_FB','AIR_BLOWER_TRIP_FB','LOH-FB2']) {
     assert.equal(rows.get('WTP-'+key).quality,'fault',key);
+  }
+  for (const key of ['RECYCLE_PUMP02_RUN_FB','RECYCLE_PUMP02_TRIP_FB','ALUM_AG02_RUN_FB','ALUM_AG02TRIP_FB']) {
+    assert.equal(rows.get('WTP-'+key).quality,'good',key);
+    assert.equal(rows.get('WTP-'+key).value,1,key);
   }
   for (const key of ['VALVE5_OPEN_FB','VALVE5_CLOSE_FB','Pump1','Trip1']) {
     assert.equal(rows.get('WTP-'+key).quality,'good',key);

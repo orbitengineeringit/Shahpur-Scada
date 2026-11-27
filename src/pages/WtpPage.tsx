@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useScada, type TagData } from '@/contexts/ScadaContext';
-import { getTagConnection, useTagConnection } from '@/hooks/useTagConnection';
+import { getTagConnection } from '@/hooks/useTagConnection';
 import StatusBar from '@/components/StatusBar';
 import SensorTrendModal from '@/components/SensorTrendModal';
 import InstrumentCard from '@/components/InstrumentCard';
@@ -11,20 +11,51 @@ import { WTP_SENSORS } from '@/config/shahpurSensors';
 import { BarChart2, LayoutGrid, Activity, Pause, Play } from 'lucide-react';
 import WtpIcon from '@/components/icons/WtpIcon';
 import { Button } from '@/components/ui/button';
-import WtpProcessSimulation from '@/components/WtpProcessSimulation';
+import WtpProcessSimulation, { WtpDriveStatus, WtpValveStatus } from '@/components/WtpProcessSimulation';
+import { deriveWtpProcessActivity, isSameWtpSample, readWtpMotorState, readWtpTelemetry, wtpProcessReadouts } from '@/lib/wtpProcessActivity';
+import { wtpMotorFeedback } from '../../supabase/functions/_shared/wtpEquipment';
 
 const configuredSignalCount = WTP_SENSORS.filter(sensor => !sensor.notInstalled).length;
+const motorByRun = new Map(wtpMotorFeedback.map(motor => [motor.runTag, motor]));
+const valveCard = /^WTP-(?:CWR_)?VALVE([1-7])_OPEN_FB$/;
+const processReadouts = Object.values(wtpProcessReadouts);
+const readoutById = new Map<string, typeof processReadouts[number]>(processReadouts.map(readout => [readout.id, readout]));
+const cardSensors = WTP_SENSORS.filter(sensor => !sensor.notInstalled).map(sensor => {
+  const readout = readoutById.get(sensor.id);
+  return readout ? { ...sensor, label: readout.label } : sensor;
+});
+const sensorMap = new Map(cardSensors.map(sensor => [sensor.id, sensor]));
+const sectionIds = [
+  { id: 'raw-water', name: 'Raw Water / Inlet' },
+  { id: 'mixing-dosing', name: 'Mixing and Dosing', feedback: /^(FLASH_MIXER|ALUM_AG|LIME_AG|PRE_CL|POST_CL)/ },
+  { id: 'backwash', name: 'Backwash' },
+  { id: 'filter-bed', name: 'Filter Bed', feedback: /^AIR_BLOWER/ },
+  { id: 'sludge', name: 'Sludge Recirculation', feedback: /^(SLDP_PUMP|RECYCLE_PUMP)/ },
+  { id: 'clear-water', name: 'Clear Water', feedback: /^MOTOR/ },
+  { id: 'outlet', name: 'Outlet', orderKey: 'wtp-outlet-process' },
+  { id: 'process-instruments', name: 'Process Instruments' },
+  { id: 'valves', name: 'Valve Feedback' },
+  { id: 'other-instruments', name: 'Other Instruments' },
+];
+const cardGroups = sectionIds.map(section => ({
+  ...section,
+  sensorIds: cardSensors.filter(sensor => {
+    const readout = readoutById.get(sensor.id);
+    if (readout) return section.id === readout.group;
+    if (valveCard.test(sensor.id)) return section.id === 'valves';
+    if (motorByRun.has(sensor.id)) return section.feedback?.test(sensor.mqttKey) ?? false;
+    return sensor.type !== 'digital' && section.id === 'other-instruments';
+  }).map(sensor => sensor.id),
+})).filter(section => section.sensorIds.length > 0);
 
-function FieldFeedbackCard({ tag, name }: { tag: TagData; name: string }) {
+function FeedbackCard({ tag, name, children }: { tag: TagData; name: string; children?: React.ReactNode }) {
   const [showTrend, setShowTrend] = useState(false);
-  const connection = useTagConnection(tag);
-  const live = (connection === 'connected' || connection === 'inactive') && tag.source !== 'simulated';
-  const label = live ? (tag.value === 1 ? '1 · Asserted' : tag.value === 0 ? '0 · Clear' : 'Invalid feedback')
-    : connection === 'fault' ? 'Fault' : connection === 'stale' ? 'Stale' : 'No data';
-  return <><button type="button" aria-label={`View trend for ${name}`} onClick={() => setShowTrend(true)} className="premium-card rounded-xl p-4 text-left w-full">
+  const liveValue = readWtpTelemetry(tag).value;
+  return <article className="h-full"><button type="button" aria-label={`View trend for ${name}`} onClick={() => setShowTrend(true)}
+    className="premium-card h-full min-h-16 w-full rounded-xl p-4 text-left">
     <span className="block text-xs text-muted-foreground">{name}</span>
-    <strong>{label}</strong>
-  </button>{showTrend && <SensorTrendModal open onOpenChange={setShowTrend} tagId={tag.id} label={name} unit={tag.unit} section="wtp" currentValue={live ? tag.value : undefined} digital />} </>;
+    {children}
+  </button>{showTrend && <SensorTrendModal open onOpenChange={setShowTrend} tagId={tag.id} label={name} unit={tag.unit} section="wtp" currentValue={liveValue ?? undefined} digital />}</article>;
 }
 
 const WtpPage: React.FC = () => {
@@ -33,7 +64,7 @@ const WtpPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'cards' | 'process'>('process');
 
   const [paused, setPaused] = useState(false);
-  const [, setQuality] = useState('');
+  const [quality, setQuality] = useState('');
   // Keep the headline and equipment states in sync when incoming signals age out.
   useEffect(() => {
     const refresh = () => setQuality(wtpTags.map(tag => getTagConnection(tag)).join(','));
@@ -43,107 +74,44 @@ const WtpPage: React.FC = () => {
   }, [wtpTags]);
   const installedStates = wtpTags.filter(tag => !tag.notInstalled && tag.source === 'mqtt').map(getTagConnection);
   const liveSignalCount = installedStates.filter(state => state === 'connected' || state === 'inactive').length;
-  const faultSignalCount = installedStates.filter(state => state === 'fault').length;
 
-  const sensorMap = useMemo(() => {
-    const map: Record<string, typeof WTP_SENSORS[0]> = {};
-    WTP_SENSORS.forEach(s => { map[s.id] = s; });
-    return map;
-  }, []);
+  const tagsById = useMemo(() => new Map(wtpTags.map(tag => [tag.id, tag])), [wtpTags]);
+  const live = useMemo(() => ({
+    quality,
+    activity: deriveWtpProcessActivity(wtpTags),
+    readings: new Map(processReadouts.map(({ id }) => [id, readWtpTelemetry(tagsById.get(id))])),
+  }), [wtpTags, tagsById, quality]);
 
-
-  const rawWaterIds = useMemo(() => WTP_SENSORS.filter(s => s.subsection === 'raw-water' && !s.notInstalled).map(s => s.id), []);
-  const backwashIds = useMemo(() => ['WTP-LT-BW'].filter(id => !sensorMap[id]?.notInstalled), [sensorMap]);
-  const filterBedIds = useMemo(() => ['WTP-ROF-FB1', 'WTP-LOH-FB1', 'WTP-LOH-FB2'].filter(id => !sensorMap[id]?.notInstalled), [sensorMap]);
-  const clearWaterIds = useMemo(() => [
-    'WTP-LT-CW', 'WTP-Pump1', 'WTP-Pump2', 'WTP-Trip1', 'WTP-Trip2', 'WTP-PT1', 'WTP-PT2', 'WTP-HeaderPT',
-  ].filter(id => !sensorMap[id]?.notInstalled), [sensorMap]);
-  const outletIds = useMemo(() => WTP_SENSORS.filter(s => s.subsection === 'outlet' && !s.notInstalled).map(s => s.id), []);
-  const fieldIds = useMemo(() => {
-    const grouped = new Set([...rawWaterIds, ...backwashIds, ...filterBedIds, ...clearWaterIds, ...outletIds]);
-    return WTP_SENSORS.filter(s => !s.notInstalled && !grouped.has(s.id)).map(s => s.id);
-  }, [rawWaterIds, backwashIds, filterBedIds, clearWaterIds, outletIds]);
-
-  const renderSensorCard = useCallback((id: string, pumpComponent?: 'wtp') => {
-    const sensor = sensorMap[id];
-    const tag = wtpTags.find(candidate => candidate.id === id);
+  const renderSensorCard = useCallback((id: string) => {
+    const sensor = sensorMap.get(id);
+    const tag = tagsById.get(id);
     if (!sensor || !tag) return null;
-    if (sensor.type === 'digital' && (sensor.mqttKey?.endsWith('_FB') || id.startsWith('WTP-Trip'))) {
-      return <FieldFeedbackCard tag={tag} name={sensor.label} />;
+    const motor = motorByRun.get(id);
+    if (motor) {
+      const state = readWtpMotorState(tag, tagsById.get(motor.tripTag));
+      return <FeedbackCard tag={tag} name={motor.name}><WtpDriveStatus state={state} /></FeedbackCard>;
     }
-    return <InstrumentCard tag={tag} sensor={sensor} section="wtp" index={0} pumpComponent={pumpComponent} />;
-  }, [sensorMap, wtpTags]);
+    const valveIndex = valveCard.exec(id)?.[1];
+    if (valveIndex) {
+      const valve = live.activity.fieldValves[Number(valveIndex) - 1];
+      return <FeedbackCard tag={tag} name={valve.name}>
+        <WtpValveStatus valve={valve} />
+      </FeedbackCard>;
+    }
+    return <InstrumentCard tag={tag} sensor={sensor} section="wtp" index={0} />;
+  }, [tagsById, live]);
 
-  const sections = useMemo(() => [
-    {
-      id: 'wtp-sec-raw-water',
-      content: (
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-primary" />Raw Water / Inlet</h3>
-          <SortableCardGrid groupKey="wtp-raw-water" sensorIds={rawWaterIds} className="grid grid-cols-1 gap-4 sm:gap-6 w-full max-w-md">
-            {(orderedIds) => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
-          </SortableCardGrid>
-        </div>
-      ),
-    },
-    {
-      id: 'wtp-sec-backwash',
-      content: (
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-accent" />Backwash</h3>
-          <SortableCardGrid groupKey="wtp-backwash" sensorIds={backwashIds} className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 max-w-4xl">
-            {(orderedIds) => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
-          </SortableCardGrid>
-        </div>
-      ),
-    },
-    {
-      id: 'wtp-sec-filter-bed',
-      content: (
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500" />Filter Bed</h3>
-          <SortableCardGrid groupKey="wtp-filter-bed" sensorIds={filterBedIds} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 w-full">
-            {(orderedIds) => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
-          </SortableCardGrid>
-        </div>
-      ),
-    },
-    {
-      id: 'wtp-sec-clear-water',
-      content: (
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-success" />Clear Water</h3>
-          <SortableCardGrid groupKey="wtp-clear-water" sensorIds={clearWaterIds} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 w-full">
-            {(orderedIds) => orderedIds.map(id => (
-              <SortableItem key={id} id={id}>
-                {renderSensorCard(id, id.startsWith('WTP-Pump') ? 'wtp' : undefined)}
-              </SortableItem>
-            ))}
-          </SortableCardGrid>
-        </div>
-      ),
-    },
-    {
-      id: 'wtp-sec-outlet',
-      content: (
-        <div className="mb-8">
-          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-warning" />Outlet</h3>
-          <SortableCardGrid groupKey="wtp-outlet-process" sensorIds={outletIds} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 w-full">
-            {(orderedIds) => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
-          </SortableCardGrid>
-        </div>
-      ),
-    },
-    {
-      id: 'wtp-sec-plc-feedback',
-      content: fieldIds.length > 0 && <div className="mb-8">
-        <h3 className="text-lg font-semibold text-foreground mb-4">Field feedback</h3>
-        <SortableCardGrid groupKey="wtp-field-feedback" sensorIds={fieldIds} className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-          {orderedIds => orderedIds.map(id => <SortableItem key={id} id={id}>{renderSensorCard(id)}</SortableItem>)}
-        </SortableCardGrid>
-      </div>,
-    },
-  ], [rawWaterIds, backwashIds, filterBedIds, clearWaterIds, outletIds, fieldIds, renderSensorCard]);
+  const sections = useMemo(() => cardGroups.map(({ id, name, orderKey, sensorIds }) => ({
+    id,
+    content: <section className="mb-8" aria-labelledby={`wtp-cards-${id}`}>
+      <h3 id={`wtp-cards-${id}`} className="mb-4 text-lg font-semibold text-foreground">{name}</h3>
+      <SortableCardGrid groupKey={orderKey ?? `wtp-${id}`} sensorIds={sensorIds} className="wtp-instrument-grid grid gap-3 sm:gap-4">
+        {orderedIds => orderedIds.map(sensorId => <SortableItem key={sensorId} id={sensorId}>
+          {renderSensorCard(sensorId)}
+        </SortableItem>)}
+      </SortableCardGrid>
+    </section>,
+  })), [renderSensorCard]);
 
   const viewControls = (
     <div className={`wtp-view-controls flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6 ${viewMode === 'cards' ? 'opacity-0 animate-fade-in' : ''}`}>
@@ -155,7 +123,6 @@ const WtpPage: React.FC = () => {
           <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-foreground truncate">Water Treatment Plant (WTP)</h2>
           <p className="text-xs sm:text-sm text-muted-foreground">
             {liveSignalCount} of {configuredSignalCount} signals live
-            {faultSignalCount > 0 && <span className="text-destructive"> · {faultSignalCount} PLC faults</span>}
           </p>
         </div>
       </div>
@@ -210,9 +177,24 @@ const WtpPage: React.FC = () => {
           <>
             {viewControls}
             <SortableSectionList groupKey="wtp-sections" sections={sections} />
+            <details className="rounded-lg border p-4">
+              <summary className="cursor-pointer font-semibold">PLC diagnostics</summary>
+              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                {wtpTags.filter(tag => sensorMap.get(tag.id)?.type === 'digital').map(tag => {
+                  const reading = readWtpTelemetry(tag);
+                  const motor = motorByRun.get(tag.id);
+                  const trip = motor ? tagsById.get(motor.tripTag) : undefined;
+                  const mismatch = reading.value === 1 && readWtpTelemetry(trip).value === 1 && isSameWtpSample(tag, trip);
+                  return <FeedbackCard key={tag.id} tag={tag} name={tag.label}>
+                    <strong>{reading.value ?? reading.status}</strong>
+                    {mismatch && <span className="block text-xs">RUN and TRIP both active</span>}
+                  </FeedbackCard>;
+                })}
+              </div>
+            </details>
           </>
         ) : (
-          <WtpProcessSimulation paused={paused} controls={viewControls} />
+          <WtpProcessSimulation paused={paused} controls={viewControls} activity={live.activity} readings={live.readings} />
         )}
       </main>
       <StatusBar />

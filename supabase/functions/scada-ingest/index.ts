@@ -1,6 +1,6 @@
 /// <reference path="./deno.d.ts" />
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { wtpAdditionalSensors, decodeWtpEquipment, normalizeWtpFields, WTP_INVALID_FEEDBACK } from '../_shared/wtpEquipment.ts';
+import { wtpAdditionalSensors, decodeWtpEquipment, normalizeWtpFields, resolveWtpMotorFeedback, WTP_INVALID_FEEDBACK, wtpMotorFeedback } from '../_shared/wtpEquipment.ts';
 import mqtt from "npm:mqtt@5.10.4";
 
 const corsHeaders = {
@@ -663,12 +663,15 @@ Deno.serve(async (req: Request) => {
     for (const entry of Array.from(byTag.values())) {
       const { sensor, value, topic, at } = entry;
 
-      // --- Trip Sensor Special Case (WTP-Trip1 / WTP-Trip2) ---
-      // Digital motor trip indicators. instrumentType='pump' but must NOT be skipped.
-      // value=1 means motor tripped -> Critical alarm fires even on HTTPS via backend job.
+      // A motor trip requires the stopped feedback from the same observation.
       const isTripSensor = sensor.section === 'wtp' && (sensor.id === 'WTP-Trip1' || sensor.id === 'WTP-Trip2' || sensor.mqttKey.endsWith('TRIP_FB'));
       if (isTripSensor) {
-        if (value >= 1 && !recentAlarmSet.has(`${sensor.id}-High`)) {
+        const motor = wtpMotorFeedback.find(pair => pair.tripTag === sensor.id);
+        const run = motor ? byTag.get(motor.runTag) : undefined;
+        const confirmed = motor
+          ? resolveWtpMotorFeedback(run?.value, value, run?.receivedAt === entry.receivedAt && run.topic === topic) === 'Trip'
+          : value === 1;
+        if (confirmed && !recentAlarmSet.has(`${sensor.id}-High`)) {
           const cfg = configs?.find((c: any) => c.tag_id === sensor.id && c.section === sensor.section);
           alarmsToInsert.push({
             tag_id: sensor.id,
